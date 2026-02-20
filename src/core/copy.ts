@@ -1,16 +1,16 @@
 type UsageErrorInput = {
-  issue: string;
-  usage: string;
-  example?: string;
+	issue: string;
+	usage: string;
+	example?: string;
 };
 
 const PROVIDERS_CSV = "cursor,claude,codex,opencode,gemini,copilot";
 
 export function getRootHelpText(): string {
-  return `dotagents - unified agent and MCP sync CLI
+	return `agentloom - unified agent and MCP sync CLI
 
 Usage:
-  dotagents <command> [options]
+  agentloom <command> [options]
 
 Commands:
   skills ...                 Pass through to "npx skills ..." (vercel-labs/skills)
@@ -29,20 +29,20 @@ Common options:
   --dry-run                  Print planned sync changes without writing files
 
 Examples:
-  dotagents add vercel-labs/skills
-  dotagents add /repo --subdir packages/agents
-  dotagents update --local
-  dotagents sync --providers codex,claude,cursor
-  dotagents mcp add browser-tools --command npx --arg browser-tools-mcp
-  dotagents skills add vercel-labs/skills
+  agentloom add vercel-labs/skills
+  agentloom add /repo --subdir packages/agents
+  agentloom update --local
+  agentloom sync --providers codex,claude,cursor
+  agentloom mcp add browser-tools --command npx --arg browser-tools-mcp
+  agentloom skills add vercel-labs/skills
 `;
 }
 
 export function getAddHelpText(): string {
-  return `Import canonical agents and MCP from a source repository.
+	return `Import canonical agents and MCP from a source repository.
 
 Usage:
-  dotagents add <source> [options]
+  agentloom add <source> [options]
 
 Options:
   --ref <ref>                Git ref (branch/tag/commit) for remote sources
@@ -55,15 +55,15 @@ Options:
   --dry-run                  Show sync plan without writing provider files
 
 Example:
-  dotagents add vercel-labs/skills --subdir skills --providers codex,claude
+  agentloom add vercel-labs/skills --subdir skills --providers codex,claude
 `;
 }
 
 export function getUpdateHelpText(): string {
-  return `Refresh lockfile-managed sources and re-import updated revisions.
+	return `Refresh lockfile-managed sources and re-import updated revisions.
 
 Usage:
-  dotagents update [options]
+  agentloom update [options]
 
 Options:
   --local | --global         Choose lockfile scope
@@ -73,15 +73,15 @@ Options:
   --dry-run                  Show sync plan without writing provider files
 
 Example:
-  dotagents update --local --providers codex,cursor
+  agentloom update --local --providers codex,cursor
 `;
 }
 
 export function getSyncHelpText(): string {
-  return `Generate provider-specific agent and MCP files from canonical .agents data.
+	return `Generate provider-specific agent and MCP files from canonical .agents data.
 
 Usage:
-  dotagents sync [options]
+  agentloom sync [options]
 
 Options:
   --local | --global         Choose canonical scope
@@ -90,15 +90,15 @@ Options:
   --dry-run                  Show file changes without writing
 
 Example:
-  dotagents sync --local --providers codex,claude,cursor --dry-run
+  agentloom sync --local --providers codex,claude,cursor --dry-run
 `;
 }
 
 export function getMcpHelpText(): string {
-  return `Manage canonical MCP servers in .agents/mcp.json.
+	return `Manage canonical MCP servers in .agents/mcp.json.
 
 Usage:
-  dotagents mcp <command> [options]
+  agentloom mcp <command> [options]
 
 Commands:
   add <name>                 Add or update an MCP server
@@ -111,17 +111,17 @@ Shared options:
   --providers <csv>          Providers for post-change sync (${PROVIDERS_CSV})
 
 Examples:
-  dotagents mcp add browser --command npx --arg browser-tools-mcp
-  dotagents mcp list --json
-  dotagents mcp delete browser
+  agentloom mcp add browser --command npx --arg browser-tools-mcp
+  agentloom mcp list --json
+  agentloom mcp delete browser
 `;
 }
 
 export function getMcpAddHelpText(): string {
-  return `Add or update an MCP server in canonical .agents/mcp.json.
+	return `Add or update an MCP server in canonical .agents/mcp.json.
 
 Usage:
-  dotagents mcp add <name> (--url <url> | --command <cmd>) [options]
+  agentloom mcp add <name> (--url <url> | --command <cmd>) [options]
 
 Options:
   --arg <value>              Repeatable command argument
@@ -131,55 +131,55 @@ Options:
   --no-sync                  Skip post-change sync
 
 Examples:
-  dotagents mcp add browser --command npx --arg browser-tools-mcp
-  dotagents mcp add docs --url https://example.com/mcp --providers codex,claude
+  agentloom mcp add browser --command npx --arg browser-tools-mcp
+  agentloom mcp add docs --url https://example.com/mcp --providers codex,claude
 `;
 }
 
 export function getMcpListHelpText(): string {
-  return `List canonical MCP servers.
+	return `List canonical MCP servers.
 
 Usage:
-  dotagents mcp list [options]
+  agentloom mcp list [options]
 
 Options:
   --json                     Print raw JSON
   --local | --global         Choose canonical scope
 
 Example:
-  dotagents mcp list --json
+  agentloom mcp list --json
 `;
 }
 
 export function getMcpDeleteHelpText(): string {
-  return `Delete an MCP server from canonical .agents/mcp.json.
+	return `Delete an MCP server from canonical .agents/mcp.json.
 
 Usage:
-  dotagents mcp delete <name> [options]
+  agentloom mcp delete <name> [options]
 
 Options:
   --local | --global         Choose canonical scope
   --no-sync                  Skip post-change sync
 
 Example:
-  dotagents mcp delete browser
+  agentloom mcp delete browser
 `;
 }
 
 export function formatUsageError(input: UsageErrorInput): string {
-  const lines = [`Issue: ${input.issue}`, `Usage: ${input.usage}`];
+	const lines = [`Issue: ${input.issue}`, `Usage: ${input.usage}`];
 
-  if (input.example) {
-    lines.push(`Example: ${input.example}`);
-  }
+	if (input.example) {
+		lines.push(`Example: ${input.example}`);
+	}
 
-  return lines.join("\n");
+	return lines.join("\n");
 }
 
 export function formatUnknownCommandError(command: string): string {
-  return formatUsageError({
-    issue: `Unknown command "${command}".`,
-    usage: "dotagents --help",
-    example: "dotagents sync --local",
-  });
+	return formatUsageError({
+		issue: `Unknown command "${command}".`,
+		usage: "agentloom --help",
+		example: "agentloom sync --local",
+	});
 }

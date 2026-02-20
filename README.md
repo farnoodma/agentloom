@@ -1,6 +1,6 @@
-# dotagents
+# agentloom
 
-`dotagents` is a unified CLI for managing agent definitions and MCP configuration across multiple AI coding tools.
+`agentloom` is a unified CLI for managing agent definitions and MCP configuration across multiple AI coding tools.
 
 It uses `.agents` as the canonical source of truth and syncs provider-native files for:
 
@@ -14,9 +14,9 @@ It uses `.agents` as the canonical source of truth and syncs provider-native fil
 ## Install
 
 ```bash
-npm i -g dotagents
+npm i -g agentloom
 # or
-npx dotagents --help
+npx agentloom --help
 ```
 
 ## Canonical layout
@@ -37,11 +37,11 @@ Global scope uses `~/.agents` with the same file layout.
 
 ## Commands
 
-### `dotagents skills ...`
+### `agentloom skills ...`
 Pass-through wrapper to `npx skills ...` from
 [`vercel-labs/skills`](https://github.com/vercel-labs/skills).
 
-### `dotagents add <source>`
+### `agentloom add <source>`
 Import canonical agents/MCP from:
 
 - local repo path
@@ -62,10 +62,10 @@ Options:
 Example:
 
 ```bash
-dotagents add vercel-labs/skills --subdir skills
+agentloom add vercel-labs/skills --subdir skills
 ```
 
-### `dotagents update`
+### `agentloom update`
 Refresh lockfile sources (`agents.lock.json`) and re-import changed revisions.
 
 Options:
@@ -76,7 +76,7 @@ Options:
 - `--providers <csv>`: limit post-update sync providers
 - `--dry-run`: show sync changes without writing provider files
 
-### `dotagents sync`
+### `agentloom sync`
 Generate provider-specific outputs from canonical `.agents` data.
 
 Options:
@@ -89,10 +89,10 @@ Options:
 Example:
 
 ```bash
-dotagents sync --providers codex,claude,cursor
+agentloom sync --providers codex,claude,cursor
 ```
 
-### `dotagents mcp add|list|delete`
+### `agentloom mcp add|list|delete`
 Manage canonical MCP servers in `.agents/mcp.json`.
 
 `mcp add` options:
@@ -117,40 +117,40 @@ Manage canonical MCP servers in `.agents/mcp.json`.
 Examples:
 
 ```bash
-dotagents mcp add browser-tools --command npx --arg browser-tools-mcp
-dotagents mcp list
-dotagents mcp delete browser-tools
+agentloom mcp add browser-tools --command npx --arg browser-tools-mcp
+agentloom mcp list
+agentloom mcp delete browser-tools
 ```
 
 ### Top-level help
 
 ```bash
-dotagents --help
-dotagents add --help
-dotagents update --help
-dotagents sync --help
-dotagents mcp --help
-dotagents mcp add --help
+agentloom --help
+agentloom add --help
+agentloom update --help
+agentloom sync --help
+agentloom mcp --help
+agentloom mcp add --help
 ```
 
 ### Version update notice
 
-`dotagents` now performs a best-effort npm version check and shows an update hint when a newer release is available.
+`agentloom` now performs a best-effort npm version check and shows an update hint when a newer release is available.
 
-- check is cached (`~/.agents/.dotagents-version-cache.json`)
+- check is cached (`~/.agents/.agentloom-version-cache.json`)
 - check runs at most once every 12 hours
 - check is skipped in non-interactive sessions
 - disable via:
 
 ```bash
-DOTAGENTS_DISABLE_UPDATE_NOTIFIER=1
+AGENTLOOM_DISABLE_UPDATE_NOTIFIER=1
 ```
 
 ### Scope resolution
 
 If neither `--local` nor `--global` is provided:
 
-- if `.agents/` exists in current directory, `dotagents` prompts for scope in interactive terminals
+- if `.agents/` exists in current directory, `agentloom` prompts for scope in interactive terminals
 - in non-interactive mode, local scope is selected when `.agents/` exists
 - otherwise global scope (`~/.agents`) is used
 
@@ -199,7 +199,7 @@ Canonical MCP file format:
 
 ## Codex multi-agent output
 
-For Codex, `dotagents sync` writes role-based multi-agent config:
+For Codex, `agentloom sync` writes role-based multi-agent config:
 
 - `.codex/config.toml` (`[features].multi_agent = true`, `[agents.<role>]`)
 - `.codex/agents/<role>.toml`
@@ -214,6 +214,20 @@ pnpm install
 pnpm check
 pnpm build
 ```
+
+## Release and publish
+
+The GitHub Actions publish workflow is defined in `.github/workflows/release.yml`.
+
+- Push to `main` with `[patch]` or `[minor]` in commit subjects to trigger an automated npm release.
+- Run the workflow manually (`workflow_dispatch`) and choose `patch` or `minor` to force a release.
+- Push a `v*` tag (for example `v0.2.0`) to publish an already-versioned commit without bumping.
+- Automated bump releases create a `vX.Y.Z` commit/tag via `npm version`, push both to GitHub, then publish to npm with provenance.
+
+Required GitHub configuration:
+
+- npm Trusted Publisher configured for this repo/workflow (`farnoodma/agentloom`, workflow file `release.yml`).
+- Repository setting: `Actions -> General -> Workflow permissions -> Read and write permissions` (required so CI can push version commits/tags).
 
 ## License
 

@@ -5,30 +5,30 @@ import { resolveScope } from "../core/scope.js";
 import { formatSyncSummary, syncFromCanonical } from "../sync/index.js";
 
 export async function runSyncCommand(
-  argv: ParsedArgs,
-  cwd: string,
+	argv: ParsedArgs,
+	cwd: string,
 ): Promise<void> {
-  if (argv.help) {
-    console.log(getSyncHelpText());
-    return;
-  }
+	if (argv.help) {
+		console.log(getSyncHelpText());
+		return;
+	}
 
-  const nonInteractive = !(process.stdin.isTTY && process.stdout.isTTY);
+	const nonInteractive = !(process.stdin.isTTY && process.stdout.isTTY);
 
-  const paths = await resolveScope({
-    cwd,
-    global: Boolean(argv.global),
-    local: Boolean(argv.local),
-    interactive: !nonInteractive,
-  });
+	const paths = await resolveScope({
+		cwd,
+		global: Boolean(argv.global),
+		local: Boolean(argv.local),
+		interactive: !nonInteractive,
+	});
 
-  const summary = await syncFromCanonical({
-    paths,
-    providers: parseProvidersFlag(argv.providers),
-    yes: Boolean(argv.yes),
-    nonInteractive,
-    dryRun: Boolean(argv["dry-run"]),
-  });
+	const summary = await syncFromCanonical({
+		paths,
+		providers: parseProvidersFlag(argv.providers),
+		yes: Boolean(argv.yes),
+		nonInteractive,
+		dryRun: Boolean(argv["dry-run"]),
+	});
 
-  console.log(formatSyncSummary(summary, paths.agentsRoot));
+	console.log(formatSyncSummary(summary, paths.agentsRoot));
 }

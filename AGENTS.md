@@ -1,10 +1,10 @@
 # AGENTS.md
 
-This file provides guidance to AI coding agents working on the `dotagents` CLI codebase.
+This file provides guidance to AI coding agents working on the `agentloom` CLI codebase.
 
 ## Project Overview
 
-`dotagents` manages canonical agent and MCP config in `.agents/` and generates provider-native outputs for:
+`agentloom` manages canonical agent and MCP config in `.agents/` and generates provider-native outputs for:
 
 - Cursor
 - Claude
@@ -31,11 +31,11 @@ Global scope uses `~/.agents` with the same canonical files.
 
 | Command | Description |
 | --- | --- |
-| `dotagents skills ...` | Pass-through to `npx skills ...` from `vercel-labs/skills` |
-| `dotagents add <source>` | Import canonical agents/MCP from local path, GitHub slug, or git URL |
-| `dotagents update` | Refresh lockfile-managed sources and re-import changed revisions |
-| `dotagents sync` | Generate provider-native agent and MCP outputs |
-| `dotagents mcp add|list|delete` | Manage canonical MCP servers in `.agents/mcp.json` |
+| `agentloom skills ...` | Pass-through to `npx skills ...` from `vercel-labs/skills` |
+| `agentloom add <source>` | Import canonical agents/MCP from local path, GitHub slug, or git URL |
+| `agentloom update` | Refresh lockfile-managed sources and re-import changed revisions |
+| `agentloom sync` | Generate provider-native agent and MCP outputs |
+| `agentloom mcp add|list|delete` | Manage canonical MCP servers in `.agents/mcp.json` |
 
 Common options across mutating commands:
 
