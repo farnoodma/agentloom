@@ -1,10 +1,10 @@
 {
-  "name": "dotagents",
+  "name": "agentloom",
   "version": "0.1.0",
   "description": "Unified agent and MCP sync CLI for multi-provider AI tooling",
   "type": "module",
   "bin": {
-    "dotagents": "./bin/cli.mjs"
+    "agentloom": "bin/cli.mjs"
   },
   "files": [
     "dist",
