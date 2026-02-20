@@ -2,7 +2,7 @@
 
 ## 0.1.0
 
-- Initial `dotagents` release.
+- Initial `agentloom` release.
 - Canonical `.agents` workflow.
 - Provider sync for Cursor, Claude, Codex, OpenCode, Gemini, and Copilot.
 - Lockfile-based `add` and `update`.
