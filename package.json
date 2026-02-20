@@ -18,8 +18,8 @@
     "dev": "tsx src/cli.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
-    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\"",
+    "format": "prettier --no-editorconfig --write \"src/**/*.ts\" \"tests/**/*.ts\"",
+    "format:check": "prettier --no-editorconfig --check \"src/**/*.ts\" \"tests/**/*.ts\"",
     "type-check": "tsc --noEmit",
     "check": "pnpm format:check && pnpm type-check && pnpm test",
     "prepublishOnly": "pnpm build"
