@@ -38,7 +38,8 @@ Global scope uses `~/.agents` with the same file layout.
 ## Commands
 
 ### `dotagents skills ...`
-Pass-through wrapper to `npx skills ...`.
+Pass-through wrapper to `npx skills ...` from
+[`vercel-labs/skills`](https://github.com/vercel-labs/skills).
 
 ### `dotagents add <source>`
 Import canonical agents/MCP from:

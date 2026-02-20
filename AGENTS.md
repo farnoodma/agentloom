@@ -31,7 +31,7 @@ Global scope uses `~/.agents` with the same canonical files.
 
 | Command | Description |
 | --- | --- |
-| `dotagents skills ...` | Pass-through to `npx skills ...` |
+| `dotagents skills ...` | Pass-through to `npx skills ...` from `vercel-labs/skills` |
 | `dotagents add <source>` | Import canonical agents/MCP from local path, GitHub slug, or git URL |
 | `dotagents update` | Refresh lockfile-managed sources and re-import changed revisions |
 | `dotagents sync` | Generate provider-native agent and MCP outputs |

@@ -13,7 +13,7 @@ Usage:
   dotagents <command> [options]
 
 Commands:
-  skills ...                 Pass through to "npx skills ..."
+  skills ...                 Pass through to "npx skills ..." (vercel-labs/skills)
   add <source>               Import agents and MCP from a repo source
   update                     Refresh lockfile-managed imports
   sync                       Generate provider-specific outputs
@@ -34,7 +34,7 @@ Examples:
   dotagents update --local
   dotagents sync --providers codex,claude,cursor
   dotagents mcp add browser-tools --command npx --arg browser-tools-mcp
-  dotagents skills add vercel-labs/agent-skills
+  dotagents skills add vercel-labs/skills
 `;
 }
 
