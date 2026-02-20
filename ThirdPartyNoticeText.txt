@@ -1,0 +1,3 @@
+This project depends on third-party open source packages.
+
+See package.json and lockfile for full dependency list and licenses.
