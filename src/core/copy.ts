@@ -1,13 +1,13 @@
 type UsageErrorInput = {
-	issue: string;
-	usage: string;
-	example?: string;
+  issue: string;
+  usage: string;
+  example?: string;
 };
 
 const PROVIDERS_CSV = "cursor,claude,codex,opencode,gemini,copilot";
 
 export function getRootHelpText(): string {
-	return `agentloom - unified agent and MCP sync CLI
+  return `agentloom - unified agent and MCP sync CLI
 
 Usage:
   agentloom <command> [options]
@@ -39,7 +39,7 @@ Examples:
 }
 
 export function getAddHelpText(): string {
-	return `Import canonical agents and MCP from a source repository.
+  return `Import canonical agents and MCP from a source repository.
 
 Usage:
   agentloom add <source> [options]
@@ -60,7 +60,7 @@ Example:
 }
 
 export function getUpdateHelpText(): string {
-	return `Refresh lockfile-managed sources and re-import updated revisions.
+  return `Refresh lockfile-managed sources and re-import updated revisions.
 
 Usage:
   agentloom update [options]
@@ -78,7 +78,7 @@ Example:
 }
 
 export function getSyncHelpText(): string {
-	return `Generate provider-specific agent and MCP files from canonical .agents data.
+  return `Generate provider-specific agent and MCP files from canonical .agents data.
 
 Usage:
   agentloom sync [options]
@@ -95,7 +95,7 @@ Example:
 }
 
 export function getMcpHelpText(): string {
-	return `Manage canonical MCP servers in .agents/mcp.json.
+  return `Manage canonical MCP servers in .agents/mcp.json.
 
 Usage:
   agentloom mcp <command> [options]
@@ -118,7 +118,7 @@ Examples:
 }
 
 export function getMcpAddHelpText(): string {
-	return `Add or update an MCP server in canonical .agents/mcp.json.
+  return `Add or update an MCP server in canonical .agents/mcp.json.
 
 Usage:
   agentloom mcp add <name> (--url <url> | --command <cmd>) [options]
@@ -137,7 +137,7 @@ Examples:
 }
 
 export function getMcpListHelpText(): string {
-	return `List canonical MCP servers.
+  return `List canonical MCP servers.
 
 Usage:
   agentloom mcp list [options]
@@ -152,7 +152,7 @@ Example:
 }
 
 export function getMcpDeleteHelpText(): string {
-	return `Delete an MCP server from canonical .agents/mcp.json.
+  return `Delete an MCP server from canonical .agents/mcp.json.
 
 Usage:
   agentloom mcp delete <name> [options]
@@ -167,19 +167,19 @@ Example:
 }
 
 export function formatUsageError(input: UsageErrorInput): string {
-	const lines = [`Issue: ${input.issue}`, `Usage: ${input.usage}`];
+  const lines = [`Issue: ${input.issue}`, `Usage: ${input.usage}`];
 
-	if (input.example) {
-		lines.push(`Example: ${input.example}`);
-	}
+  if (input.example) {
+    lines.push(`Example: ${input.example}`);
+  }
 
-	return lines.join("\n");
+  return lines.join("\n");
 }
 
 export function formatUnknownCommandError(command: string): string {
-	return formatUsageError({
-		issue: `Unknown command "${command}".`,
-		usage: "agentloom --help",
-		example: "agentloom sync --local",
-	});
+  return formatUsageError({
+    issue: `Unknown command "${command}".`,
+    usage: "agentloom --help",
+    example: "agentloom sync --local",
+  });
 }
