@@ -344,18 +344,18 @@ async function getRepoTree(
 function parseAgentPath(
   filePath: string,
 ): { agentName: string; subdir?: string } | null {
-  const directDotAgents = filePath.match(/^\.agents\/agents\/([^/]+)\.md$/);
-  if (directDotAgents) {
-    return { agentName: directDotAgents[1] };
+  const directAgentloom = filePath.match(/^\.agents\/agents\/([^/]+)\.md$/);
+  if (directAgentloom) {
+    return { agentName: directAgentloom[1] };
   }
 
-  const nestedDotAgents = filePath.match(
+  const nestedAgentloom = filePath.match(
     /^(.+)\/\.agents\/agents\/([^/]+)\.md$/,
   );
-  if (nestedDotAgents) {
+  if (nestedAgentloom) {
     return {
-      subdir: nestedDotAgents[1],
-      agentName: nestedDotAgents[2],
+      subdir: nestedAgentloom[1],
+      agentName: nestedAgentloom[2],
     };
   }
 

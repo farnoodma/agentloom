@@ -6,7 +6,7 @@ import TOML from "@iarna/toml";
 import YAML from "yaml";
 import type {
   CanonicalAgent,
-  DotagentsSettings,
+  AgentloomSettings,
   Provider,
   ScopePaths,
   SyncManifest,
@@ -128,7 +128,7 @@ export async function syncFromCanonical(
 
 function resolveProviders(
   explicitProviders: Provider[] | undefined,
-  settings: DotagentsSettings,
+  settings: AgentloomSettings,
 ): Provider[] {
   if (explicitProviders && explicitProviders.length > 0) {
     return [...new Set(explicitProviders)];

@@ -2,13 +2,13 @@ import os from "node:os";
 import path from "node:path";
 import { readJsonIfExists, writeJsonAtomic } from "./fs.js";
 import type {
-  DotagentsSettings,
+  AgentloomSettings,
   Provider,
   Scope,
   ScopePaths,
 } from "../types.js";
 
-const DEFAULT_SETTINGS: DotagentsSettings = {
+const DEFAULT_SETTINGS: AgentloomSettings = {
   version: 1,
   defaultProviders: [
     "cursor",
@@ -27,8 +27,8 @@ export function getGlobalSettingsPath(homeDir = os.homedir()): string {
   return path.join(homeDir, ".agents", "settings.local.json");
 }
 
-export function readSettings(settingsPath: string): DotagentsSettings {
-  const settings = readJsonIfExists<DotagentsSettings>(settingsPath);
+export function readSettings(settingsPath: string): AgentloomSettings {
+  const settings = readJsonIfExists<AgentloomSettings>(settingsPath);
   if (!settings) return { ...DEFAULT_SETTINGS };
   return {
     ...DEFAULT_SETTINGS,
@@ -46,7 +46,7 @@ export function readSettings(settingsPath: string): DotagentsSettings {
 
 export function writeSettings(
   settingsPath: string,
-  settings: DotagentsSettings,
+  settings: AgentloomSettings,
 ): void {
   writeJsonAtomic(settingsPath, settings);
 }
@@ -57,7 +57,7 @@ export function updateLastScope(
   providers?: Provider[],
 ): void {
   const current = readSettings(settingsPath);
-  const next: DotagentsSettings = {
+  const next: AgentloomSettings = {
     ...current,
     version: 1,
     lastScope: scope,
