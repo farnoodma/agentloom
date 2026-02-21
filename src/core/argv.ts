@@ -5,7 +5,7 @@ import type { Provider } from "../types.js";
 export function parseArgs(argv: string[]): ParsedArgs {
   return minimist(argv, {
     boolean: ["global", "local", "yes", "no-sync", "dry-run", "json", "help"],
-    string: ["ref", "subdir", "providers", "rename", "command", "url"],
+    string: ["ref", "subdir", "providers", "rename", "agent", "command", "url"],
     alias: {
       g: "global",
       l: "local",

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatUnknownCommandError,
   formatUsageError,
+  getAddHelpText,
   getMcpAddHelpText,
   getMcpHelpText,
   getRootHelpText,
@@ -20,12 +21,14 @@ describe("copy helpers", () => {
     const message = formatUsageError({
       issue: "Missing required value.",
       usage: "agentloom add <source>",
-      example: "agentloom add vercel-labs/skills",
+      example: "agentloom add farnoodma/agents --agent issue-creator",
     });
 
     expect(message).toContain("Issue: Missing required value.");
     expect(message).toContain("Usage: agentloom add <source>");
-    expect(message).toContain("Example: agentloom add vercel-labs/skills");
+    expect(message).toContain(
+      "Example: agentloom add farnoodma/agents --agent issue-creator",
+    );
   });
 
   it("includes help hint for unknown commands", () => {
@@ -38,6 +41,14 @@ describe("copy helpers", () => {
     expect(getMcpHelpText()).toContain("agentloom mcp <command> [options]");
     expect(getMcpAddHelpText()).toContain(
       "agentloom mcp add <name> (--url <url> | --command <cmd>)",
+    );
+  });
+
+  it("includes targeted add import help", () => {
+    const help = getAddHelpText();
+    expect(help).toContain("--agent <name>");
+    expect(help).toContain(
+      "agentloom add farnoodma/agents --agent issue-creator",
     );
   });
 });

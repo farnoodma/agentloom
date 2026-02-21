@@ -52,6 +52,7 @@ Options:
 
 - `--ref <ref>`: git ref (branch/tag/commit) for remote sources
 - `--subdir <path>`: subdirectory inside source repo
+- `--agent <name>`: import only selected agents (repeatable or comma-separated)
 - `--rename <name>`: rename imported agent when importing a single agent
 - `--local | --global`: choose destination scope
 - `--yes`: skip interactive conflict prompts
@@ -62,8 +63,11 @@ Options:
 Example:
 
 ```bash
-agentloom add vercel-labs/skills --subdir skills
+agentloom add farnoodma/agents
+agentloom add farnoodma/agents --agent issue-creator
 ```
+
+Interactive mode (TTY) prompts with a selectable agent list when `--agent` is not provided.
 
 ### `agentloom update`
 Refresh lockfile sources (`agents.lock.json`) and re-import changed revisions.

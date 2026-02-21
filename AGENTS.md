@@ -125,7 +125,8 @@ pnpm build
 
 # Run CLI from source
 pnpm dev -- --help
-pnpm dev -- add vercel-labs/skills --subdir skills
+pnpm dev -- add farnoodma/agents
+pnpm dev -- add farnoodma/agents --agent issue-creator
 ```
 
 CI uses Node 22 and `pnpm@10.17.1`.

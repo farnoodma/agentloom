@@ -2,12 +2,18 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ensureDir, writeTextAtomic } from "../../src/core/fs.js";
+import {
+  ensureDir,
+  readJsonIfExists,
+  writeTextAtomic,
+} from "../../src/core/fs.js";
 import { buildScopePaths } from "../../src/core/scope.js";
+import type { AgentsLockFile } from "../../src/types.js";
 
 const promptMocks = vi.hoisted(() => ({
   cancel: vi.fn(),
   isCancel: vi.fn(() => false),
+  multiselect: vi.fn(),
   select: vi.fn(),
   text: vi.fn(),
 }));
@@ -15,6 +21,7 @@ const promptMocks = vi.hoisted(() => ({
 vi.mock("@clack/prompts", () => ({
   cancel: promptMocks.cancel,
   isCancel: promptMocks.isCancel,
+  multiselect: promptMocks.multiselect,
   select: promptMocks.select,
   text: promptMocks.text,
 }));
@@ -27,6 +34,7 @@ beforeEach(() => {
   promptMocks.cancel.mockReset();
   promptMocks.isCancel.mockReset();
   promptMocks.isCancel.mockReturnValue(false);
+  promptMocks.multiselect.mockReset();
   promptMocks.select.mockReset();
   promptMocks.text.mockReset();
 });
@@ -38,6 +46,118 @@ afterEach(() => {
 });
 
 describe("import source conflict handling", () => {
+  it("prompts for agent selection and imports only selected agents", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "agents"));
+    writeTextAtomic(
+      path.join(sourceRoot, "agents", "issue-creator.md"),
+      `---\nname: Issue Creator\ndescription: Create issues\n---\n\nCreate issues.\n`,
+    );
+    writeTextAtomic(
+      path.join(sourceRoot, "agents", "reviewer.md"),
+      `---\nname: reviewer\ndescription: Review changes\n---\n\nReview changes.\n`,
+    );
+
+    promptMocks.multiselect.mockResolvedValueOnce([
+      path.join(sourceRoot, "agents", "issue-creator.md"),
+    ]);
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    const summary = await importSource({
+      source: sourceRoot,
+      paths,
+      yes: false,
+      nonInteractive: false,
+    });
+
+    expect(promptMocks.multiselect).toHaveBeenCalledTimes(1);
+    expect(promptMocks.multiselect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialValues: [
+          path.join(sourceRoot, "agents", "issue-creator.md"),
+          path.join(sourceRoot, "agents", "reviewer.md"),
+        ],
+      }),
+    );
+    expect(summary.importedAgents).toHaveLength(1);
+    expect(summary.importedAgents[0]).toContain("issue-creator.md");
+
+    const lock = readJsonIfExists<AgentsLockFile>(
+      path.join(workspaceRoot, ".agents", "agents.lock.json"),
+    );
+    expect(lock?.entries[0]?.requestedAgents).toEqual(["Issue Creator"]);
+  });
+
+  it("skips agent selection when --yes is set", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "agents"));
+    writeTextAtomic(
+      path.join(sourceRoot, "agents", "issue-creator.md"),
+      `---\nname: issue-creator\ndescription: Create issues\n---\n\nCreate issues.\n`,
+    );
+    writeTextAtomic(
+      path.join(sourceRoot, "agents", "reviewer.md"),
+      `---\nname: reviewer\ndescription: Review changes\n---\n\nReview changes.\n`,
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    const summary = await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: false,
+    });
+
+    expect(promptMocks.multiselect).not.toHaveBeenCalled();
+    expect(summary.importedAgents).toHaveLength(2);
+  });
+
+  it("can skip interactive selection for update-style imports", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "agents"));
+    writeTextAtomic(
+      path.join(sourceRoot, "agents", "issue-creator.md"),
+      `---\nname: issue-creator\ndescription: Create issues\n---\n\nCreate issues.\n`,
+    );
+    writeTextAtomic(
+      path.join(sourceRoot, "agents", "reviewer.md"),
+      `---\nname: reviewer\ndescription: Review changes\n---\n\nReview changes.\n`,
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    const summary = await importSource({
+      source: sourceRoot,
+      paths,
+      promptForAgentSelection: false,
+      yes: false,
+      nonInteractive: false,
+    });
+
+    expect(promptMocks.multiselect).not.toHaveBeenCalled();
+    expect(summary.importedAgents).toHaveLength(2);
+  });
+
   it("re-checks renamed filename and does not overwrite existing files silently", async () => {
     const sourceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "agentloom-source-"),

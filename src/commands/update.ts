@@ -54,6 +54,8 @@ export async function runUpdateCommand(
         source: entry.source,
         ref: entry.requestedRef,
         subdir: entry.subdir,
+        agents: entry.requestedAgents,
+        promptForAgentSelection: false,
         yes: Boolean(argv.yes),
         nonInteractive,
         paths,
