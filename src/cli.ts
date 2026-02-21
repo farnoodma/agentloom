@@ -1,6 +1,7 @@
 import { parseArgs } from "./core/argv.js";
 import { runAddCommand } from "./commands/add.js";
 import { runCommandCommand } from "./commands/command.js";
+import { runFindCommand } from "./commands/find.js";
 import { runMcpCommand } from "./commands/mcp.js";
 import { runSkillsPassthrough } from "./commands/skills.js";
 import { runSyncCommand } from "./commands/sync.js";
@@ -46,6 +47,9 @@ export async function runCli(argv: string[]): Promise<void> {
   switch (command) {
     case "add":
       await runAddCommand(parsed, cwd);
+      return;
+    case "find":
+      await runFindCommand(parsed);
       return;
     case "update":
       await runUpdateCommand(parsed, cwd);
