@@ -4,6 +4,7 @@
 
 - `packages/cli`: the published `agentloom` CLI
 - `apps/web`: the Agentloom public directory web app
+- website: [agentloom.sh](https://agentloom.sh)
 
 ## Install CLI
 
