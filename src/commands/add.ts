@@ -2,7 +2,7 @@ import type { ParsedArgs } from "minimist";
 import { importSource, NonInteractiveConflictError } from "../core/importer.js";
 import { resolveScope } from "../core/scope.js";
 import { updateLastScope } from "../core/settings.js";
-import { parseProvidersFlag } from "../core/argv.js";
+import { getStringArrayFlag, parseProvidersFlag } from "../core/argv.js";
 import { formatUsageError, getAddHelpText } from "../core/copy.js";
 import { formatSyncSummary, syncFromCanonical } from "../sync/index.js";
 
@@ -21,8 +21,8 @@ export async function runAddCommand(
       formatUsageError({
         issue: "Missing required <source>.",
         usage:
-          "agentloom add <source> [--ref <ref>] [--subdir <path>] [options]",
-        example: "agentloom add vercel-labs/skills --subdir skills",
+          "agentloom add <source> [--ref <ref>] [--subdir <path>] [--agent <name>] [options]",
+        example: "agentloom add farnoodma/agents --agent issue-creator",
       }),
     );
   }
@@ -42,6 +42,7 @@ export async function runAddCommand(
       ref: typeof argv.ref === "string" ? argv.ref : undefined,
       subdir: typeof argv.subdir === "string" ? argv.subdir : undefined,
       rename: typeof argv.rename === "string" ? argv.rename : undefined,
+      agents: getStringArrayFlag(argv.agent),
       yes: Boolean(argv.yes),
       nonInteractive,
       paths,

@@ -29,7 +29,8 @@ Common options:
   --dry-run                  Print planned sync changes without writing files
 
 Examples:
-  agentloom add vercel-labs/skills
+  agentloom add farnoodma/agents
+  agentloom add farnoodma/agents --agent issue-creator
   agentloom add /repo --subdir packages/agents
   agentloom update --local
   agentloom sync --providers codex,claude,cursor
@@ -47,6 +48,7 @@ Usage:
 Options:
   --ref <ref>                Git ref (branch/tag/commit) for remote sources
   --subdir <path>            Subdirectory inside source repo
+  --agent <name>             Import only selected agent(s) (repeatable/csv)
   --rename <name>            Rename imported agent (single-agent import only)
   --local | --global         Choose destination scope
   --yes                      Skip conflict prompts (overwrite/merge defaults)
@@ -55,7 +57,7 @@ Options:
   --dry-run                  Show sync plan without writing provider files
 
 Example:
-  agentloom add vercel-labs/skills --subdir skills --providers codex,claude
+  agentloom add farnoodma/agents --agent issue-creator --providers codex,claude
 `;
 }
 
