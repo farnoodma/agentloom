@@ -119,6 +119,7 @@ async function runEntityAwareUpdate(options: {
         nonInteractive,
         paths,
         importAgents: updatePlan.importAgents,
+        requireAgents: updatePlan.importAgents,
         importCommands: updatePlan.importCommands,
         importMcp: updatePlan.importMcp,
       };

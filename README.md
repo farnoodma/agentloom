@@ -62,6 +62,15 @@ Aggregate `add` imports discoverable entities from a source (agents, commands, M
 - `Sync everything from source` (default): updates include newly added source items.
 - `Use custom selection`: updates stay pinned to the selected items, even if all current items were selected.
 
+Source path resolution is additive and priority-ordered:
+
+- Agents: `.agents/agents` -> `agents`
+- Commands: `.agents/commands` -> `commands` -> `prompts`
+- Skills: `.agents/skills` -> `skills` -> root `SKILL.md` fallback
+- MCP: `.agents/mcp.json` -> `mcp.json`
+
+Aggregate `agentloom add <source>` can import command/skill/MCP-only repositories even when no `agents/` directory exists.
+
 ### Entity verbs
 
 - `agentloom agent <add|list|delete|find|update|sync>`

@@ -18,6 +18,10 @@ const promptMocks = vi.hoisted(() => ({
   text: vi.fn(),
 }));
 
+const skillMocks = vi.hoisted(() => ({
+  runSkillsCommand: vi.fn(() => ({ status: 0 })),
+}));
+
 vi.mock("@clack/prompts", () => ({
   cancel: promptMocks.cancel,
   isCancel: promptMocks.isCancel,
@@ -25,6 +29,17 @@ vi.mock("@clack/prompts", () => ({
   select: promptMocks.select,
   text: promptMocks.text,
 }));
+
+vi.mock("../../src/core/skills.js", async () => {
+  const actual = await vi.importActual<
+    typeof import("../../src/core/skills.js")
+  >("../../src/core/skills.js");
+
+  return {
+    ...actual,
+    runSkillsCommand: skillMocks.runSkillsCommand,
+  };
+});
 
 import { importSource } from "../../src/core/importer.js";
 
@@ -37,6 +52,8 @@ beforeEach(() => {
   promptMocks.multiselect.mockReset();
   promptMocks.select.mockReset();
   promptMocks.text.mockReset();
+  skillMocks.runSkillsCommand.mockReset();
+  skillMocks.runSkillsCommand.mockReturnValue({ status: 0 });
 });
 
 afterEach(() => {
@@ -205,5 +222,111 @@ describe("import source conflict handling", () => {
     expect(
       fs.readFileSync(path.join(paths.agentsDir, "existing-name.md"), "utf8"),
     ).toContain("Keep this content.");
+  });
+
+  it("imports prompts without requiring agents for aggregate-compatible imports", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "prompts"));
+    writeTextAtomic(
+      path.join(sourceRoot, "prompts", "review.md"),
+      `# /review\n\nReview changes.\n`,
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    const summary = await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: true,
+      requireAgents: false,
+      importCommands: true,
+      importMcp: true,
+      importSkills: true,
+    });
+
+    expect(summary.importedAgents).toEqual([]);
+    expect(summary.importedCommands).toEqual(["commands/review.md"]);
+    expect(promptMocks.multiselect).not.toHaveBeenCalled();
+
+    const lock = readJsonIfExists<AgentsLockFile>(
+      path.join(workspaceRoot, ".agents", "agents.lock.json"),
+    );
+    expect(lock?.entries[0]?.trackedEntities).toEqual(["command"]);
+  });
+
+  it("throws a single actionable error when aggregate imports find no entities", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    await expect(
+      importSource({
+        source: sourceRoot,
+        paths,
+        yes: true,
+        nonInteractive: true,
+        importAgents: true,
+        requireAgents: false,
+        importCommands: true,
+        importMcp: true,
+        importSkills: true,
+      }),
+    ).rejects.toThrow("No importable entities found");
+  });
+
+  it("recognizes root SKILL.md sources and forwards selected skills to the skills command", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    writeTextAtomic(
+      path.join(sourceRoot, "SKILL.md"),
+      `---
+name: visual-explainer
+description: Explain visuals
+---
+
+Skill body.
+`,
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    const summary = await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: false,
+      importCommands: false,
+      importMcp: false,
+      importSkills: true,
+      requireSkills: true,
+      skillSelectors: ["visual-explainer"],
+    });
+
+    expect(summary.importedSkills).toEqual(["visual-explainer"]);
+    expect(skillMocks.runSkillsCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        args: ["add", sourceRoot, "--yes", "--skill", "visual-explainer"],
+        cwd: workspaceRoot,
+      }),
+    );
   });
 });

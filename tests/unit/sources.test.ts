@@ -2,7 +2,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { parseSourceSpec, prepareSource } from "../../src/core/sources.js";
+import {
+  discoverSourceCommandsDir,
+  discoverSourceSkillsDir,
+  parseSourceSpec,
+  prepareSource,
+} from "../../src/core/sources.js";
 import { ensureDir, writeTextAtomic } from "../../src/core/fs.js";
 
 const tempDirs: string[] = [];
@@ -62,5 +67,38 @@ describe("source parsing and revision", () => {
     expect(first.resolvedCommit).toMatch(/^local-/);
     expect(second.resolvedCommit).toMatch(/^local-/);
     expect(second.resolvedCommit).not.toBe(first.resolvedCommit);
+  });
+
+  it("falls back to prompts when canonical command directories are absent", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-sources-"));
+    tempDirs.push(root);
+
+    ensureDir(path.join(root, "prompts"));
+
+    expect(discoverSourceCommandsDir(root)).toBe(path.join(root, "prompts"));
+  });
+
+  it("uses command source priority .agents/commands before commands before prompts", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-sources-"));
+    tempDirs.push(root);
+
+    ensureDir(path.join(root, ".agents", "commands"));
+    ensureDir(path.join(root, "commands"));
+    ensureDir(path.join(root, "prompts"));
+
+    expect(discoverSourceCommandsDir(root)).toBe(
+      path.join(root, ".agents", "commands"),
+    );
+  });
+
+  it("uses root SKILL.md fallback only when canonical skills directories are absent", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-sources-"));
+    tempDirs.push(root);
+
+    writeTextAtomic(path.join(root, "SKILL.md"), "# Root skill\n");
+    expect(discoverSourceSkillsDir(root)).toBe(root);
+
+    ensureDir(path.join(root, "skills"));
+    expect(discoverSourceSkillsDir(root)).toBe(path.join(root, "skills"));
   });
 });

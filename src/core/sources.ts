@@ -91,7 +91,7 @@ export function prepareSource(options: {
   };
 }
 
-export function discoverSourceAgentsDir(importRoot: string): string {
+export function discoverSourceAgentsDir(importRoot: string): string | null {
   const direct = path.join(importRoot, "agents");
   if (fs.existsSync(direct) && fs.statSync(direct).isDirectory()) {
     return direct;
@@ -102,9 +102,7 @@ export function discoverSourceAgentsDir(importRoot: string): string {
     return nested;
   }
 
-  throw new Error(
-    `No source agents directory found under ${importRoot} (expected agents/ or .agents/agents/).`,
-  );
+  return null;
 }
 
 export function discoverSourceMcpPath(importRoot: string): string | null {
@@ -128,6 +126,11 @@ export function discoverSourceCommandsDir(importRoot: string): string | null {
     return direct;
   }
 
+  const prompts = path.join(importRoot, "prompts");
+  if (fs.existsSync(prompts) && fs.statSync(prompts).isDirectory()) {
+    return prompts;
+  }
+
   return null;
 }
 
@@ -140,6 +143,11 @@ export function discoverSourceSkillsDir(importRoot: string): string | null {
   const direct = path.join(importRoot, "skills");
   if (fs.existsSync(direct) && fs.statSync(direct).isDirectory()) {
     return direct;
+  }
+
+  const rootSkill = path.join(importRoot, "SKILL.md");
+  if (fs.existsSync(rootSkill) && fs.statSync(rootSkill).isFile()) {
+    return importRoot;
   }
 
   return null;

@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import matter from "gray-matter";
 import type { Provider } from "../types.js";
 import { slugify } from "./fs.js";
 
@@ -38,7 +39,34 @@ export function parseSkillsDir(skillsDir: string): CanonicalSkill[] {
     });
   }
 
-  return skills.sort((left, right) => left.name.localeCompare(right.name));
+  if (skills.length > 0) {
+    return skills.sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  const rootSkillFile = path.join(skillsDir, "SKILL.md");
+  if (!fs.existsSync(rootSkillFile) || !fs.statSync(rootSkillFile).isFile()) {
+    return [];
+  }
+
+  const raw = fs.readFileSync(rootSkillFile, "utf8");
+  return [
+    {
+      name: extractSkillName(raw) || path.basename(skillsDir),
+      sourcePath: skillsDir,
+      skillPath: rootSkillFile,
+    },
+  ];
+}
+
+function extractSkillName(raw: string): string | undefined {
+  try {
+    const parsed = matter(raw);
+    if (typeof parsed.data.name !== "string") return undefined;
+    const name = parsed.data.name.trim();
+    return name.length > 0 ? name : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export function normalizeSkillSelector(value: string): string {

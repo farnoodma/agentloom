@@ -74,6 +74,11 @@ Examples:
 export function getAddHelpText(): string {
   return `Import canonical entities from a source repository.
 
+Source discovery:
+  agents: .agents/agents -> agents
+  commands: .agents/commands -> commands -> prompts
+  skills: .agents/skills -> skills -> root SKILL.md
+
 Usage:
   agentloom add <source> [options]
 

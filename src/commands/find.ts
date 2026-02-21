@@ -1,5 +1,7 @@
 import fs from "node:fs";
 import https from "node:https";
+import path from "node:path";
+import matter from "gray-matter";
 import type { ParsedArgs } from "minimist";
 import { parseAgentMarkdown, parseAgentsDir } from "../core/agents.js";
 import { parseCommandsDir } from "../core/commands.js";
@@ -44,6 +46,7 @@ interface FoundMcpServer {
 interface FoundSkill {
   repo: string;
   skillName: string;
+  installSkillSelector?: string;
   filePath: string;
   fileUrl: string;
   source: string;
@@ -554,8 +557,29 @@ async function searchSkillsWithDiagnostics(
         const parsed = parseSkillPath(filePath);
         if (!parsed) continue;
 
+        let skillName = parsed.skillName;
+        let installSkillSelector: string | undefined = parsed.skillName;
+
+        if (parsed.isRootSkill) {
+          installSkillSelector = undefined;
+          try {
+            const content = await fetchRepositoryFile(
+              repo.fullName,
+              filePath,
+              apiBase,
+            );
+            const frontmatterName = parseSkillNameFromMarkdown(content);
+            if (frontmatterName) {
+              skillName = frontmatterName;
+              installSkillSelector = frontmatterName;
+            }
+          } catch {
+            // Keep root-skill fallback naming when source content cannot be fetched.
+          }
+        }
+
         const haystack =
-          `${repo.fullName} ${filePath} ${parsed.skillName}`.toLowerCase();
+          `${repo.fullName} ${filePath} ${skillName}`.toLowerCase();
         if (
           tokens.length > 0 &&
           !tokens.some((token) => haystack.includes(token))
@@ -565,7 +589,8 @@ async function searchSkillsWithDiagnostics(
 
         matches.push({
           repo: repo.fullName,
-          skillName: parsed.skillName,
+          skillName,
+          installSkillSelector,
           filePath,
           fileUrl: `${repo.repoWebUrl}/blob/${repo.defaultBranch}/${filePath}`,
           source: repo.installSource,
@@ -757,12 +782,25 @@ function parseCommandPath(
     };
   }
 
+  const directPrompts = filePath.match(/^prompts\/([^/]+)\.(md|mdc)$/i);
+  if (directPrompts) {
+    return { commandName: directPrompts[1] };
+  }
+
+  const nestedPrompts = filePath.match(/^(.+)\/prompts\/([^/]+)\.(md|mdc)$/i);
+  if (nestedPrompts) {
+    return {
+      subdir: nestedPrompts[1],
+      commandName: nestedPrompts[2],
+    };
+  }
+
   return null;
 }
 
 function parseSkillPath(
   filePath: string,
-): { skillName: string; subdir?: string } | null {
+): { skillName: string; subdir?: string; isRootSkill?: boolean } | null {
   const directAgentloom = filePath.match(
     /^\.agents\/skills\/([^/]+)\/SKILL\.md$/i,
   );
@@ -790,6 +828,23 @@ function parseSkillPath(
     return {
       subdir: nestedSkills[1],
       skillName: nestedSkills[2],
+    };
+  }
+
+  const directRootSkill = filePath.match(/^SKILL\.md$/i);
+  if (directRootSkill) {
+    return {
+      skillName: "SKILL",
+      isRootSkill: true,
+    };
+  }
+
+  const nestedRootSkill = filePath.match(/^(.+)\/SKILL\.md$/i);
+  if (nestedRootSkill) {
+    return {
+      subdir: nestedRootSkill[1],
+      skillName: path.basename(nestedRootSkill[1]),
+      isRootSkill: true,
     };
   }
 
@@ -1010,10 +1065,17 @@ function buildMcpInstallCommand(result: FoundMcpServer): string {
 function buildSkillInstallCommand(result: FoundSkill): string {
   const source = result.source?.trim() || result.repo;
   const repoArg = quoteShellArg(source);
+  const selector = result.installSkillSelector?.trim();
   if (result.subdir && result.subdir.trim()) {
-    return `agentloom skill add ${repoArg} --subdir ${quoteShellArg(result.subdir)} --skills ${quoteShellArg(result.skillName)}`;
+    if (!selector) {
+      return `agentloom skill add ${repoArg} --subdir ${quoteShellArg(result.subdir)}`;
+    }
+    return `agentloom skill add ${repoArg} --subdir ${quoteShellArg(result.subdir)} --skills ${quoteShellArg(selector)}`;
   }
-  return `agentloom skill add ${repoArg} --skills ${quoteShellArg(result.skillName)}`;
+  if (!selector) {
+    return `agentloom skill add ${repoArg}`;
+  }
+  return `agentloom skill add ${repoArg} --skills ${quoteShellArg(selector)}`;
 }
 
 function tokenizeQuery(query: string): string[] {
@@ -1022,6 +1084,17 @@ function tokenizeQuery(query: string): string[] {
     .split(/\s+/)
     .map((token) => token.trim())
     .filter(Boolean);
+}
+
+function parseSkillNameFromMarkdown(markdown: string): string | undefined {
+  try {
+    const parsed = matter(markdown);
+    if (typeof parsed.data.name !== "string") return undefined;
+    const name = parsed.data.name.trim();
+    return name.length > 0 ? name : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function searchLocalMatches(

@@ -2,6 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { runAddCommand } from "../../src/commands/add.js";
+import { parseArgs } from "../../src/core/argv.js";
 import {
   ensureDir,
   readJsonIfExists,
@@ -84,6 +86,46 @@ describe("importSource local", () => {
     expect(lock?.entries).toHaveLength(1);
     expect(lock?.entries[0]?.sourceType).toBe("local");
     expect(lock?.entries[0]?.importedCommands).toEqual(["commands/ship.md"]);
+  });
+
+  it("aggregate add imports prompts-only repositories without tracking agents", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "prompts"));
+    writeTextAtomic(
+      path.join(sourceRoot, "prompts", "review.md"),
+      `# /review\n\nReview code changes.\n`,
+    );
+
+    await runAddCommand(
+      parseArgs(["add", sourceRoot, "--local", "--yes", "--no-sync"]),
+      workspaceRoot,
+    );
+
+    expect(
+      fs.existsSync(
+        path.join(workspaceRoot, ".agents", "commands", "review.md"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(workspaceRoot, ".agents", "agents", "reviewer.md"),
+      ),
+    ).toBe(false);
+
+    const lock = readJsonIfExists<AgentsLockFile>(
+      path.join(workspaceRoot, ".agents", "agents.lock.json"),
+    );
+    expect(lock?.entries).toHaveLength(1);
+    expect(lock?.entries[0]?.trackedEntities).toEqual(["command"]);
+    expect(lock?.entries[0]?.importedCommands).toEqual(["commands/review.md"]);
+    expect(lock?.entries[0]?.importedAgents).toEqual([]);
   });
 
   it("applies --rename for single-agent imports even when commands are present", async () => {

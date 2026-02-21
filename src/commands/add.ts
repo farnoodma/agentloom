@@ -94,6 +94,7 @@ async function runEntityAwareAdd(options: {
       nonInteractive,
       paths,
       importAgents,
+      requireAgents: options.target === "agent",
       importCommands,
       requireCommands: options.target === "command",
       importMcp,

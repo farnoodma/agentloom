@@ -141,6 +141,7 @@ describe("runUpdateCommand", () => {
         nonInteractive,
         paths,
         importAgents: true,
+        requireAgents: true,
         importCommands: true,
         importMcp: true,
       }),

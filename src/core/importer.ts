@@ -10,6 +10,7 @@ import {
 import type {
   CanonicalAgent,
   CanonicalMcpFile,
+  EntityType,
   Provider,
   LockEntry,
   SelectionMode,
@@ -68,6 +69,7 @@ export interface ImportOptions {
   nonInteractive?: boolean;
   paths: ScopePaths;
   importAgents?: boolean;
+  requireAgents?: boolean;
   importCommands?: boolean;
   requireCommands?: boolean;
   importMcp?: boolean;
@@ -120,6 +122,7 @@ export async function importSource(
   options: ImportOptions,
 ): Promise<ImportSummary> {
   const shouldImportAgents = options.importAgents ?? true;
+  const requireAgents = options.requireAgents ?? shouldImportAgents;
   const shouldImportCommands = options.importCommands ?? true;
   const shouldImportMcp = options.importMcp ?? true;
   const shouldImportSkills = options.importSkills ?? false;
@@ -157,16 +160,29 @@ export async function importSource(
     const sourceCommands = sourceCommandsDir
       ? parseCommandsDir(sourceCommandsDir)
       : [];
+    const sourceMcp = sourceMcpPath
+      ? normalizeMcp(readJsonIfExists<Record<string, unknown>>(sourceMcpPath))
+      : null;
     const sourceSkills = sourceSkillsDir ? parseSkillsDir(sourceSkillsDir) : [];
     const hasExplicitCommandSelection =
       (options.commandSelectors?.length ?? 0) > 0;
+    const isAggregateImport =
+      shouldImportAgents &&
+      shouldImportCommands &&
+      shouldImportMcp &&
+      shouldImportSkills;
 
-    if (shouldImportAgents && sourceAgents.length === 0) {
+    if (shouldImportAgents && requireAgents && !sourceAgentsDir) {
+      throw new Error(
+        `No source agents directory found under ${prepared.importRoot} (expected agents/ or .agents/agents/).`,
+      );
+    }
+    if (shouldImportAgents && requireAgents && sourceAgents.length === 0) {
       throw new Error(`No agent files found in ${sourceAgentsDir}.`);
     }
     if (shouldImportCommands && options.requireCommands && !sourceCommandsDir) {
       throw new Error(
-        `No source commands directory found under ${prepared.importRoot} (expected commands/ or .agents/commands/).`,
+        `No source commands directory found under ${prepared.importRoot} (expected .agents/commands/, commands/, or prompts/).`,
       );
     }
     if (
@@ -183,7 +199,7 @@ export async function importSource(
     }
     if (shouldImportSkills && options.requireSkills && !sourceSkillsDir) {
       throw new Error(
-        `No source skills directory found under ${prepared.importRoot} (expected skills/ or .agents/skills/).`,
+        `No source skills directory found under ${prepared.importRoot} (expected .agents/skills/, skills/, or root SKILL.md).`,
       );
     }
     if (
@@ -194,7 +210,25 @@ export async function importSource(
       throw new Error(`No skills found in ${sourceSkillsDir}.`);
     }
 
-    const selection: AgentsToImportResult = shouldImportAgents
+    if (
+      isAggregateImport &&
+      sourceAgents.length === 0 &&
+      sourceCommands.length === 0 &&
+      sourceSkills.length === 0 &&
+      Object.keys(sourceMcp?.mcpServers ?? {}).length === 0
+    ) {
+      throw new Error(
+        `No importable entities found under ${prepared.importRoot}. Expected agents/, .agents/agents/, commands/, .agents/commands/, prompts/, mcp.json/.agents/mcp.json, skills/, .agents/skills/, or root SKILL.md.`,
+      );
+    }
+
+    const shouldResolveAgents =
+      shouldImportAgents &&
+      (sourceAgents.length > 0 ||
+        (options.agents?.length ?? 0) > 0 ||
+        requireAgents);
+
+    const selection: AgentsToImportResult = shouldResolveAgents
       ? await resolveAgentsToImport({
           sourceAgents,
           requestedAgents: options.agents,
@@ -206,7 +240,7 @@ export async function importSource(
       : { selectedAgents: [] };
 
     const importedAgents: string[] = [];
-    if (shouldImportAgents) {
+    if (shouldImportAgents && selection.selectedAgents.length > 0) {
       ensureDir(options.paths.agentsDir);
 
       for (const [index, agent] of selection.selectedAgents.entries()) {
@@ -302,15 +336,12 @@ export async function importSource(
 
     const importedMcpServers: string[] = [];
     let selectedSourceMcpServers: string[] = [];
-    let sourceMcpServerNames: string[] = [];
+    let sourceMcpServerNames: string[] = sourceMcp
+      ? Object.keys(sourceMcp.mcpServers).sort()
+      : [];
     let mcpSelectionMode: SelectionMode = "all";
 
-    if (shouldImportMcp && sourceMcpPath) {
-      const sourceMcp = normalizeMcp(
-        readJsonIfExists<Record<string, unknown>>(sourceMcpPath),
-      );
-      sourceMcpServerNames = Object.keys(sourceMcp.mcpServers).sort();
-
+    if (shouldImportMcp && sourceMcp) {
       const mcpSelection = await resolveMcpServersToImport({
         sourceMcp,
         selectors: options.mcpSelectors ?? [],
@@ -544,26 +575,21 @@ export async function importSource(
       lockCommandRenameMap = existingEntry?.commandRenameMap;
     }
 
-    const trackedEntities = uniqueStrings(
-      [
-        ...(shouldImportAgents ||
-        (existingEntry?.trackedEntities ?? []).includes("agent")
-          ? ["agent"]
-          : []),
-        ...(shouldImportCommands ||
-        (existingEntry?.trackedEntities ?? []).includes("command")
-          ? ["command"]
-          : []),
-        ...(shouldImportMcp ||
-        (existingEntry?.trackedEntities ?? []).includes("mcp")
-          ? ["mcp"]
-          : []),
-        ...(shouldImportSkills ||
-        (existingEntry?.trackedEntities ?? []).includes("skill")
-          ? ["skill"]
-          : []),
-      ].filter(Boolean),
-    ) as ("agent" | "command" | "mcp" | "skill")[];
+    const lockRequestedAgents = shouldImportAgents
+      ? selection.requestedAgentsForLock
+      : existingEntry?.requestedAgents;
+    const trackedEntities = computeTrackedEntitiesForLock({
+      requestedAgents: lockRequestedAgents,
+      importedAgents: lockImportedAgents,
+      importedCommands: lockImportedCommands,
+      selectedSourceCommands: lockSelectedSourceCommands,
+      commandRenameMap: lockCommandRenameMap,
+      importedMcpServers: lockImportedMcpServers,
+      selectedSourceMcpServers: lockSelectedSourceMcpServers,
+      importedSkills: lockImportedSkills,
+      selectedSourceSkills: lockSelectedSourceSkills,
+      skillsAgentTargets: lockSkillsAgentTargets,
+    });
 
     const contentHash = hashContent(
       JSON.stringify({
@@ -576,7 +602,7 @@ export async function importSource(
         skills: lockImportedSkills,
         selectedSourceSkills: lockSelectedSourceSkills ?? [],
         skillsAgentTargets: lockSkillsAgentTargets ?? [],
-        trackedEntities,
+        trackedEntities: trackedEntities ?? [],
       }),
     );
 
@@ -584,9 +610,7 @@ export async function importSource(
       source: prepared.spec.source,
       sourceType: prepared.spec.type,
       requestedRef: options.ref,
-      requestedAgents: shouldImportAgents
-        ? selection.requestedAgentsForLock
-        : existingEntry?.requestedAgents,
+      requestedAgents: lockRequestedAgents,
       resolvedCommit: prepared.resolvedCommit,
       subdir: options.subdir,
       importedAt: new Date().toISOString(),
@@ -966,6 +990,53 @@ function sameStringSelectionForMatch(
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values)];
+}
+
+function computeTrackedEntitiesForLock(options: {
+  requestedAgents?: string[];
+  importedAgents: string[];
+  importedCommands: string[];
+  selectedSourceCommands?: string[];
+  commandRenameMap?: Record<string, string>;
+  importedMcpServers: string[];
+  selectedSourceMcpServers?: string[];
+  importedSkills: string[];
+  selectedSourceSkills?: string[];
+  skillsAgentTargets?: string[];
+}): EntityType[] | undefined {
+  const tracked: EntityType[] = [];
+
+  if (
+    options.importedAgents.length > 0 ||
+    (options.requestedAgents?.length ?? 0) > 0
+  ) {
+    tracked.push("agent");
+  }
+
+  if (
+    options.importedCommands.length > 0 ||
+    (options.selectedSourceCommands?.length ?? 0) > 0 ||
+    Object.keys(options.commandRenameMap ?? {}).length > 0
+  ) {
+    tracked.push("command");
+  }
+
+  if (
+    options.importedMcpServers.length > 0 ||
+    (options.selectedSourceMcpServers?.length ?? 0) > 0
+  ) {
+    tracked.push("mcp");
+  }
+
+  if (
+    options.importedSkills.length > 0 ||
+    (options.selectedSourceSkills?.length ?? 0) > 0 ||
+    (options.skillsAgentTargets?.length ?? 0) > 0
+  ) {
+    tracked.push("skill");
+  }
+
+  return tracked.length > 0 ? tracked : undefined;
 }
 
 function normalizeCommandRenameMap(

@@ -2,7 +2,11 @@ import { EventEmitter } from "node:events";
 import https from "node:https";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FoundAgent } from "../../src/commands/find.js";
-import { runFindCommand, searchAgents } from "../../src/commands/find.js";
+import {
+  runFindCommand,
+  runScopedFindCommand,
+  searchAgents,
+} from "../../src/commands/find.js";
 
 function encodeBase64(value: string): string {
   return Buffer.from(value).toString("base64");
@@ -154,6 +158,260 @@ describe("find command", () => {
     expect(output).toContain(
       "Install: agentloom add acme/frontend-agents --subdir '-hidden/agents'",
     );
+  });
+
+  it("finds commands from prompts/ paths and prints command install commands", async () => {
+    vi.spyOn(https, "get").mockImplementation(((url, _options, callback) => {
+      const request = new EventEmitter() as EventEmitter & {
+        setTimeout: (milliseconds: number, handler: () => void) => void;
+        destroy: () => void;
+      };
+      request.setTimeout = (_milliseconds, _handler) => undefined;
+      request.destroy = () => undefined;
+
+      const targetUrl = typeof url === "string" ? new URL(url) : url;
+      const response = new EventEmitter() as EventEmitter & {
+        statusCode?: number;
+      };
+      response.statusCode = 200;
+
+      queueMicrotask(() => {
+        callback(response as never);
+
+        if (targetUrl.pathname.endsWith("/search/repositories")) {
+          response.emit(
+            "data",
+            Buffer.from(
+              JSON.stringify({
+                items: [
+                  {
+                    full_name: "acme/frontend-agents",
+                    stargazers_count: 42,
+                    default_branch: "main",
+                  },
+                ],
+              }),
+            ),
+          );
+          response.emit("end");
+          return;
+        }
+
+        response.emit(
+          "data",
+          Buffer.from(
+            JSON.stringify({
+              tree: [
+                {
+                  path: "prompts/release.mdc",
+                  type: "blob",
+                },
+              ],
+            }),
+          ),
+        );
+        response.emit("end");
+      });
+
+      return request as never;
+    }) as typeof https.get);
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await runScopedFindCommand(
+      { _: ["command", "find", "release"] } as never,
+      "command",
+    );
+
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(output).toContain('Found 1 match(es) for "release".');
+    expect(output).toContain(
+      "acme/frontend-agents@release (42★) (prompts/release.mdc)",
+    );
+    expect(output).toContain(
+      "Install: agentloom command add acme/frontend-agents",
+    );
+  });
+
+  it("parses root SKILL.md names for skill install commands", async () => {
+    vi.spyOn(https, "get").mockImplementation(((url, _options, callback) => {
+      const request = new EventEmitter() as EventEmitter & {
+        setTimeout: (milliseconds: number, handler: () => void) => void;
+        destroy: () => void;
+      };
+      request.setTimeout = (_milliseconds, _handler) => undefined;
+      request.destroy = () => undefined;
+
+      const targetUrl = typeof url === "string" ? new URL(url) : url;
+      const response = new EventEmitter() as EventEmitter & {
+        statusCode?: number;
+      };
+      response.statusCode = 200;
+
+      queueMicrotask(() => {
+        callback(response as never);
+
+        if (targetUrl.pathname.endsWith("/search/repositories")) {
+          response.emit(
+            "data",
+            Buffer.from(
+              JSON.stringify({
+                items: [
+                  {
+                    full_name: "acme/frontend-agents",
+                    stargazers_count: 42,
+                    default_branch: "main",
+                  },
+                ],
+              }),
+            ),
+          );
+          response.emit("end");
+          return;
+        }
+
+        if (targetUrl.pathname.includes("/contents/SKILL.md")) {
+          response.emit(
+            "data",
+            Buffer.from(
+              JSON.stringify({
+                type: "file",
+                encoding: "base64",
+                content: encodeBase64(
+                  `---
+name: visual-explainer
+description: Explain visuals
+---
+
+Skill body.
+`,
+                ),
+              }),
+            ),
+          );
+          response.emit("end");
+          return;
+        }
+
+        response.emit(
+          "data",
+          Buffer.from(
+            JSON.stringify({
+              tree: [
+                {
+                  path: "SKILL.md",
+                  type: "blob",
+                },
+              ],
+            }),
+          ),
+        );
+        response.emit("end");
+      });
+
+      return request as never;
+    }) as typeof https.get);
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await runScopedFindCommand(
+      { _: ["skill", "find", "visual"] } as never,
+      "skill",
+    );
+
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(output).toContain(
+      "acme/frontend-agents@visual-explainer (42★) (SKILL.md)",
+    );
+    expect(output).toContain(
+      "Install: agentloom skill add acme/frontend-agents --skills visual-explainer",
+    );
+  });
+
+  it("omits --skills in install command when root SKILL.md name cannot be parsed", async () => {
+    vi.spyOn(https, "get").mockImplementation(((url, _options, callback) => {
+      const request = new EventEmitter() as EventEmitter & {
+        setTimeout: (milliseconds: number, handler: () => void) => void;
+        destroy: () => void;
+      };
+      request.setTimeout = (_milliseconds, _handler) => undefined;
+      request.destroy = () => undefined;
+
+      const targetUrl = typeof url === "string" ? new URL(url) : url;
+      const response = new EventEmitter() as EventEmitter & {
+        statusCode?: number;
+      };
+      response.statusCode = 200;
+
+      queueMicrotask(() => {
+        callback(response as never);
+
+        if (targetUrl.pathname.endsWith("/search/repositories")) {
+          response.emit(
+            "data",
+            Buffer.from(
+              JSON.stringify({
+                items: [
+                  {
+                    full_name: "acme/frontend-agents",
+                    stargazers_count: 42,
+                    default_branch: "main",
+                  },
+                ],
+              }),
+            ),
+          );
+          response.emit("end");
+          return;
+        }
+
+        if (targetUrl.pathname.includes("/contents/SKILL.md")) {
+          response.emit(
+            "data",
+            Buffer.from(
+              JSON.stringify({
+                type: "file",
+                encoding: "base64",
+                content: encodeBase64("Skill without frontmatter."),
+              }),
+            ),
+          );
+          response.emit("end");
+          return;
+        }
+
+        response.emit(
+          "data",
+          Buffer.from(
+            JSON.stringify({
+              tree: [
+                {
+                  path: "SKILL.md",
+                  type: "blob",
+                },
+              ],
+            }),
+          ),
+        );
+        response.emit("end");
+      });
+
+      return request as never;
+    }) as typeof https.get);
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await runScopedFindCommand(
+      { _: ["skill", "find", "skill"] } as never,
+      "skill",
+    );
+
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(output).toContain("acme/frontend-agents@SKILL (42★) (SKILL.md)");
+    expect(output).toContain(
+      "Install: agentloom skill add acme/frontend-agents",
+    );
+    expect(output).not.toContain("--skills");
   });
 
   it("prints empty-result message", async () => {
