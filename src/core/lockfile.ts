@@ -29,7 +29,8 @@ export function upsertLockEntry(
     (item) =>
       item.source === entry.source &&
       item.sourceType === entry.sourceType &&
-      item.subdir === entry.subdir,
+      item.subdir === entry.subdir &&
+      sameRequestedAgents(item.requestedAgents, entry.requestedAgents),
   );
 
   if (index >= 0) {
@@ -38,4 +39,27 @@ export function upsertLockEntry(
   }
 
   lockfile.entries.push(entry);
+}
+
+function sameRequestedAgents(
+  left: string[] | undefined,
+  right: string[] | undefined,
+): boolean {
+  const normalizedLeft = normalizeRequestedAgentsForKey(left);
+  const normalizedRight = normalizeRequestedAgentsForKey(right);
+
+  if (normalizedLeft.length !== normalizedRight.length) {
+    return false;
+  }
+
+  return normalizedLeft.every(
+    (value, index) => value === normalizedRight[index],
+  );
+}
+
+function normalizeRequestedAgentsForKey(value: string[] | undefined): string[] {
+  if (!Array.isArray(value) || value.length === 0) return [];
+  return [
+    ...new Set(value.map((item) => item.trim().toLowerCase()).filter(Boolean)),
+  ].sort();
 }

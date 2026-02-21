@@ -36,6 +36,7 @@ export interface LockEntry {
   source: string;
   sourceType: "local" | "github" | "git";
   requestedRef?: string;
+  requestedAgents?: string[];
   resolvedCommit: string;
   subdir?: string;
   importedAt: string;

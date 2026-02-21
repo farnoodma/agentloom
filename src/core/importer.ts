@@ -1,7 +1,18 @@
 import fs from "node:fs";
 import path from "node:path";
-import { cancel, isCancel, select, text as promptText } from "@clack/prompts";
-import type { CanonicalMcpFile, LockEntry, ScopePaths } from "../types.js";
+import {
+  cancel,
+  isCancel,
+  multiselect,
+  select,
+  text as promptText,
+} from "@clack/prompts";
+import type {
+  CanonicalAgent,
+  CanonicalMcpFile,
+  LockEntry,
+  ScopePaths,
+} from "../types.js";
 import {
   buildAgentMarkdown,
   parseAgentsDir,
@@ -35,6 +46,8 @@ export interface ImportOptions {
   ref?: string;
   subdir?: string;
   rename?: string;
+  agents?: string[];
+  promptForAgentSelection?: boolean;
   yes?: boolean;
   nonInteractive?: boolean;
   paths: ScopePaths;
@@ -46,6 +59,11 @@ export interface ImportSummary {
   importedAgents: string[];
   importedMcpServers: string[];
   resolvedCommit: string;
+}
+
+interface AgentsToImportResult {
+  selectedAgents: CanonicalAgent[];
+  requestedAgentsForLock?: string[];
 }
 
 export async function importSource(
@@ -65,16 +83,24 @@ export async function importSource(
     if (sourceAgents.length === 0) {
       throw new Error(`No agent files found in ${sourceAgentsDir}.`);
     }
+    const selection = await resolveAgentsToImport({
+      sourceAgents,
+      requestedAgents: options.agents,
+      yes: !!options.yes,
+      nonInteractive: !!options.nonInteractive,
+      promptForAgentSelection: options.promptForAgentSelection ?? true,
+    });
+    const { selectedAgents } = selection;
 
     ensureDir(options.paths.agentsDir);
 
     const importedAgents: string[] = [];
     const importedAgentHashes: string[] = [];
 
-    for (const [index, agent] of sourceAgents.entries()) {
+    for (const [index, agent] of selectedAgents.entries()) {
       let targetFileName = targetFileNameForAgent(agent);
 
-      if (options.rename && sourceAgents.length === 1) {
+      if (options.rename && selectedAgents.length === 1) {
         targetFileName = `${slugify(options.rename) || "agent"}.md`;
       }
 
@@ -84,7 +110,7 @@ export async function importSource(
         paths: options.paths,
         yes: !!options.yes,
         nonInteractive: !!options.nonInteractive,
-        promptLabel: `${agent.name} (${index + 1}/${sourceAgents.length})`,
+        promptLabel: `${agent.name} (${index + 1}/${selectedAgents.length})`,
       });
 
       if (!resolvedFileName) continue;
@@ -127,6 +153,7 @@ export async function importSource(
       source: prepared.spec.source,
       sourceType: prepared.spec.type,
       requestedRef: options.ref,
+      requestedAgents: selection.requestedAgentsForLock,
       resolvedCommit: prepared.resolvedCommit,
       subdir: options.subdir,
       importedAt: new Date().toISOString(),
@@ -148,6 +175,213 @@ export async function importSource(
   } finally {
     prepared.cleanup();
   }
+}
+
+async function resolveAgentsToImport(options: {
+  sourceAgents: CanonicalAgent[];
+  requestedAgents?: string[];
+  yes: boolean;
+  nonInteractive: boolean;
+  promptForAgentSelection: boolean;
+}): Promise<AgentsToImportResult> {
+  const requestedAgents = normalizeRequestedAgents(options.requestedAgents);
+  if (requestedAgents && requestedAgents.length > 0) {
+    const selected = resolveRequestedAgents(
+      options.sourceAgents,
+      requestedAgents,
+    );
+    if (selected.length === 0) {
+      throw new Error("No agents matched the requested --agent filters.");
+    }
+    return {
+      selectedAgents: selected,
+      // Persist stable selectors so updates keep targeting the same source agents
+      // even if a previously-fallback selector later gains a new exact match.
+      requestedAgentsForLock: getStableRequestedAgentsForLock({
+        selectedAgents: selected,
+        sourceAgents: options.sourceAgents,
+      }),
+    };
+  }
+
+  if (
+    options.yes ||
+    options.nonInteractive ||
+    options.sourceAgents.length <= 1 ||
+    !options.promptForAgentSelection
+  ) {
+    return { selectedAgents: options.sourceAgents };
+  }
+
+  const selected = await promptAgentSelection(options.sourceAgents);
+  if (selected.length === 0) {
+    throw new Error(
+      "No agents selected. Use --agent <name> or rerun and select at least one agent.",
+    );
+  }
+  const requestedAgentsForLock =
+    selected.length < options.sourceAgents.length
+      ? getStableRequestedAgentsForLock({
+          selectedAgents: selected,
+          sourceAgents: options.sourceAgents,
+        })
+      : undefined;
+  return { selectedAgents: selected, requestedAgentsForLock };
+}
+
+function normalizeRequestedAgents(
+  requestedAgents?: string[],
+): string[] | undefined {
+  if (!requestedAgents || requestedAgents.length === 0) return undefined;
+
+  const normalized = requestedAgents.map((item) => item.trim()).filter(Boolean);
+
+  return normalized.length > 0 ? [...new Set(normalized)] : undefined;
+}
+
+function getStableRequestedAgentsForLock(options: {
+  selectedAgents: CanonicalAgent[];
+  sourceAgents: CanonicalAgent[];
+}): string[] | undefined {
+  const nameCounts = new Map<string, number>();
+
+  for (const agent of options.sourceAgents) {
+    const normalizedName = normalizeAgentSelector(agent.name);
+    if (!normalizedName) continue;
+    nameCounts.set(normalizedName, (nameCounts.get(normalizedName) ?? 0) + 1);
+  }
+
+  const selectors = options.selectedAgents.map((agent) => {
+    const normalizedName = normalizeAgentSelector(agent.name);
+    if (normalizedName && nameCounts.get(normalizedName) === 1) {
+      return agent.name;
+    }
+    return agent.fileName.replace(/\.md$/i, "");
+  });
+
+  return normalizeRequestedAgents(selectors);
+}
+
+function resolveRequestedAgents(
+  sourceAgents: CanonicalAgent[],
+  requestedAgents: string[],
+): CanonicalAgent[] {
+  const selectedPaths = new Set<string>();
+  const missing: string[] = [];
+  const ambiguous: string[] = [];
+
+  for (const requestedAgent of requestedAgents) {
+    const exactMatches = sourceAgents.filter((agent) =>
+      agentMatchesSelector(agent, requestedAgent, false),
+    );
+    const matches =
+      exactMatches.length > 0
+        ? exactMatches
+        : sourceAgents.filter((agent) =>
+            agentMatchesSelector(agent, requestedAgent, true),
+          );
+
+    if (matches.length === 0) {
+      missing.push(requestedAgent);
+      continue;
+    }
+
+    if (matches.length > 1) {
+      ambiguous.push(
+        `${requestedAgent} (${matches.map((agent) => agent.name).join(", ")})`,
+      );
+      continue;
+    }
+
+    if (matches[0]) {
+      selectedPaths.add(matches[0].sourcePath);
+    }
+  }
+
+  if (missing.length > 0) {
+    throw new Error(
+      `Requested agent(s) not found: ${missing.join(", ")}. Available agents: ${sourceAgents.map((agent) => agent.name).join(", ")}.`,
+    );
+  }
+
+  if (ambiguous.length > 0) {
+    throw new Error(
+      `Requested agent selector is ambiguous: ${ambiguous.join("; ")}. Use the exact frontmatter name.`,
+    );
+  }
+
+  return sourceAgents.filter((agent) => selectedPaths.has(agent.sourcePath));
+}
+
+function agentMatchesSelector(
+  agent: CanonicalAgent,
+  selector: string,
+  includeSlugFallback: boolean,
+): boolean {
+  const normalizedSelector = normalizeAgentSelector(selector);
+  if (!normalizedSelector) return false;
+  if (getExactAgentSelectorCandidates(agent).has(normalizedSelector)) {
+    return true;
+  }
+  if (!includeSlugFallback) return false;
+
+  const selectorSlug = normalizeAgentSelector(slugify(selector));
+  return (
+    selectorSlug !== "" &&
+    getSlugAgentSelectorCandidates(agent).has(selectorSlug)
+  );
+}
+
+function getExactAgentSelectorCandidates(agent: CanonicalAgent): Set<string> {
+  const fileBaseName = agent.fileName.replace(/\.md$/i, "");
+  return new Set(
+    [
+      agent.name,
+      fileBaseName,
+      path.basename(agent.sourcePath).replace(/\.md$/i, ""),
+    ]
+      .map(normalizeAgentSelector)
+      .filter(Boolean),
+  );
+}
+
+function getSlugAgentSelectorCandidates(agent: CanonicalAgent): Set<string> {
+  const fileBaseName = agent.fileName.replace(/\.md$/i, "");
+  return new Set(
+    [
+      slugify(agent.name),
+      slugify(fileBaseName),
+      slugify(path.basename(agent.sourcePath).replace(/\.md$/i, "")),
+    ]
+      .map(normalizeAgentSelector)
+      .filter(Boolean),
+  );
+}
+
+function normalizeAgentSelector(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+async function promptAgentSelection(
+  sourceAgents: CanonicalAgent[],
+): Promise<CanonicalAgent[]> {
+  const choice = await multiselect({
+    message: "Select agents to import",
+    options: sourceAgents.map((agent) => ({
+      value: agent.sourcePath,
+      label: agent.name,
+      hint: agent.description,
+    })),
+    initialValues: sourceAgents.map((agent) => agent.sourcePath),
+  });
+
+  if (isCancel(choice)) {
+    cancel("Operation cancelled.");
+    process.exit(1);
+  }
+
+  const selected = new Set(Array.isArray(choice) ? choice.map(String) : []);
+  return sourceAgents.filter((agent) => selected.has(agent.sourcePath));
 }
 
 async function resolveAgentConflict(options: {
