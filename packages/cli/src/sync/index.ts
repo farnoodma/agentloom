@@ -1,9 +1,10 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { confirm, isCancel } from "@clack/prompts";
+import { cancel, confirm, isCancel, multiselect } from "@clack/prompts";
 import TOML from "@iarna/toml";
 import YAML from "yaml";
+import { ALL_PROVIDERS } from "../types.js";
 import type {
   CanonicalAgent,
   AgentloomSettings,
@@ -65,7 +66,11 @@ export async function syncFromCanonical(
   };
   const settings = readSettings(options.paths.settingsPath);
 
-  const providers = resolveProviders(options.providers, settings);
+  const providers = await resolveProviders({
+    explicitProviders: options.providers,
+    settings,
+    nonInteractive: options.nonInteractive,
+  });
   const target = options.target ?? "all";
 
   const nextManifest: SyncManifest = {
@@ -179,6 +184,7 @@ export async function syncFromCanonical(
     updateLastScope(
       getGlobalSettingsPath(options.paths.homeDir),
       options.paths.scope,
+      providers,
     );
   }
 
@@ -189,19 +195,77 @@ export async function syncFromCanonical(
   };
 }
 
-function resolveProviders(
-  explicitProviders: Provider[] | undefined,
-  settings: AgentloomSettings,
+const PROVIDER_LABELS: Record<Provider, string> = {
+  cursor: "Cursor",
+  claude: "Claude",
+  codex: "Codex",
+  opencode: "OpenCode",
+  gemini: "Gemini",
+  copilot: "Copilot",
+};
+
+const MULTISELECT_HELP_TEXT = "↑↓ move, space select, enter confirm";
+
+function withMultiselectHelp(message: string): string {
+  return `${message}\n${MULTISELECT_HELP_TEXT}`;
+}
+
+async function resolveProviders(options: {
+  explicitProviders: Provider[] | undefined;
+  settings: AgentloomSettings;
+  nonInteractive: boolean | undefined;
+}): Promise<Provider[]> {
+  if (options.explicitProviders && options.explicitProviders.length > 0) {
+    return normalizeProviderSelection(options.explicitProviders);
+  }
+
+  const defaults = normalizeProviderSelection(
+    options.settings.defaultProviders,
+  );
+  const initialSelection = defaults.length > 0 ? defaults : [...ALL_PROVIDERS];
+  const nonInteractive =
+    options.nonInteractive ?? !(process.stdin.isTTY && process.stdout.isTTY);
+
+  if (nonInteractive) {
+    return initialSelection;
+  }
+
+  const selected = await multiselect<Provider>({
+    message: withMultiselectHelp("Select providers to sync"),
+    options: ALL_PROVIDERS.map((provider) => ({
+      value: provider,
+      label: PROVIDER_LABELS[provider],
+    })),
+    initialValues: initialSelection,
+    required: true,
+  });
+
+  if (isCancel(selected)) {
+    cancel("Operation cancelled.");
+    process.exit(1);
+  }
+
+  const normalized = normalizeProviderSelection(
+    Array.isArray(selected) ? selected : [],
+  );
+  if (normalized.length === 0) {
+    throw new Error("At least one provider must be selected.");
+  }
+
+  return normalized;
+}
+
+function normalizeProviderSelection(
+  providers: readonly string[] | undefined,
 ): Provider[] {
-  if (explicitProviders && explicitProviders.length > 0) {
-    return [...new Set(explicitProviders)];
+  const selected = new Set<Provider>();
+  for (const provider of providers ?? []) {
+    const normalized = provider.trim().toLowerCase() as Provider;
+    if (ALL_PROVIDERS.includes(normalized)) {
+      selected.add(normalized);
+    }
   }
-
-  if (settings.defaultProviders && settings.defaultProviders.length > 0) {
-    return [...new Set(settings.defaultProviders)];
-  }
-
-  return ["cursor", "claude", "codex", "opencode", "gemini", "copilot"];
+  return [...selected];
 }
 
 function syncProviderAgents(options: {

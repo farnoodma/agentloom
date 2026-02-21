@@ -1,6 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 import { readJsonIfExists, writeJsonAtomic } from "./fs.js";
+import { ALL_PROVIDERS } from "../types.js";
 import type {
   AgentloomSettings,
   Provider,
@@ -10,14 +11,7 @@ import type {
 
 const DEFAULT_SETTINGS: AgentloomSettings = {
   version: 1,
-  defaultProviders: [
-    "cursor",
-    "claude",
-    "codex",
-    "opencode",
-    "gemini",
-    "copilot",
-  ],
+  defaultProviders: [...ALL_PROVIDERS],
   telemetry: {
     enabled: true,
   },
