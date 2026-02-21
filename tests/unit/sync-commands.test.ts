@@ -67,4 +67,105 @@ describe("command sync", () => {
       ),
     ).toBe(true);
   });
+
+  it("removes stale command outputs when legacy manifest lacks generatedByEntity", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-home-"));
+    tempDirs.push(workspaceRoot, homeDir);
+
+    const commandsDir = path.join(workspaceRoot, ".agents", "commands");
+    ensureDir(commandsDir);
+    writeTextAtomic(
+      path.join(commandsDir, "review.md"),
+      `# /review\n\nReview active changes.\n`,
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local", homeDir);
+
+    await syncFromCanonical({
+      paths,
+      providers: ["cursor", "claude", "codex", "opencode", "gemini", "copilot"],
+      yes: true,
+      nonInteractive: true,
+    });
+
+    const manifestPath = path.join(
+      workspaceRoot,
+      ".agents",
+      ".sync-manifest.json",
+    );
+    const legacyManifest = JSON.parse(
+      fs.readFileSync(manifestPath, "utf8"),
+    ) as {
+      generatedByEntity?: unknown;
+      [key: string]: unknown;
+    };
+    delete legacyManifest.generatedByEntity;
+    fs.writeFileSync(
+      manifestPath,
+      `${JSON.stringify(legacyManifest, null, 2)}\n`,
+    );
+
+    fs.unlinkSync(path.join(commandsDir, "review.md"));
+
+    await syncFromCanonical({
+      paths,
+      providers: ["cursor", "claude", "codex", "opencode", "gemini", "copilot"],
+      yes: true,
+      nonInteractive: true,
+      target: "command",
+    });
+
+    expect(
+      fs.existsSync(
+        path.join(workspaceRoot, ".cursor", "commands", "review.md"),
+      ),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(workspaceRoot, ".claude", "commands", "review.md"),
+      ),
+    ).toBe(false);
+    expect(
+      fs.existsSync(path.join(homeDir, ".codex", "prompts", "review.md")),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(workspaceRoot, ".opencode", "commands", "review.md"),
+      ),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(workspaceRoot, ".gemini", "commands", "review.md"),
+      ),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(workspaceRoot, ".github", "prompts", "review.prompt.md"),
+      ),
+    ).toBe(false);
+
+    const migratedManifest = JSON.parse(
+      fs.readFileSync(manifestPath, "utf8"),
+    ) as {
+      generatedByEntity?: {
+        agent?: string[];
+        command?: string[];
+        mcp?: string[];
+      };
+    };
+    const commandEntries = migratedManifest.generatedByEntity?.command ?? [];
+    const agentEntries = migratedManifest.generatedByEntity?.agent ?? [];
+    const mcpEntries = migratedManifest.generatedByEntity?.mcp ?? [];
+
+    expect(commandEntries).toEqual([]);
+    expect(
+      agentEntries.some((filePath) => filePath.endsWith("/review.md")),
+    ).toBe(false);
+    expect(mcpEntries.some((filePath) => filePath.endsWith("/review.md"))).toBe(
+      false,
+    );
+  });
 });

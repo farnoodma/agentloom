@@ -161,4 +161,128 @@ describe("codex sync", () => {
       fs.existsSync(path.join(root, ".codex", "prompts", "triage.md")),
     ).toBe(false);
   });
+
+  it("removes stale codex agent entries when manifest codex metadata is missing", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-sync-"));
+    tempDirs.push(root);
+
+    const agentsDir = path.join(root, ".agents", "agents");
+    ensureDir(agentsDir);
+
+    const agentPath = path.join(agentsDir, "researcher.md");
+    writeTextAtomic(
+      agentPath,
+      `---\nname: researcher\ndescription: Research specialist\ncodex:\n  model: gpt-5.3-codex\n---\n\nInvestigate and summarize findings.\n`,
+    );
+
+    const paths = buildScopePaths(root, "local");
+
+    await syncFromCanonical({
+      paths,
+      providers: ["codex"],
+      yes: true,
+      nonInteractive: true,
+    });
+
+    const manifestPath = path.join(root, ".agents", ".sync-manifest.json");
+    const legacyManifest = JSON.parse(
+      fs.readFileSync(manifestPath, "utf8"),
+    ) as {
+      codex?: unknown;
+      [key: string]: unknown;
+    };
+    delete legacyManifest.codex;
+    fs.writeFileSync(
+      manifestPath,
+      `${JSON.stringify(legacyManifest, null, 2)}\n`,
+    );
+
+    fs.unlinkSync(agentPath);
+
+    await syncFromCanonical({
+      paths,
+      providers: ["codex"],
+      yes: true,
+      nonInteractive: true,
+      target: "agent",
+    });
+
+    const codexConfigPath = path.join(root, ".codex", "config.toml");
+    const codexConfig = TOML.parse(
+      fs.readFileSync(codexConfigPath, "utf8"),
+    ) as {
+      agents?: Record<string, unknown>;
+    };
+
+    expect(codexConfig.agents?.researcher).toBeUndefined();
+    expect(
+      fs.existsSync(path.join(root, ".codex", "agents", "researcher.toml")),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(root, ".codex", "agents", "researcher.instructions.md"),
+      ),
+    ).toBe(false);
+  });
+
+  it("removes stale codex mcp entries when manifest codex metadata is missing", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-sync-"));
+    tempDirs.push(root);
+
+    writeJsonAtomic(path.join(root, ".agents", "mcp.json"), {
+      version: 1,
+      mcpServers: {
+        browser: {
+          base: {
+            command: "npx",
+            args: ["browser-tools"],
+          },
+        },
+      },
+    });
+
+    const paths = buildScopePaths(root, "local");
+
+    await syncFromCanonical({
+      paths,
+      providers: ["codex"],
+      yes: true,
+      nonInteractive: true,
+    });
+
+    const manifestPath = path.join(root, ".agents", ".sync-manifest.json");
+    const legacyManifest = JSON.parse(
+      fs.readFileSync(manifestPath, "utf8"),
+    ) as {
+      codex?: unknown;
+      [key: string]: unknown;
+    };
+    delete legacyManifest.codex;
+    fs.writeFileSync(
+      manifestPath,
+      `${JSON.stringify(legacyManifest, null, 2)}\n`,
+    );
+
+    writeJsonAtomic(path.join(root, ".agents", "mcp.json"), {
+      version: 1,
+      mcpServers: {},
+    });
+
+    await syncFromCanonical({
+      paths,
+      providers: ["codex"],
+      yes: true,
+      nonInteractive: true,
+      target: "mcp",
+    });
+
+    const codexConfigPath = path.join(root, ".codex", "config.toml");
+    const codexConfig = TOML.parse(
+      fs.readFileSync(codexConfigPath, "utf8"),
+    ) as {
+      mcp_servers?: Record<string, unknown>;
+    };
+
+    expect(codexConfig.mcp_servers?.browser).toBeUndefined();
+  });
 });

@@ -59,6 +59,10 @@ export async function syncFromCanonical(
   const commands = parseCommandsDir(options.paths.commandsDir);
   const mcp = readCanonicalMcp(options.paths);
   const manifest = readManifest(options.paths);
+  const effectiveManifest: SyncManifest = {
+    ...manifest,
+    generatedByEntity: normalizeGeneratedByEntity(manifest),
+  };
   const settings = readSettings(options.paths.settingsPath);
 
   const providers = resolveProviders(options.providers, settings);
@@ -69,8 +73,8 @@ export async function syncFromCanonical(
     generatedFiles: [],
     generatedByEntity: {},
     codex: {
-      roles: [...(manifest.codex?.roles ?? [])],
-      mcpServers: [...(manifest.codex?.mcpServers ?? [])],
+      roles: [...(effectiveManifest.codex?.roles ?? [])],
+      mcpServers: [...(effectiveManifest.codex?.mcpServers ?? [])],
     },
   };
 
@@ -121,7 +125,7 @@ export async function syncFromCanonical(
         agents,
         resolvedMcp: resolveMcpForProvider(mcp, "codex"),
         generated: includeRoles ? generatedAgents : generatedMcp,
-        manifest,
+        manifest: effectiveManifest,
         nextManifest,
         dryRun: !!options.dryRun,
         includeRoles,
@@ -129,13 +133,13 @@ export async function syncFromCanonical(
       });
     } else {
       nextManifest.codex = {
-        roles: [...(manifest.codex?.roles ?? [])],
-        mcpServers: [...(manifest.codex?.mcpServers ?? [])],
+        roles: [...(effectiveManifest.codex?.roles ?? [])],
+        mcpServers: [...(effectiveManifest.codex?.mcpServers ?? [])],
       };
     }
   }
 
-  const previousByEntity = normalizeGeneratedByEntity(manifest);
+  const previousByEntity = normalizeGeneratedByEntity(effectiveManifest);
   const nextByEntity = {
     ...previousByEntity,
   };
@@ -604,10 +608,21 @@ function syncCodex(options: {
   parsed.features = features;
 
   const agentsTable = isObject(parsed.agents) ? { ...parsed.agents } : {};
+  const trackedRoles = resolveTrackedCodexEntries(
+    options.manifest.codex?.roles,
+    Object.keys(agentsTable),
+  );
+  const mcpServers = isObject(parsed.mcp_servers)
+    ? { ...parsed.mcp_servers }
+    : {};
+  const trackedServers = resolveTrackedCodexEntries(
+    options.manifest.codex?.mcpServers,
+    Object.keys(mcpServers),
+  );
 
-  let nextRoles = [...(options.manifest.codex?.roles ?? [])];
+  let nextRoles = [...trackedRoles];
   if (options.includeRoles) {
-    const previousRoles = new Set(options.manifest.codex?.roles ?? []);
+    const previousRoles = new Set(trackedRoles);
     nextRoles = [];
     const enabledCodexRoles = new Set(
       options.agents
@@ -656,12 +671,9 @@ function syncCodex(options: {
     parsed.agents = agentsTable;
   }
 
-  let nextServers = [...(options.manifest.codex?.mcpServers ?? [])];
+  let nextServers = [...trackedServers];
   if (options.includeMcp) {
-    const previousServers = new Set(options.manifest.codex?.mcpServers ?? []);
-    const mcpServers = isObject(parsed.mcp_servers)
-      ? { ...parsed.mcp_servers }
-      : {};
+    const previousServers = new Set(trackedServers);
 
     for (const oldServer of previousServers) {
       if (
@@ -695,6 +707,14 @@ function syncCodex(options: {
     roles: nextRoles.sort(),
     mcpServers: nextServers.sort(),
   };
+}
+
+function resolveTrackedCodexEntries(
+  trackedEntries: string[] | undefined,
+  fallbackEntries: string[],
+): string[] {
+  const tracked = Array.isArray(trackedEntries) ? trackedEntries : [];
+  return [...new Set([...tracked, ...fallbackEntries])].sort();
 }
 
 function buildCodexRoleToml(
@@ -838,12 +858,7 @@ function normalizeGeneratedByEntity(
 ): Partial<Record<EntityType, string[]>> {
   const source = manifest.generatedByEntity;
   if (!source || typeof source !== "object") {
-    return {
-      agent: [...manifest.generatedFiles],
-      command: [...manifest.generatedFiles],
-      mcp: [...manifest.generatedFiles],
-      skill: [],
-    };
+    return inferGeneratedByEntityFromLegacyFiles(manifest.generatedFiles);
   }
 
   return {
@@ -852,6 +867,86 @@ function normalizeGeneratedByEntity(
     mcp: Array.isArray(source.mcp) ? [...source.mcp] : [],
     skill: Array.isArray(source.skill) ? [...source.skill] : [],
   };
+}
+
+function inferGeneratedByEntityFromLegacyFiles(
+  generatedFiles: string[],
+): Partial<Record<EntityType, string[]>> {
+  const byEntity: Partial<Record<EntityType, string[]>> = {
+    agent: [],
+    command: [],
+    mcp: [],
+    skill: [],
+  };
+
+  for (const filePath of generatedFiles) {
+    for (const entity of classifyLegacyGeneratedFile(filePath)) {
+      byEntity[entity]?.push(filePath);
+    }
+  }
+
+  return pruneGeneratedByEntity(byEntity);
+}
+
+function classifyLegacyGeneratedFile(filePath: string): EntityType[] {
+  const normalized = toPosixPath(filePath).toLowerCase();
+
+  if (isLegacyCodexConfigPath(normalized)) {
+    return ["agent", "mcp"];
+  }
+
+  if (isLegacyCommandOutputPath(normalized)) {
+    return ["command"];
+  }
+
+  if (isLegacyAgentOutputPath(normalized)) {
+    return ["agent"];
+  }
+
+  if (isLegacyMcpOutputPath(normalized)) {
+    return ["mcp"];
+  }
+
+  // Preserve unknown generated paths during scoped syncs.
+  return ["agent", "command", "mcp"];
+}
+
+function isLegacyCommandOutputPath(normalizedPath: string): boolean {
+  return (
+    normalizedPath.includes("/.cursor/commands/") ||
+    normalizedPath.includes("/.claude/commands/") ||
+    normalizedPath.includes("/.opencode/commands/") ||
+    normalizedPath.includes("/.gemini/commands/") ||
+    normalizedPath.includes("/.github/prompts/") ||
+    normalizedPath.includes("/.codex/prompts/")
+  );
+}
+
+function isLegacyAgentOutputPath(normalizedPath: string): boolean {
+  return (
+    normalizedPath.includes("/.cursor/rules/") ||
+    normalizedPath.includes("/.claude/agents/") ||
+    normalizedPath.includes("/.opencode/agents/") ||
+    normalizedPath.includes("/.gemini/agents/") ||
+    normalizedPath.includes("/.github/agents/") ||
+    normalizedPath.includes("/.codex/agents/")
+  );
+}
+
+function isLegacyMcpOutputPath(normalizedPath: string): boolean {
+  return (
+    normalizedPath.endsWith("/.cursor/mcp.json") ||
+    normalizedPath.endsWith("/.mcp.json") ||
+    normalizedPath.endsWith("/.claude/settings.json") ||
+    normalizedPath.endsWith("/.opencode/opencode.json") ||
+    normalizedPath.endsWith("/.gemini/settings.json") ||
+    normalizedPath.endsWith("/.vscode/mcp.json") ||
+    normalizedPath.endsWith("/code/user/settings.json")
+  );
+}
+
+function isLegacyCodexConfigPath(normalizedPath: string): boolean {
+  return normalizedPath.endsWith("/.codex/config.toml");
 }
 
 function pruneGeneratedByEntity(
