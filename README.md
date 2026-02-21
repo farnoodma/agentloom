@@ -31,6 +31,15 @@ Project scope:
   commands/
     review.md
     ship.md
+  skills/
+    reviewing/
+      SKILL.md
+      references/
+      assets/
+    debugging/
+      SKILL.md
+      references/
+      assets/
   mcp.json
   agents.lock.json
   settings.local.json

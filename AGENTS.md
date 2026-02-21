@@ -22,7 +22,10 @@ Canonical layout (local scope):
   commands/
     *.md
   skills/
-    <skill>/SKILL.md
+    <skill>/
+      SKILL.md
+      references/
+      assets/
   mcp.json
   agents.lock.json
   settings.local.json
