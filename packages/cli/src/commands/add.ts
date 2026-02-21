@@ -7,7 +7,6 @@ import type { EntityType } from "../types.js";
 import {
   getEntitySelectors,
   getNonInteractiveMode,
-  markScopeAsUsed,
   resolvePathsForCommand,
   runPostMutationSync,
 } from "./entity-utils.js";
@@ -126,7 +125,6 @@ async function runEntityAwareAdd(options: {
       summary,
     });
 
-    markScopeAsUsed(paths);
     await runPostMutationSync({
       argv: options.argv,
       paths,

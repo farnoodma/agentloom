@@ -50,20 +50,17 @@ export async function resolveScope(
   if (options.global) return buildScopePaths(cwd, "global");
   if (options.local) return buildScopePaths(cwd, "local");
 
-  const hasLocalAgents = fs.existsSync(path.join(cwd, ".agents"));
-  if (!hasLocalAgents) {
-    return buildScopePaths(cwd, "global");
-  }
-
   const interactive =
     options.interactive ?? (process.stdin.isTTY && process.stdout.isTTY);
   if (!interactive) {
-    return buildScopePaths(cwd, "local");
+    return buildScopePaths(cwd, "global");
   }
+
+  const hasLocalAgents = fs.existsSync(path.join(cwd, ".agents"));
 
   const globalSettings = readSettings(getGlobalSettingsPath());
   const defaultScope =
-    globalSettings.lastScope === "global" ? "global" : "local";
+    globalSettings.lastScope === "local" ? "local" : "global";
 
   const selected = await select({
     message: "Choose scope for this command",
@@ -71,7 +68,13 @@ export async function resolveScope(
       {
         value: "local",
         label: ".agents in this repository",
-        hint: defaultScope === "local" ? "default" : undefined,
+        hint: hasLocalAgents
+          ? defaultScope === "local"
+            ? "default"
+            : undefined
+          : defaultScope === "local"
+            ? "default (creates .agents)"
+            : "creates .agents",
       },
       {
         value: "global",
