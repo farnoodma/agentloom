@@ -77,7 +77,7 @@ export interface ScopePaths {
   manifestPath: string;
 }
 
-export interface DotagentsSettings {
+export interface AgentloomSettings {
   version: 1;
   lastScope?: Scope;
   defaultProviders?: Provider[];
