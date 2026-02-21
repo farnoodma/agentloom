@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "defaultProviders": [
+    "cursor",
+    "claude",
+    "codex",
+    "opencode",
+    "gemini",
+    "copilot"
+  ],
+  "telemetry": {
+    "enabled": true
+  },
+  "lastScope": "local"
+}

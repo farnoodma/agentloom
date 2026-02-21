@@ -4,3 +4,10 @@ dist/
 *.log
 coverage/
 .vscode/
+
+.codex
+.claude
+.gemini
+.cursor
+.opencode
+.mcp.json
