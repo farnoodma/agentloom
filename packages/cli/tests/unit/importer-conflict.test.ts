@@ -98,6 +98,7 @@ describe("import source conflict handling", () => {
     expect(promptMocks.multiselect).toHaveBeenCalledTimes(1);
     expect(promptMocks.multiselect).toHaveBeenCalledWith(
       expect.objectContaining({
+        message: expect.stringContaining("space select"),
         initialValues: [
           path.join(sourceRoot, "agents", "issue-creator.md"),
           path.join(sourceRoot, "agents", "reviewer.md"),
