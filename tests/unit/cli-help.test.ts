@@ -14,6 +14,7 @@ describe("cli help routing", () => {
     const output = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
     expect(output).toContain("agentloom <command> [options]");
     expect(output).toContain("Commands:");
+    expect(output).toContain("find <query>");
   });
 
   it("prints mcp help without requiring scope resolution", async () => {
