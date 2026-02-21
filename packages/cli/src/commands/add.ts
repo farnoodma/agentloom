@@ -2,6 +2,7 @@ import type { ParsedArgs } from "minimist";
 import { parseProvidersFlag, parseSelectionModeFlag } from "../core/argv.js";
 import { formatUsageError, getAddHelpText } from "../core/copy.js";
 import { importSource, NonInteractiveConflictError } from "../core/importer.js";
+import { sendAddTelemetryEvent } from "../core/telemetry.js";
 import type { EntityType } from "../types.js";
 import {
   getEntitySelectors,
@@ -119,6 +120,11 @@ async function runEntityAwareAdd(options: {
     console.log(`Imported commands: ${summary.importedCommands.length}`);
     console.log(`Imported MCP servers: ${summary.importedMcpServers.length}`);
     console.log(`Imported skills: ${summary.importedSkills.length}`);
+
+    await sendAddTelemetryEvent({
+      rawSource: source,
+      summary,
+    });
 
     markScopeAsUsed(paths);
     await runPostMutationSync({
