@@ -40,155 +40,56 @@ Global scope uses `~/.agents` with the same file layout.
 
 ## Commands
 
-### `agentloom skills ...`
+### Aggregate verbs
 
-Pass-through wrapper to `npx skills ...` from
-[`vercel-labs/skills`](https://github.com/vercel-labs/skills).
+- `agentloom add <source>`
+- `agentloom find <query>`
+- `agentloom update [source]`
+- `agentloom sync`
+- `agentloom delete <source|name>`
 
-### `agentloom find <query>`
-Search public repositories for installable agents.
+Aggregate `add` imports discoverable entities from a source (agents, commands, MCP servers, skills). In interactive sessions, each entity supports two tracking modes:
+
+- `Sync everything from source` (default): updates include newly added source items.
+- `Use custom selection`: updates stay pinned to the selected items, even if all current items were selected.
+
+### Entity verbs
+
+- `agentloom agent <add|list|delete|find|update|sync>`
+- `agentloom command <add|list|delete|find|update|sync>`
+- `agentloom mcp <add|list|delete|find|update|sync>`
+- `agentloom skill <add|list|delete|find|update|sync>`
+
+### Selector flags
+
+- `--agents <csv>`
+- `--commands <csv>`
+- `--mcps <csv>`
+- `--skills <csv>`
+- `--selection-mode <all|sync-all|custom>`
+- `--source <value>`
+- `--name <value>`
+- `--entity <agent|command|mcp|skill>`
+
+### MCP manual server mode
+
+Source-based MCP import lives under `agentloom mcp add ...`.
+Manual server management is under:
+
+- `agentloom mcp server add <name> (--url <url> | --command <cmd>)`
+- `agentloom mcp server list`
+- `agentloom mcp server delete <name>`
 
 Examples:
-
-```bash
-# Query search
-agentloom find react reviewer
-```
-
-### `agentloom add <source>`
-
-Import canonical agents/commands/MCP from:
-
-- local repo path
-- GitHub slug (`owner/repo`)
-- generic git URL
-
-Options:
-
-- `--ref <ref>`: git ref (branch/tag/commit) for remote sources
-- `--subdir <path>`: subdirectory inside source repo
-- `--agent <name>`: import only selected agents (repeatable or comma-separated)
-- `--rename <name>`: rename imported agent when importing a single agent
-- `--local | --global`: choose destination scope
-- `--yes`: skip interactive conflict prompts
-- `--no-sync`: skip post-import sync
-- `--providers <csv>`: limit post-import sync providers
-- `--dry-run`: show sync changes without writing provider files
-
-Example:
 
 ```bash
 agentloom add farnoodma/agents
-agentloom add farnoodma/agents --agent issue-creator
-```
-
-Interactive mode (TTY) prompts with a selectable agent list when `--agent` is not provided.
-
-### `agentloom update`
-
-Refresh lockfile sources (`agents.lock.json`) and re-import changed revisions.
-
-Options:
-
-- `--local | --global`: choose lockfile scope
-- `--yes`: skip conflict prompts during re-import
-- `--no-sync`: skip post-update sync
-- `--providers <csv>`: limit post-update sync providers
-- `--dry-run`: show sync changes without writing provider files
-
-### `agentloom sync`
-
-Generate provider-specific outputs from canonical `.agents` data.
-
-Options:
-
-- `--local | --global`: choose canonical scope
-- `--providers <csv>`: limit sync providers
-- `--yes`: auto-delete stale generated files
-- `--dry-run`: show planned changes without writing files
-
-Example:
-
-```bash
-agentloom sync --providers codex,claude,cursor
-```
-
-### `agentloom mcp add|list|delete`
-
-Manage canonical MCP servers in `.agents/mcp.json`.
-
-`mcp add` options:
-
-- `--url <url>` or `--command <cmd>`: required transport config
-- `--arg <value>`: repeatable command arg
-- `--env KEY=VALUE`: repeatable environment variable
-- `--providers <csv>`: provider-specific assignment
-- `--local | --global`: choose canonical scope
-- `--no-sync`: skip post-change sync
-
-`mcp list` options:
-
-- `--json`: print raw canonical JSON
-- `--local | --global`: choose canonical scope
-
-`mcp delete` options:
-
-- `--local | --global`: choose canonical scope
-- `--no-sync`: skip post-change sync
-
-Examples:
-
-```bash
-agentloom mcp add browser-tools --command npx --arg browser-tools-mcp
-agentloom mcp list
-agentloom mcp delete browser-tools
-```
-
-### `agentloom command add|list|delete`
-
-Manage canonical command files in `.agents/commands`.
-
-`command add` imports command files from a source repository using the same
-source parsing as `agentloom add`:
-
-- local repo path
-- GitHub slug (`owner/repo`)
-- generic git URL
-
-`command add` options:
-
-- `--command <name>`: repeatable command selector (name or filename)
-- `--ref <ref>`: git ref (branch/tag/commit) for remote sources
-- `--subdir <path>`: subdirectory inside source repo
-- `--rename <name>`: rename imported command for single-command imports
-- `--local | --global`: choose canonical scope
-- `--yes`: skip conflict prompts
-- `--no-sync`: skip post-import sync
-- `--providers <csv>`: limit post-import sync providers
-- `--dry-run`: show sync changes without writing provider files
-
-Behavior:
-
-- without `--command`, interactive sessions show all source commands in a multi-select prompt
-- all commands are selected by default in that prompt
-- in non-interactive mode without `--command`, all commands are imported
-
-`command list` options:
-
-- `--json`: print raw canonical JSON
-- `--local | --global`: choose canonical scope
-
-`command delete` options:
-
-- `--local | --global`: choose canonical scope
-- `--no-sync`: skip post-change sync
-
-Examples:
-
-```bash
-agentloom command add farnoodma/agents --command review
-agentloom command list
-agentloom command delete review
+agentloom agent add farnoodma/agents --agents issue-creator
+agentloom command add farnoodma/agents --commands review
+agentloom mcp add farnoodma/agents --mcps browser
+agentloom skill add farnoodma/agents --skills pr-review
+agentloom delete farnoodma/agents
+agentloom mcp server add browser-tools --command npx --arg browser-tools-mcp
 ```
 
 ### Top-level help
@@ -199,10 +100,14 @@ agentloom find --help
 agentloom add --help
 agentloom update --help
 agentloom sync --help
+agentloom delete --help
+agentloom agent --help
+agentloom skill --help
 agentloom command --help
 agentloom command add --help
 agentloom mcp --help
 agentloom mcp add --help
+agentloom mcp server --help
 ```
 
 ### Version update notice

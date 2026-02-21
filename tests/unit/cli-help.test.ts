@@ -12,8 +12,8 @@ describe("cli help routing", () => {
     await runCli(["--help"]);
 
     const output = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
-    expect(output).toContain("agentloom <command> [options]");
-    expect(output).toContain("Commands:");
+    expect(output).toContain("agentloom <aggregate-command> [options]");
+    expect(output).toContain("Aggregate commands:");
     expect(output).toContain("find <query>");
   });
 
@@ -23,8 +23,10 @@ describe("cli help routing", () => {
     await runCli(["mcp", "--help"]);
 
     const output = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
-    expect(output).toContain("agentloom mcp <command> [options]");
-    expect(output).toContain("add <name>");
+    expect(output).toContain(
+      "agentloom mcp <add|list|delete|find|update|sync> [options]",
+    );
+    expect(output).toContain("mcp server <add|list|delete>");
   });
 
   it("prints mcp add help", async () => {
@@ -34,7 +36,7 @@ describe("cli help routing", () => {
 
     const output = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
     expect(output).toContain(
-      "agentloom mcp add <name> (--url <url> | --command <cmd>)",
+      "agentloom mcp server add <name> (--url <url> | --command <cmd>)",
     );
   });
 
@@ -44,8 +46,10 @@ describe("cli help routing", () => {
     await runCli(["command", "--help"]);
 
     const output = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
-    expect(output).toContain("agentloom command <command> [options]");
-    expect(output).toContain("add <source>");
+    expect(output).toContain(
+      "agentloom command <add|list|delete|find|update|sync> [options]",
+    );
+    expect(output).toContain("Manage canonical command entities.");
   });
 
   it("prints command add help", async () => {

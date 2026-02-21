@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { runCommandCommand } from "../../src/commands/command.js";
+import { runMcpCommand } from "../../src/commands/mcp.js";
 import { runUpdateCommand } from "../../src/commands/update.js";
 import { parseArgs } from "../../src/core/argv.js";
 import {
@@ -112,6 +113,135 @@ describe("importSource command-only local", () => {
     ).toBe(true);
     expect(
       fs.existsSync(path.join(workspaceRoot, ".agents", "commands", "ship.md")),
+    ).toBe(false);
+  });
+
+  it("sync-all command imports include newly added source commands on update", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "commands"));
+    writeTextAtomic(
+      path.join(sourceRoot, "commands", "review.md"),
+      `# /review\n\nReview command v1.\n`,
+    );
+    initGitRepo(sourceRoot);
+    commitAll(sourceRoot, "initial");
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: false,
+      importCommands: true,
+      requireCommands: true,
+      importMcp: false,
+    });
+
+    const lockBeforeUpdate = readJsonIfExists<AgentsLockFile>(
+      path.join(workspaceRoot, ".agents", "agents.lock.json"),
+    );
+    expect(
+      lockBeforeUpdate?.entries[0]?.selectedSourceCommands,
+    ).toBeUndefined();
+
+    writeTextAtomic(
+      path.join(sourceRoot, "commands", "ship.md"),
+      `# /ship\n\nShip command v1.\n`,
+    );
+    commitAll(sourceRoot, "add-ship");
+
+    await runUpdateCommand(
+      parseArgs(["update", "--local", "--yes", "--no-sync"]),
+      workspaceRoot,
+    );
+
+    expect(
+      fs.existsSync(
+        path.join(workspaceRoot, ".agents", "commands", "review.md"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(workspaceRoot, ".agents", "commands", "ship.md")),
+    ).toBe(true);
+
+    const lockAfterUpdate = readJsonIfExists<AgentsLockFile>(
+      path.join(workspaceRoot, ".agents", "agents.lock.json"),
+    );
+    expect(lockAfterUpdate?.entries[0]?.selectedSourceCommands).toBeUndefined();
+    expect(
+      [...(lockAfterUpdate?.entries[0]?.importedCommands ?? [])].sort(),
+    ).toEqual(["commands/review.md", "commands/ship.md"]);
+  });
+
+  it("custom selection mode pins command imports even when all current commands are selected", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "commands"));
+    writeTextAtomic(
+      path.join(sourceRoot, "commands", "review.md"),
+      `# /review\n`,
+    );
+    writeTextAtomic(path.join(sourceRoot, "commands", "ship.md"), `# /ship\n`);
+    initGitRepo(sourceRoot);
+    commitAll(sourceRoot, "initial");
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: false,
+      importCommands: true,
+      requireCommands: true,
+      importMcp: false,
+      selectionMode: "custom",
+    });
+
+    const lockBeforeUpdate = readJsonIfExists<AgentsLockFile>(
+      path.join(workspaceRoot, ".agents", "agents.lock.json"),
+    );
+    expect(
+      [...(lockBeforeUpdate?.entries[0]?.selectedSourceCommands ?? [])].sort(),
+    ).toEqual(["review.md", "ship.md"]);
+
+    writeTextAtomic(
+      path.join(sourceRoot, "commands", "triage.md"),
+      `# /triage\n\nTriage command.\n`,
+    );
+    commitAll(sourceRoot, "add-triage");
+
+    await runUpdateCommand(
+      parseArgs(["update", "--local", "--yes", "--no-sync"]),
+      workspaceRoot,
+    );
+
+    expect(
+      fs.existsSync(
+        path.join(workspaceRoot, ".agents", "commands", "review.md"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(workspaceRoot, ".agents", "commands", "ship.md")),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(workspaceRoot, ".agents", "commands", "triage.md"),
+      ),
     ).toBe(false);
   });
 
@@ -303,6 +433,67 @@ describe("importSource command-only local", () => {
     ).toBe(false);
   });
 
+  it("preserves existing skills agent targets on command-only imports", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "commands"));
+    writeTextAtomic(
+      path.join(sourceRoot, "commands", "review.md"),
+      `# /review\n\nCommand v1.\n`,
+    );
+    initGitRepo(sourceRoot);
+    commitAll(sourceRoot, "initial");
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    writeJsonAtomic(path.join(workspaceRoot, ".agents", "agents.lock.json"), {
+      version: 1,
+      entries: [
+        {
+          source: sourceRoot,
+          sourceType: "local",
+          resolvedCommit: "seed",
+          importedAt: "2026-01-01T00:00:00.000Z",
+          importedAgents: [],
+          importedCommands: [],
+          importedMcpServers: [],
+          importedSkills: ["code-review"],
+          selectedSourceSkills: ["code-review"],
+          skillsAgentTargets: ["codex"],
+          trackedEntities: ["skill"],
+          contentHash: "seed-hash",
+        },
+      ],
+    });
+
+    await runCommandCommand(
+      parseArgs([
+        "command",
+        "add",
+        sourceRoot,
+        "--local",
+        "--yes",
+        "--no-sync",
+        "--commands",
+        "review",
+      ]),
+      workspaceRoot,
+    );
+
+    const lock = readJsonIfExists<AgentsLockFile>(
+      path.join(workspaceRoot, ".agents", "agents.lock.json"),
+    );
+    expect(lock?.entries).toHaveLength(1);
+    expect(lock?.entries[0]?.importedSkills).toEqual(["code-review"]);
+    expect(lock?.entries[0]?.selectedSourceSkills).toEqual(["code-review"]);
+    expect(lock?.entries[0]?.skillsAgentTargets).toEqual(["codex"]);
+  });
+
   it("command delete updates lock tracking so update does not re-import deleted commands", async () => {
     const sourceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "agentloom-source-"),
@@ -363,6 +554,126 @@ describe("importSource command-only local", () => {
         path.join(workspaceRoot, ".agents", "commands", "review.md"),
       ),
     ).toBe(false);
+  });
+
+  it("command delete keeps remaining sync-all commands pinned for update", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "commands"));
+    writeTextAtomic(path.join(sourceRoot, "commands", "a.md"), `# /a\nA1\n`);
+    writeTextAtomic(path.join(sourceRoot, "commands", "b.md"), `# /b\nB1\n`);
+    initGitRepo(sourceRoot);
+    commitAll(sourceRoot, "initial");
+
+    await runCommandCommand(
+      parseArgs([
+        "command",
+        "add",
+        sourceRoot,
+        "--local",
+        "--yes",
+        "--no-sync",
+      ]),
+      workspaceRoot,
+    );
+    await runCommandCommand(
+      parseArgs(["command", "delete", "a", "--local", "--no-sync"]),
+      workspaceRoot,
+    );
+
+    const lockAfterDelete = readJsonIfExists<AgentsLockFile>(
+      path.join(workspaceRoot, ".agents", "agents.lock.json"),
+    );
+    expect(lockAfterDelete?.entries).toHaveLength(1);
+    expect(lockAfterDelete?.entries[0]?.selectedSourceCommands).toEqual([
+      "b.md",
+    ]);
+
+    writeTextAtomic(path.join(sourceRoot, "commands", "a.md"), `# /a\nA2\n`);
+    writeTextAtomic(path.join(sourceRoot, "commands", "b.md"), `# /b\nB2\n`);
+    commitAll(sourceRoot, "update");
+
+    await runUpdateCommand(
+      parseArgs(["update", "--local", "--yes", "--no-sync"]),
+      workspaceRoot,
+    );
+
+    expect(
+      fs.existsSync(path.join(workspaceRoot, ".agents", "commands", "a.md")),
+    ).toBe(false);
+    expect(
+      fs.existsSync(path.join(workspaceRoot, ".agents", "commands", "b.md")),
+    ).toBe(true);
+
+    const bContent = fs.readFileSync(
+      path.join(workspaceRoot, ".agents", "commands", "b.md"),
+      "utf8",
+    );
+    expect(bContent).toContain("B2");
+  });
+
+  it("mcp delete keeps remaining sync-all servers pinned for update", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    writeJsonAtomic(path.join(sourceRoot, "mcp.json"), {
+      version: 1,
+      mcpServers: {
+        alpha: {
+          command: "node",
+          args: ["alpha"],
+        },
+        beta: {
+          command: "node",
+          args: ["beta"],
+        },
+      },
+    });
+    initGitRepo(sourceRoot);
+    commitAll(sourceRoot, "initial");
+
+    await runMcpCommand(
+      parseArgs(["mcp", "add", sourceRoot, "--local", "--yes", "--no-sync"]),
+      workspaceRoot,
+    );
+    await runMcpCommand(
+      parseArgs(["mcp", "delete", "beta", "--local", "--no-sync"]),
+      workspaceRoot,
+    );
+
+    const lockAfterDelete = readJsonIfExists<AgentsLockFile>(
+      path.join(workspaceRoot, ".agents", "agents.lock.json"),
+    );
+    expect(lockAfterDelete?.entries).toHaveLength(1);
+    expect(lockAfterDelete?.entries[0]?.selectedSourceMcpServers).toEqual([
+      "alpha",
+    ]);
+
+    writeTextAtomic(path.join(sourceRoot, "README.md"), "update\n");
+    commitAll(sourceRoot, "update");
+
+    await runUpdateCommand(
+      parseArgs(["update", "--local", "--yes", "--no-sync"]),
+      workspaceRoot,
+    );
+
+    const mcpAfterUpdate = readJsonIfExists<{
+      mcpServers?: Record<string, unknown>;
+    }>(path.join(workspaceRoot, ".agents", "mcp.json"));
+    expect(Object.keys(mcpAfterUpdate?.mcpServers ?? {}).sort()).toEqual([
+      "alpha",
+    ]);
   });
 
   it("command delete does not break renamed selectors for other sources", async () => {
@@ -693,6 +1004,8 @@ function commitAll(root: string, message: string): void {
     "user.name=Test User",
     "-c",
     "user.email=test@example.com",
+    "-c",
+    "commit.gpgsign=false",
     "commit",
     "-qm",
     message,

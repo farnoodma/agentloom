@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseArgs } from "../../src/core/argv.js";
+import { parseArgs, parseSelectionModeFlag } from "../../src/core/argv.js";
 
 describe("parseArgs", () => {
   it("normalizes --no-sync to no-sync=true", () => {
@@ -15,5 +15,17 @@ describe("parseArgs", () => {
   it("keeps no-sync false when not provided", () => {
     const parsed = parseArgs(["add", "source"]);
     expect(parsed["no-sync"]).toBe(false);
+  });
+
+  it("parses selection mode aliases", () => {
+    expect(parseSelectionModeFlag("all")).toBe("all");
+    expect(parseSelectionModeFlag("sync-all")).toBe("all");
+    expect(parseSelectionModeFlag("custom")).toBe("custom");
+  });
+
+  it("rejects invalid selection mode values", () => {
+    expect(() => parseSelectionModeFlag("pinned")).toThrow(
+      "Unknown selection mode",
+    );
   });
 });

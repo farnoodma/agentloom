@@ -47,6 +47,7 @@ function createScopePaths(root = "/tmp/agentloom"): ScopePaths {
     agentsRoot: `${root}/.agents`,
     agentsDir: `${root}/.agents/agents`,
     commandsDir: `${root}/.agents/commands`,
+    skillsDir: `${root}/.agents/skills`,
     mcpPath: `${root}/.agents/mcp.json`,
     lockPath: `${root}/.agents/agents.lock.json`,
     settingsPath: `${root}/.agents/settings.local.json`,
@@ -69,6 +70,7 @@ function createLockfile(): AgentsLockFile {
         importedAgents: ["agents/issue-creator.md"],
         importedCommands: [],
         importedMcpServers: [],
+        importedSkills: [],
         contentHash: "hash",
       },
     ],
@@ -107,6 +109,7 @@ describe("runUpdateCommand", () => {
       importedAgents: ["agents/issue-creator.md"],
       importedCommands: [],
       importedMcpServers: [],
+      importedSkills: [],
       resolvedCommit: "new-commit",
     });
 
@@ -124,22 +127,24 @@ describe("runUpdateCommand", () => {
       interactive: !nonInteractive,
     });
     expect(commandMocks.importSource).toHaveBeenCalledTimes(1);
-    expect(commandMocks.importSource).toHaveBeenCalledWith({
-      source: "farnoodma/agents",
-      ref: "main",
-      subdir: "packages/agents",
-      agents: ["issue-creator", "reviewer"],
-      promptForAgentSelection: false,
-      yes: false,
-      nonInteractive,
-      paths,
-      importAgents: true,
-      importCommands: true,
-      requireCommands: false,
-      importMcp: true,
-      commandSelectors: undefined,
-      commandRenameMap: undefined,
-    });
+    expect(commandMocks.importSource).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "farnoodma/agents",
+        ref: "main",
+        subdir: "packages/agents",
+        agents: ["issue-creator", "reviewer"],
+        promptForAgentSelection: false,
+        promptForCommands: false,
+        promptForMcp: false,
+        promptForSkills: false,
+        yes: false,
+        nonInteractive,
+        paths,
+        importAgents: true,
+        importCommands: true,
+        importMcp: true,
+      }),
+    );
     expect(cleanup).toHaveBeenCalledTimes(1);
 
     const output = logSpy.mock.calls.map((call) => String(call[0])).join("\n");

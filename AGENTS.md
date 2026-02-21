@@ -19,6 +19,10 @@ Canonical layout (local scope):
 .agents/
   agents/
     *.md
+  commands/
+    *.md
+  skills/
+    <skill>/SKILL.md
   mcp.json
   agents.lock.json
   settings.local.json
@@ -31,11 +35,12 @@ Global scope uses `~/.agents` with the same canonical files.
 
 | Command | Description |
 | --- | --- |
-| `agentloom skills ...` | Pass-through to `npx skills ...` from `vercel-labs/skills` |
-| `agentloom add <source>` | Import canonical agents/MCP from local path, GitHub slug, or git URL |
-| `agentloom update` | Refresh lockfile-managed sources and re-import changed revisions |
-| `agentloom sync` | Generate provider-native agent and MCP outputs |
-| `agentloom mcp add|list|delete` | Manage canonical MCP servers in `.agents/mcp.json` |
+| `agentloom add|find|update|sync|delete` | Aggregate operations across agents/commands/mcp/skills |
+| `agentloom agent <add|list|delete|find|update|sync>` | Entity-scoped agent operations |
+| `agentloom command <add|list|delete|find|update|sync>` | Entity-scoped command operations |
+| `agentloom mcp <add|list|delete|find|update|sync>` | Entity-scoped MCP import/update/search/sync |
+| `agentloom mcp server <add|list|delete>` | Manual MCP server editing in canonical `mcp.json` |
+| `agentloom skill <add|list|delete|find|update|sync>` | Entity-scoped skill operations |
 
 Common options across mutating commands:
 
@@ -52,10 +57,14 @@ src/
   cli.ts                   # Command routing + version/update notifier trigger
   commands/
     add.ts                 # add command flow
+    agent.ts               # agent entity command flow
+    delete.ts              # aggregate/entity delete flow
     update.ts              # update command flow using lockfile entries
     sync.ts                # sync command flow
-    mcp.ts                 # mcp add/list/delete command flow
-    skills.ts              # npx skills passthrough
+    command.ts             # command entity command flow
+    mcp.ts                 # mcp entity + mcp server command flow
+    skills.ts              # skill entity command flow
+    entity-utils.ts        # shared entity command helpers
   core/
     argv.ts                # flag parsing helpers
     copy.ts                # help/usage strings
@@ -64,6 +73,8 @@ src/
     importer.ts            # import + conflict handling + lockfile update
     agents.ts              # markdown/frontmatter parsing + provider config extraction
     mcp.ts                 # canonical MCP read/write + provider resolution
+    router.ts              # CLI grammar parser (aggregate/entity/mcp server)
+    skills.ts              # skills parsing + npx skills execution helpers
     lockfile.ts            # agents.lock.json read/write
     manifest.ts            # .sync-manifest.json read/write
     settings.ts            # settings.local.json + global settings
@@ -89,7 +100,7 @@ tests/
 ### Source import expectations (`add` / `update`)
 
 1. Source parsing supports local paths, GitHub slugs, and git URLs.
-2. Source discovery expects `agents/` or `.agents/agents/`.
+2. Source discovery supports entity directories: `agents/`, `commands/`, `skills/` (and `.agents/*` equivalents).
 3. MCP discovery checks `.agents/mcp.json` first, then `mcp.json`.
 4. Imports update `.agents/agents.lock.json` with resolved commit and imported items.
 5. In non-interactive mode, unresolved conflicts must fail with actionable guidance unless `--yes` is set.
@@ -105,6 +116,7 @@ tests/
 
 - Sync always starts from canonical `.agents` inputs.
 - Provider-specific files are generated and tracked in `.agents/.sync-manifest.json`.
+- Entity-targeted syncs must preserve untouched entity outputs via manifest merge.
 - Stale generated files are removed based on manifest diff (with prompt unless `--yes` or non-interactive).
 - Codex sync is special: it updates `.codex/config.toml`, enables `features.multi_agent = true`, and writes role TOML + instruction files under `.codex/agents/`.
 
@@ -126,7 +138,7 @@ pnpm build
 # Run CLI from source
 pnpm dev -- --help
 pnpm dev -- add farnoodma/agents
-pnpm dev -- add farnoodma/agents --agent issue-creator
+pnpm dev -- agent add farnoodma/agents --agents issue-creator
 ```
 
 CI uses Node 22 and `pnpm@10.17.1`.

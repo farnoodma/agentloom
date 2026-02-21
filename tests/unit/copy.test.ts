@@ -13,12 +13,14 @@ import {
 describe("copy helpers", () => {
   it("renders root help with command list and common flags", () => {
     const help = getRootHelpText();
-    expect(help).toContain("agentloom <command> [options]");
-    expect(help).toContain("command <add|list|delete>");
+    expect(help).toContain("agentloom <aggregate-command> [options]");
+    expect(help).toContain("command <add|list|delete|find|update|sync>");
     expect(help).toContain("find <query>");
-    expect(help).toContain("mcp <add|list|delete>");
+    expect(help).toContain("mcp <add|list|delete|find|update|sync>");
+    expect(help).toContain("mcp server <add|list|delete>");
     expect(help).toContain("--no-sync");
     expect(help).toContain("--providers <csv>");
+    expect(help).toContain("--selection-mode <mode>");
   });
 
   it("renders actionable usage errors", () => {
@@ -43,23 +45,24 @@ describe("copy helpers", () => {
 
   it("exposes mcp help topics", () => {
     expect(getCommandHelpText()).toContain(
-      "agentloom command <command> [options]",
+      "agentloom command <add|list|delete|find|update|sync> [options]",
     );
     expect(getCommandAddHelpText()).toContain(
       "agentloom command add <source> [options]",
     );
-    expect(getCommandAddHelpText()).toContain("--command <name>");
-    expect(getMcpHelpText()).toContain("agentloom mcp <command> [options]");
+    expect(getCommandAddHelpText()).toContain("--commands <name>");
+    expect(getMcpHelpText()).toContain(
+      "agentloom mcp <add|list|delete|find|update|sync> [options]",
+    );
     expect(getMcpAddHelpText()).toContain(
-      "agentloom mcp add <name> (--url <url> | --command <cmd>)",
+      "agentloom mcp server add <name> (--url <url> | --command <cmd>)",
     );
   });
 
   it("includes targeted add import help", () => {
     const help = getAddHelpText();
-    expect(help).toContain("--agent <name>");
-    expect(help).toContain(
-      "agentloom add farnoodma/agents --agent issue-creator",
-    );
+    expect(help).toContain("--agents <name>");
+    expect(help).toContain("--selection-mode <mode>");
+    expect(help).toContain("agentloom add farnoodma/agents --providers");
   });
 });

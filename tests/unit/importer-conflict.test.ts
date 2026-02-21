@@ -75,6 +75,7 @@ describe("import source conflict handling", () => {
       paths,
       yes: false,
       nonInteractive: false,
+      selectionMode: "custom",
     });
 
     expect(promptMocks.multiselect).toHaveBeenCalledTimes(1);
@@ -195,6 +196,7 @@ describe("import source conflict handling", () => {
       paths,
       yes: false,
       nonInteractive: false,
+      selectionMode: "custom",
     });
 
     expect(promptMocks.select).toHaveBeenCalledTimes(2);
