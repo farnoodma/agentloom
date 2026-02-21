@@ -1,0 +1,60 @@
+{
+  "name": "agentloom",
+  "version": "0.1.0",
+  "description": "Unified agent and MCP sync CLI for multi-provider AI tooling",
+  "type": "module",
+  "bin": {
+    "agentloom": "bin/cli.mjs"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "README.md",
+    "LICENSE",
+    "ThirdPartyNoticeText.txt"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "format": "prettier --no-editorconfig --write \"src/**/*.ts\" \"tests/**/*.ts\"",
+    "format:check": "prettier --no-editorconfig --check \"src/**/*.ts\" \"tests/**/*.ts\"",
+    "type-check": "tsc --noEmit",
+    "check": "pnpm format:check && pnpm type-check && pnpm test",
+    "prepublishOnly": "pnpm build"
+  },
+  "keywords": [
+    "agents",
+    "ai",
+    "codex",
+    "claude",
+    "cursor",
+    "gemini",
+    "copilot",
+    "mcp"
+  ],
+  "repository": {
+    "type": "git"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.11.0",
+    "@iarna/toml": "^2.2.5",
+    "gray-matter": "^4.0.3",
+    "minimist": "^1.2.8",
+    "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "@types/minimist": "^1.2.5",
+    "@types/node": "^22.13.0",
+    "prettier": "^3.5.3",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.5"
+  },
+  "packageManager": "pnpm@10.17.1"
+}

@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This file provides guidance to AI coding agents working on the `agentloom` CLI codebase.
+This file provides guidance to AI coding agents working on the `agentloom` monorepo.
 
 ## Project Overview
 
@@ -56,46 +56,22 @@ Common options across mutating commands:
 ## Architecture
 
 ```text
-src/
-  cli.ts                   # Command routing + version/update notifier trigger
-  commands/
-    add.ts                 # add command flow
-    agent.ts               # agent entity command flow
-    delete.ts              # aggregate/entity delete flow
-    update.ts              # update command flow using lockfile entries
-    sync.ts                # sync command flow
-    command.ts             # command entity command flow
-    mcp.ts                 # mcp entity + mcp server command flow
-    skills.ts              # skill entity command flow
-    entity-utils.ts        # shared entity command helpers
-  core/
-    argv.ts                # flag parsing helpers
-    copy.ts                # help/usage strings
-    scope.ts               # local/global scope resolution
-    sources.ts             # source detection + clone/local prep
-    importer.ts            # import + conflict handling + lockfile update
-    agents.ts              # markdown/frontmatter parsing + provider config extraction
-    mcp.ts                 # canonical MCP read/write + provider resolution
-    router.ts              # CLI grammar parser (aggregate/entity/mcp server)
-    skills.ts              # skills parsing + npx skills execution helpers
-    lockfile.ts            # agents.lock.json read/write
-    manifest.ts            # .sync-manifest.json read/write
-    settings.ts            # settings.local.json + global settings
-    version.ts             # CLI version lookup
-    version-notifier.ts    # npm update hint cache + lookup
-    fs.ts                  # filesystem utilities
-  sync/
-    index.ts               # provider file generation + stale cleanup
-  types.ts                 # shared types and provider list
+packages/cli/
+  src/
+    cli.ts                 # Command routing + version/update notifier trigger
+    commands/
+    core/
+    sync/
+    types.ts
+  tests/
+    integration/
+    unit/
 
-tests/
-  integration/import-local.test.ts
-  unit/agents.test.ts
-  unit/cli-help.test.ts
-  unit/copy.test.ts
-  unit/mcp.test.ts
-  unit/sync-codex.test.ts
-  unit/version-notifier.test.ts
+apps/web/
+  src/app/                 # Next.js App Router pages + API routes
+  src/server/db/           # Drizzle schema, ingestion, and leaderboard queries
+  src/server/github/       # GitHub source content fetchers
+  drizzle/                 # SQL migrations
 ```
 
 ## Core Behaviors To Preserve
@@ -135,13 +111,15 @@ pnpm check
 # Run tests only
 pnpm test
 
-# Build CLI
+# Build all workspaces
 pnpm build
 
 # Run CLI from source
-pnpm dev -- --help
-pnpm dev -- add farnoodma/agents
-pnpm dev -- agent add farnoodma/agents --agents issue-creator
+pnpm --filter agentloom dev -- --help
+pnpm --filter agentloom dev -- add farnoodma/agents
+
+# Run web app
+pnpm --filter @agentloom/web dev
 ```
 
 CI uses Node 22 and `pnpm@10.17.1`.
@@ -150,25 +128,27 @@ CI uses Node 22 and `pnpm@10.17.1`.
 
 Run focused tests for the area you changed, then run `pnpm check` before finishing.
 
-- Help/copy updates: `tests/unit/copy.test.ts`, `tests/unit/cli-help.test.ts`
-- Import/source/scope updates: `tests/integration/import-local.test.ts`
-- MCP resolution updates: `tests/unit/mcp.test.ts`
-- Codex sync updates: `tests/unit/sync-codex.test.ts`
-- Version notification updates: `tests/unit/version-notifier.test.ts`
+- CLI help/copy updates: `packages/cli/tests/unit/copy.test.ts`, `packages/cli/tests/unit/cli-help.test.ts`
+- CLI import/source/scope updates: `packages/cli/tests/integration/import-local.test.ts`
+- CLI MCP resolution updates: `packages/cli/tests/unit/mcp.test.ts`
+- CLI Codex sync updates: `packages/cli/tests/unit/sync-codex.test.ts`
+- CLI version notifier updates: `packages/cli/tests/unit/version-notifier.test.ts`
+- Web ingest/query updates: `apps/web/src/app/api/v1/installs/route.test.ts`, `apps/web/src/lib/time.test.ts`
 
 ## Code Style
 
 - TypeScript + ESM modules.
 - Use Prettier formatting.
 - Run `pnpm format` (or at minimum `pnpm format:check`) before finalizing changes.
-- Do not hand-edit `dist/`; regenerate via `pnpm build` when distribution output is needed.
+- Do not hand-edit `packages/cli/dist/`; regenerate via `pnpm --filter agentloom build` when distribution output is needed.
 
 ## Release
 
-The release workflow publishes to npm via `pnpm publish --access public --no-git-checks`.
+CLI publish automation triggers on GitHub `release.published` events.
+Web deploys are managed by Vercel Git integration.
 
 Before release:
 
 1. Ensure `pnpm check` passes.
 2. Ensure `pnpm build` passes.
-3. Confirm `package.json` version is correct.
+3. Confirm `packages/cli/package.json` version matches the release tag (`vX.Y.Z`).

@@ -1,9 +1,17 @@
 node_modules/
+.pnpm-store/
 dist/
+.next/
+out/
+.turbo/
+coverage/
+*.tsbuildinfo
 .DS_Store
 *.log
-coverage/
 .vscode/
+
+apps/web/.vercel/
+.vercel/
 
 .codex
 .claude
@@ -11,3 +19,8 @@ coverage/
 .cursor
 .opencode
 .mcp.json
+.vercel
+.neon
+
+# Local/private operator notes
+.private/
