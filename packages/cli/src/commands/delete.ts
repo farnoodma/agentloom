@@ -17,6 +17,11 @@ import {
 } from "./entity-utils.js";
 
 const ALL_ENTITIES: EntityType[] = ["agent", "command", "mcp", "skill"];
+const MULTISELECT_HELP_TEXT = "↑↓ move, space select, enter confirm";
+
+function withMultiselectHelp(message: string): string {
+  return `${message}\n${MULTISELECT_HELP_TEXT}`;
+}
 
 export async function runDeleteCommand(
   argv: ParsedArgs,
@@ -167,7 +172,7 @@ async function resolveEntitiesForDelete(options: {
     }
 
     const selected = await multiselect({
-      message: "Delete from which entities?",
+      message: withMultiselectHelp("Delete from which entities?"),
       options: ALL_ENTITIES.map((entity) => ({
         value: entity,
         label: entity,

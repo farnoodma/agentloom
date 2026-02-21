@@ -91,7 +91,7 @@ Options:
   --skills <name>            Import selected skills (repeatable/csv)
   --selection-mode <mode>    all|sync-all (include future items) or custom (pin selection)
   --rename <name>            Rename imported item for single-item add flows
-  --local | --global         Choose destination scope
+  --local | --global         Choose destination scope (interactive prompts when omitted)
   --yes                      Skip conflict prompts
   --no-sync                  Do not run sync after import
   --providers <csv>          Providers for post-import sync (${PROVIDERS_CSV})
@@ -111,7 +111,7 @@ Usage:
 
 Options:
   --source <value>           Explicit source filter
-  --local | --global         Choose lockfile scope
+  --local | --global         Choose lockfile scope (interactive prompts when omitted)
   --yes                      Skip conflict prompts during re-import
   --no-sync                  Do not run sync after updates
   --providers <csv>          Providers for post-update sync (${PROVIDERS_CSV})
@@ -130,7 +130,7 @@ Usage:
   agentloom <agent|command|mcp|skill> sync [options]
 
 Options:
-  --local | --global         Choose canonical scope
+  --local | --global         Choose canonical scope (interactive prompts when omitted)
   --providers <csv>          Limit providers (${PROVIDERS_CSV})
   --yes                      Auto-delete stale generated files
   --dry-run                  Show file changes without writing
