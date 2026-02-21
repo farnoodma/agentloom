@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1769000000000,
+      "tag": "0000_agentloom_catalog",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1771708000000,
+      "tag": "0001_install_counts_daily",
+      "breakpoints": true
+    }
+  ]
+}
