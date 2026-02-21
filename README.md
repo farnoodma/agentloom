@@ -45,6 +45,16 @@ Global scope uses `~/.agents` with the same file layout.
 Pass-through wrapper to `npx skills ...` from
 [`vercel-labs/skills`](https://github.com/vercel-labs/skills).
 
+### `agentloom find <query>`
+Search public repositories for installable agents.
+
+Examples:
+
+```bash
+# Query search
+agentloom find react reviewer
+```
+
 ### `agentloom add <source>`
 
 Import canonical agents/commands/MCP from:
@@ -185,6 +195,7 @@ agentloom command delete review
 
 ```bash
 agentloom --help
+agentloom find --help
 agentloom add --help
 agentloom update --help
 agentloom sync --help

@@ -15,6 +15,7 @@ describe("copy helpers", () => {
     const help = getRootHelpText();
     expect(help).toContain("agentloom <command> [options]");
     expect(help).toContain("command <add|list|delete>");
+    expect(help).toContain("find <query>");
     expect(help).toContain("mcp <add|list|delete>");
     expect(help).toContain("--no-sync");
     expect(help).toContain("--providers <csv>");

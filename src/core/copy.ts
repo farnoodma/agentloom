@@ -13,6 +13,7 @@ Usage:
   agentloom <command> [options]
 
 Commands:
+  find <query>               Search for shared agents from external repos
   skills ...                 Pass through to "npx skills ..." (vercel-labs/skills)
   add <source>               Import agents, commands, and MCP from a repo source
   update                     Refresh lockfile-managed imports
@@ -30,6 +31,7 @@ Common options:
   --dry-run                  Print planned sync changes without writing files
 
 Examples:
+  agentloom find reviewer
   agentloom add farnoodma/agents
   agentloom add farnoodma/agents --agent issue-creator
   agentloom add /repo --subdir packages/agents
@@ -37,7 +39,18 @@ Examples:
   agentloom sync --providers codex,claude,cursor
   agentloom command add ./command-pack
   agentloom mcp add browser-tools --command npx --arg browser-tools-mcp
-  agentloom skills add vercel-labs/skills
+`;
+}
+
+export function getFindHelpText(): string {
+  return `Search shared agent repositories for installable agents.
+
+Usage:
+  agentloom find <query>
+
+Examples:
+  agentloom find reviewer
+  agentloom find "react performance"
 `;
 }
 
