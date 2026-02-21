@@ -58,6 +58,12 @@ export class NonInteractiveConflictError extends Error {
   }
 }
 
+const MULTISELECT_HELP_TEXT = "↑↓ move, space select, enter confirm";
+
+function withMultiselectHelp(message: string): string {
+  return `${message}\n${MULTISELECT_HELP_TEXT}`;
+}
+
 export interface ImportOptions {
   source: string;
   ref?: string;
@@ -857,7 +863,7 @@ async function promptAgentSelection(
   sourceAgents: CanonicalAgent[],
 ): Promise<CanonicalAgent[]> {
   const choice = await multiselect({
-    message: "Select agents to import",
+    message: withMultiselectHelp("Select agents to import"),
     options: sourceAgents.map((agent) => ({
       value: agent.sourcePath,
       label: agent.name,
@@ -1275,7 +1281,7 @@ async function resolveCommandsToImport(options: {
   }
 
   const selected = await multiselect({
-    message: "Select commands to import",
+    message: withMultiselectHelp("Select commands to import"),
     options: options.sourceCommands.map((item) => ({
       value: item.fileName,
       label: item.fileName,
@@ -1360,7 +1366,7 @@ async function resolveMcpServersToImport(options: {
   }
 
   const selected = await multiselect({
-    message: "Select MCP servers to import",
+    message: withMultiselectHelp("Select MCP servers to import"),
     options: available.map((serverName) => ({
       value: serverName,
       label: serverName,
@@ -1432,7 +1438,7 @@ async function resolveSkillsToImport(options: {
   }
 
   const selected = await multiselect({
-    message: "Select skills to import",
+    message: withMultiselectHelp("Select skills to import"),
     options: options.sourceSkills.map((skill) => ({
       value: skill.name,
       label: skill.name,
