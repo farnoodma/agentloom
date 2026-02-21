@@ -7,10 +7,15 @@ import {
   getMcpDeleteHelpText,
   getMcpHelpText,
   getMcpListHelpText,
+  getMcpServerHelpText,
 } from "../core/copy.js";
 import { readCanonicalMcp, writeCanonicalMcp } from "../core/mcp.js";
-import { resolveScope } from "../core/scope.js";
-import { formatSyncSummary, syncFromCanonical } from "../sync/index.js";
+import { runScopedAddCommand } from "./add.js";
+import { runScopedDeleteCommand } from "./delete.js";
+import { resolvePathsForCommand } from "./entity-utils.js";
+import { runScopedFindCommand } from "./find.js";
+import { runScopedSyncCommand } from "./sync.js";
+import { runScopedUpdateCommand } from "./update.js";
 
 export async function runMcpCommand(
   argv: ParsedArgs,
@@ -31,100 +36,195 @@ export async function runMcpCommand(
       console.log(getMcpDeleteHelpText());
       return;
     }
+    if (action === "server") {
+      console.log(getMcpServerHelpText());
+      return;
+    }
 
     console.log(getMcpHelpText());
+    return;
+  }
+
+  if (!action) {
+    console.log(getMcpHelpText());
+    return;
+  }
+
+  if (action === "server") {
+    await runMcpServerCommand(argv, cwd);
+    return;
+  }
+
+  if (
+    action !== "add" &&
+    action !== "list" &&
+    action !== "delete" &&
+    action !== "find" &&
+    action !== "update" &&
+    action !== "sync"
+  ) {
+    throw new Error(
+      formatUsageError({
+        issue: "Invalid mcp command.",
+        usage: "agentloom mcp <add|list|delete|find|update|sync> [options]",
+        example: "agentloom mcp add farnoodma/agents --mcps browser",
+      }),
+    );
+  }
+
+  if (action === "list") {
+    const paths = await resolvePathsForCommand(argv, cwd);
+    runMcpList(paths, Boolean(argv.json));
+    return;
+  }
+
+  if (action === "add") {
+    await runScopedAddCommand({
+      argv,
+      cwd,
+      entity: "mcp",
+      sourceIndex: 2,
+    });
+    return;
+  }
+
+  if (action === "delete") {
+    await runScopedDeleteCommand({
+      argv,
+      cwd,
+      entity: "mcp",
+      sourceIndex: 2,
+    });
+    return;
+  }
+
+  if (action === "find") {
+    await runScopedFindCommand(argv, "mcp");
+    return;
+  }
+
+  if (action === "update") {
+    await runScopedUpdateCommand({
+      argv,
+      cwd,
+      entity: "mcp",
+      sourceIndex: 2,
+    });
+    return;
+  }
+
+  await runScopedSyncCommand({
+    argv,
+    cwd,
+    target: "mcp",
+  });
+}
+
+async function runMcpServerCommand(
+  argv: ParsedArgs,
+  cwd: string,
+): Promise<void> {
+  const action = argv._[2];
+
+  if (argv.help || !action) {
+    console.log(getMcpServerHelpText());
     return;
   }
 
   if (action !== "add" && action !== "list" && action !== "delete") {
     throw new Error(
       formatUsageError({
-        issue: "Invalid mcp command.",
-        usage: "agentloom mcp <add|list|delete> [options]",
+        issue: "Invalid mcp server command.",
+        usage: "agentloom mcp server <add|list|delete> [options]",
         example:
-          "agentloom mcp add browser --command npx --arg browser-tools-mcp",
+          "agentloom mcp server add browser --command npx --arg browser-tools-mcp",
       }),
     );
   }
 
   const nonInteractive = !(process.stdin.isTTY && process.stdout.isTTY);
-  const paths = await resolveScope({
-    cwd,
-    global: Boolean(argv.global),
-    local: Boolean(argv.local),
-    interactive: !nonInteractive,
-  });
+  const paths = await resolvePathsForCommand(argv, cwd);
 
   if (action === "list") {
+    if (argv.help) {
+      console.log(getMcpListHelpText());
+      return;
+    }
     runMcpList(paths, Boolean(argv.json));
     return;
   }
 
   if (action === "add") {
-    const name = argv._[2];
+    if (argv.help) {
+      console.log(getMcpAddHelpText());
+      return;
+    }
+
+    const name = argv._[3];
     if (typeof name !== "string" || !name.trim()) {
       throw new Error(
         formatUsageError({
           issue: "Missing required MCP server name.",
           usage:
-            "agentloom mcp add <name> (--url <url> | --command <cmd>) [options]",
+            "agentloom mcp server add <name> (--url <url> | --command <cmd>) [options]",
           example:
-            "agentloom mcp add browser --command npx --arg browser-tools-mcp",
+            "agentloom mcp server add browser --command npx --arg browser-tools-mcp",
         }),
       );
     }
-    runMcpAdd(paths, argv, name.trim());
 
+    runMcpAdd(paths, argv, name.trim());
     if (!argv["no-sync"]) {
-      const summary = await syncFromCanonical({
-        paths,
-        providers: parseProvidersFlag(argv.providers),
-        yes: Boolean(argv.yes),
-        nonInteractive,
+      await runScopedSyncCommand({
+        argv,
+        cwd,
+        target: "mcp",
       });
-      console.log("");
-      console.log(formatSyncSummary(summary, paths.agentsRoot));
     }
     return;
   }
 
-  if (action === "delete") {
-    const name = argv._[2];
-    if (typeof name !== "string" || !name.trim()) {
-      throw new Error(
-        formatUsageError({
-          issue: "Missing required MCP server name.",
-          usage: "agentloom mcp delete <name> [options]",
-          example: "agentloom mcp delete browser",
-        }),
-      );
-    }
+  if (argv.help) {
+    console.log(getMcpDeleteHelpText());
+    return;
+  }
 
-    const mcp = readCanonicalMcp(paths);
-    if (!(name in mcp.mcpServers)) {
-      throw new Error(
-        formatUsageError({
-          issue: `MCP server "${name}" was not found in canonical config.`,
-          usage: "agentloom mcp list [--json] [--local|--global]",
-          example: "agentloom mcp list --json",
-        }),
-      );
-    }
+  const name = argv._[3];
+  if (typeof name !== "string" || !name.trim()) {
+    throw new Error(
+      formatUsageError({
+        issue: "Missing required MCP server name.",
+        usage: "agentloom mcp server delete <name> [options]",
+        example: "agentloom mcp server delete browser",
+      }),
+    );
+  }
 
-    delete mcp.mcpServers[name];
-    writeCanonicalMcp(paths, mcp);
-    console.log(`Deleted MCP server: ${name}`);
+  const mcp = readCanonicalMcp(paths);
+  if (!(name in mcp.mcpServers)) {
+    throw new Error(
+      formatUsageError({
+        issue: `MCP server "${name}" was not found in canonical config.`,
+        usage: "agentloom mcp server list [--json] [--local|--global]",
+        example: "agentloom mcp server list --json",
+      }),
+    );
+  }
 
-    if (!argv["no-sync"]) {
-      const summary = await syncFromCanonical({
-        paths,
-        providers: parseProvidersFlag(argv.providers),
-        yes: Boolean(argv.yes),
-        nonInteractive,
-      });
-      console.log("");
-      console.log(formatSyncSummary(summary, paths.agentsRoot));
-    }
+  delete mcp.mcpServers[name];
+  writeCanonicalMcp(paths, mcp);
+  console.log(`Deleted MCP server: ${name}`);
+
+  if (!argv["no-sync"]) {
+    await runScopedSyncCommand({
+      argv,
+      cwd,
+      target: "mcp",
+    });
+  }
+
+  if (!nonInteractive) {
+    return;
   }
 }
 
@@ -182,9 +282,9 @@ function runMcpAdd(
       formatUsageError({
         issue: "Missing MCP transport. Use --url or --command.",
         usage:
-          "agentloom mcp add <name> (--url <url> | --command <cmd>) [options]",
+          "agentloom mcp server add <name> (--url <url> | --command <cmd>) [options]",
         example:
-          "agentloom mcp add browser --command npx --arg browser-tools-mcp",
+          "agentloom mcp server add browser --command npx --arg browser-tools-mcp",
       }),
     );
   }
@@ -204,9 +304,9 @@ function runMcpAdd(
           formatUsageError({
             issue: `Invalid --env value "${pair}".`,
             usage:
-              "agentloom mcp add <name> ... --env KEY=VALUE [--env KEY2=VALUE2]",
+              "agentloom mcp server add <name> ... --env KEY=VALUE [--env KEY2=VALUE2]",
             example:
-              "agentloom mcp add browser --command npx --env API_KEY=secret",
+              "agentloom mcp server add browser --command npx --env API_KEY=secret",
           }),
         );
       }

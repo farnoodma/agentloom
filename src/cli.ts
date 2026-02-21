@@ -1,12 +1,15 @@
 import { parseArgs } from "./core/argv.js";
+import { runAgentCommand } from "./commands/agent.js";
 import { runAddCommand } from "./commands/add.js";
 import { runCommandCommand } from "./commands/command.js";
+import { runDeleteCommand } from "./commands/delete.js";
 import { runFindCommand } from "./commands/find.js";
 import { runMcpCommand } from "./commands/mcp.js";
-import { runSkillsPassthrough } from "./commands/skills.js";
+import { runSkillCommand } from "./commands/skills.js";
 import { runSyncCommand } from "./commands/sync.js";
 import { runUpdateCommand } from "./commands/update.js";
 import { formatUnknownCommandError, getRootHelpText } from "./core/copy.js";
+import { parseCommandRoute } from "./core/router.js";
 import { maybeNotifyVersionUpdate } from "./core/version-notifier.js";
 import { getCliVersion } from "./core/version.js";
 
@@ -29,13 +32,9 @@ export async function runCli(argv: string[]): Promise<void> {
     return;
   }
 
-  if (command === "skills") {
-    runSkillsPassthrough(argv.slice(1));
-    return;
-  }
-
   const parsed = parseArgs(argv);
   const cwd = process.cwd();
+  const route = parseCommandRoute(argv);
 
   if (!parsed.help) {
     await maybeNotifyVersionUpdate({
@@ -44,24 +43,49 @@ export async function runCli(argv: string[]): Promise<void> {
     });
   }
 
-  switch (command) {
-    case "add":
-      await runAddCommand(parsed, cwd);
-      return;
-    case "find":
-      await runFindCommand(parsed);
-      return;
-    case "update":
-      await runUpdateCommand(parsed, cwd);
-      return;
-    case "sync":
-      await runSyncCommand(parsed, cwd);
+  if (!route) {
+    throw new Error(formatUnknownCommandError(command));
+  }
+
+  if (route.mode === "aggregate") {
+    switch (route.verb) {
+      case "add":
+        await runAddCommand(parsed, cwd);
+        return;
+      case "find":
+        await runFindCommand(parsed);
+        return;
+      case "update":
+        await runUpdateCommand(parsed, cwd);
+        return;
+      case "sync":
+        await runSyncCommand(parsed, cwd);
+        return;
+      case "delete":
+        await runDeleteCommand(parsed, cwd);
+        return;
+      default:
+        throw new Error(formatUnknownCommandError(command));
+    }
+  }
+
+  if (route.mode === "mcp-server") {
+    await runMcpCommand(parsed, cwd);
+    return;
+  }
+
+  switch (route.entity) {
+    case "agent":
+      await runAgentCommand(parsed, cwd);
       return;
     case "command":
       await runCommandCommand(parsed, cwd);
       return;
     case "mcp":
       await runMcpCommand(parsed, cwd);
+      return;
+    case "skill":
+      await runSkillCommand(parsed, cwd);
       return;
     default:
       throw new Error(formatUnknownCommandError(command));

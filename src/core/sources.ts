@@ -131,6 +131,20 @@ export function discoverSourceCommandsDir(importRoot: string): string | null {
   return null;
 }
 
+export function discoverSourceSkillsDir(importRoot: string): string | null {
+  const nested = path.join(importRoot, ".agents", "skills");
+  if (fs.existsSync(nested) && fs.statSync(nested).isDirectory()) {
+    return nested;
+  }
+
+  const direct = path.join(importRoot, "skills");
+  if (fs.existsSync(direct) && fs.statSync(direct).isDirectory()) {
+    return direct;
+  }
+
+  return null;
+}
+
 function resolveImportRoot(rootPath: string, subdir?: string): string {
   if (!subdir) return rootPath;
   const importRoot = path.resolve(rootPath, subdir);

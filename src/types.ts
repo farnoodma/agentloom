@@ -10,6 +10,8 @@ export const ALL_PROVIDERS = [
 export type Provider = (typeof ALL_PROVIDERS)[number];
 
 export type Scope = "local" | "global";
+export type EntityType = "agent" | "command" | "mcp" | "skill";
+export type SelectionMode = "all" | "custom";
 
 export interface AgentFrontmatter {
   name: string;
@@ -45,6 +47,11 @@ export interface LockEntry {
   selectedSourceCommands?: string[];
   commandRenameMap?: Record<string, string>;
   importedMcpServers: string[];
+  selectedSourceMcpServers?: string[];
+  importedSkills: string[];
+  selectedSourceSkills?: string[];
+  skillsAgentTargets?: string[];
+  trackedEntities?: EntityType[];
   contentHash: string;
 }
 
@@ -71,6 +78,7 @@ export interface ScopePaths {
   agentsRoot: string;
   agentsDir: string;
   commandsDir: string;
+  skillsDir: string;
   mcpPath: string;
   lockPath: string;
   settingsPath: string;
@@ -89,6 +97,7 @@ export interface AgentloomSettings {
 export interface SyncManifest {
   version: 1;
   generatedFiles: string[];
+  generatedByEntity?: Partial<Record<EntityType, string[]>>;
   codex?: {
     roles?: string[];
     mcpServers?: string[];

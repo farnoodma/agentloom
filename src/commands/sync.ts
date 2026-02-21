@@ -1,7 +1,11 @@
 import type { ParsedArgs } from "minimist";
 import { parseProvidersFlag } from "../core/argv.js";
 import { getSyncHelpText } from "../core/copy.js";
-import { resolveScope } from "../core/scope.js";
+import type { EntityType } from "../types.js";
+import {
+  getNonInteractiveMode,
+  resolvePathsForCommand,
+} from "./entity-utils.js";
 import { formatSyncSummary, syncFromCanonical } from "../sync/index.js";
 
 export async function runSyncCommand(
@@ -13,21 +17,27 @@ export async function runSyncCommand(
     return;
   }
 
-  const nonInteractive = !(process.stdin.isTTY && process.stdout.isTTY);
-
-  const paths = await resolveScope({
+  await runScopedSyncCommand({
+    argv,
     cwd,
-    global: Boolean(argv.global),
-    local: Boolean(argv.local),
-    interactive: !nonInteractive,
+    target: "all",
   });
+}
+
+export async function runScopedSyncCommand(options: {
+  argv: ParsedArgs;
+  cwd: string;
+  target: EntityType | "all";
+}): Promise<void> {
+  const paths = await resolvePathsForCommand(options.argv, options.cwd);
 
   const summary = await syncFromCanonical({
     paths,
-    providers: parseProvidersFlag(argv.providers),
-    yes: Boolean(argv.yes),
-    nonInteractive,
-    dryRun: Boolean(argv["dry-run"]),
+    providers: parseProvidersFlag(options.argv.providers),
+    yes: Boolean(options.argv.yes),
+    nonInteractive: getNonInteractiveMode(options.argv),
+    dryRun: Boolean(options.argv["dry-run"]),
+    target: options.target,
   });
 
   console.log(formatSyncSummary(summary, paths.agentsRoot));

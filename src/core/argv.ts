@@ -1,11 +1,31 @@
 import type { ParsedArgs } from "minimist";
 import minimist from "minimist";
-import type { Provider } from "../types.js";
+import type { Provider, SelectionMode } from "../types.js";
 
 export function parseArgs(argv: string[]): ParsedArgs {
   const parsed = minimist(argv, {
     boolean: ["global", "local", "yes", "no-sync", "dry-run", "json", "help"],
-    string: ["ref", "subdir", "providers", "rename", "agent", "command", "url"],
+    string: [
+      "ref",
+      "subdir",
+      "providers",
+      "rename",
+      "agent",
+      "agents",
+      "command",
+      "commands",
+      "mcp",
+      "mcps",
+      "skill",
+      "skills",
+      "url",
+      "arg",
+      "env",
+      "source",
+      "name",
+      "entity",
+      "selection-mode",
+    ],
     alias: {
       g: "global",
       l: "local",
@@ -55,6 +75,24 @@ export function parseProvidersFlag(input: unknown): Provider[] | undefined {
   }
 
   return [...new Set(validProviders)];
+}
+
+export function parseSelectionModeFlag(
+  input: unknown,
+): SelectionMode | undefined {
+  if (typeof input !== "string" || input.trim() === "") return undefined;
+  const normalized = input.trim().toLowerCase();
+
+  if (normalized === "all" || normalized === "sync-all") {
+    return "all";
+  }
+  if (normalized === "custom") {
+    return "custom";
+  }
+
+  throw new Error(
+    `Unknown selection mode: ${normalized}. Expected one of: all, sync-all, custom.`,
+  );
 }
 
 export function getStringArrayFlag(

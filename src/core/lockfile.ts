@@ -29,6 +29,21 @@ export function readLockfile(paths: ScopePaths): AgentsLockFile {
       importedMcpServers: Array.isArray(entry.importedMcpServers)
         ? entry.importedMcpServers
         : [],
+      selectedSourceMcpServers: Array.isArray(entry.selectedSourceMcpServers)
+        ? entry.selectedSourceMcpServers
+        : undefined,
+      importedSkills: Array.isArray(entry.importedSkills)
+        ? entry.importedSkills
+        : [],
+      selectedSourceSkills: Array.isArray(entry.selectedSourceSkills)
+        ? entry.selectedSourceSkills
+        : undefined,
+      skillsAgentTargets: Array.isArray(entry.skillsAgentTargets)
+        ? entry.skillsAgentTargets
+        : undefined,
+      trackedEntities: Array.isArray(entry.trackedEntities)
+        ? entry.trackedEntities
+        : undefined,
     })),
   };
 }
@@ -78,7 +93,17 @@ export function upsertLockEntry(
       item.source === entry.source &&
       item.sourceType === entry.sourceType &&
       item.subdir === entry.subdir &&
-      sameRequestedAgents(item.requestedAgents, entry.requestedAgents),
+      sameRequestedAgents(item.requestedAgents, entry.requestedAgents) &&
+      sameSelection(
+        item.selectedSourceCommands,
+        entry.selectedSourceCommands,
+      ) &&
+      sameSelection(
+        item.selectedSourceMcpServers,
+        entry.selectedSourceMcpServers,
+      ) &&
+      sameSelection(item.selectedSourceSkills, entry.selectedSourceSkills) &&
+      sameSelection(item.skillsAgentTargets, entry.skillsAgentTargets),
   );
 
   if (index >= 0) {
@@ -93,8 +118,8 @@ function sameRequestedAgents(
   left: string[] | undefined,
   right: string[] | undefined,
 ): boolean {
-  const normalizedLeft = normalizeRequestedAgentsForKey(left);
-  const normalizedRight = normalizeRequestedAgentsForKey(right);
+  const normalizedLeft = normalizeSelectionForKey(left);
+  const normalizedRight = normalizeSelectionForKey(right);
 
   if (normalizedLeft.length !== normalizedRight.length) {
     return false;
@@ -105,7 +130,23 @@ function sameRequestedAgents(
   );
 }
 
-function normalizeRequestedAgentsForKey(value: string[] | undefined): string[] {
+function sameSelection(
+  left: string[] | undefined,
+  right: string[] | undefined,
+): boolean {
+  const normalizedLeft = normalizeSelectionForKey(left);
+  const normalizedRight = normalizeSelectionForKey(right);
+
+  if (normalizedLeft.length !== normalizedRight.length) {
+    return false;
+  }
+
+  return normalizedLeft.every(
+    (value, index) => value === normalizedRight[index],
+  );
+}
+
+function normalizeSelectionForKey(value: string[] | undefined): string[] {
   if (!Array.isArray(value) || value.length === 0) return [];
   return [
     ...new Set(value.map((item) => item.trim().toLowerCase()).filter(Boolean)),

@@ -1,7 +1,13 @@
+import fs from "node:fs";
 import https from "node:https";
 import type { ParsedArgs } from "minimist";
-import { parseAgentMarkdown } from "../core/agents.js";
+import { parseAgentMarkdown, parseAgentsDir } from "../core/agents.js";
+import { parseCommandsDir } from "../core/commands.js";
 import { formatUsageError, getFindHelpText } from "../core/copy.js";
+import { readCanonicalMcp } from "../core/mcp.js";
+import { buildScopePaths } from "../core/scope.js";
+import { parseSkillsDir } from "../core/skills.js";
+import type { EntityType } from "../types.js";
 
 const FIND_API_BASE =
   process.env.AGENTLOOM_FIND_API_BASE || "https://api.github.com";
@@ -11,10 +17,44 @@ const DEFAULT_REPO_SCAN_LIMIT = 10;
 const MAX_INSTALLABILITY_CHECKS = 24;
 const INSTALLABILITY_CHECK_BATCH_SIZE = 6;
 
-type SearchClient = (
+type AgentSearchClient = (
   query: string,
   limit: number,
 ) => Promise<FoundAgent[] | SearchAgentsResult>;
+
+interface FoundCommand {
+  repo: string;
+  commandName: string;
+  filePath: string;
+  fileUrl: string;
+  source: string;
+  stars: number;
+  subdir?: string;
+}
+
+interface FoundMcpServer {
+  repo: string;
+  serverName: string;
+  filePath: string;
+  fileUrl: string;
+  source: string;
+  stars: number;
+}
+
+interface FoundSkill {
+  repo: string;
+  skillName: string;
+  filePath: string;
+  fileUrl: string;
+  source: string;
+  stars: number;
+  subdir?: string;
+}
+
+type SearchEntityResult<T> = {
+  items: T[];
+  failures: string[];
+};
 
 type GitHubRepoSearchResponse = {
   items?: unknown;
@@ -82,7 +122,17 @@ export type SearchAgentsResult = {
 
 export async function runFindCommand(
   argv: ParsedArgs,
-  searchClient: SearchClient = searchAgentsWithDiagnostics,
+  searchClient: AgentSearchClient = searchAgentsWithDiagnostics,
+): Promise<void> {
+  const target: EntityType | "all" =
+    searchClient === searchAgentsWithDiagnostics ? "all" : "agent";
+  await runScopedFindCommand(argv, target, searchClient);
+}
+
+export async function runScopedFindCommand(
+  argv: ParsedArgs,
+  target: EntityType | "all",
+  searchClient: AgentSearchClient = searchAgentsWithDiagnostics,
 ): Promise<void> {
   if (argv.help) {
     console.log(getFindHelpText());
@@ -100,51 +150,184 @@ export async function runFindCommand(
     );
   }
 
-  const response = await searchClient(query, DEFAULT_RESULT_LIMIT);
-  const { agents: results, failures } = normalizeSearchResult(response);
-  if (results.length === 0) {
-    if (failures.length > 0) {
-      const details = failures.slice(0, 3).join("; ");
-      throw new Error(
-        `Agent search could not complete reliably (${failures.length} repository/file checks failed): ${details}`,
-      );
+  const shouldSearchAgents = target === "all" || target === "agent";
+  const shouldSearchCommands = target === "all" || target === "command";
+  const shouldSearchMcp = target === "all" || target === "mcp";
+  const shouldSearchSkills = target === "all" || target === "skill";
+
+  const agentResult = shouldSearchAgents
+    ? normalizeSearchResult(await searchClient(query, DEFAULT_RESULT_LIMIT))
+    : { agents: [], failures: [] };
+  const commandResult = shouldSearchCommands
+    ? await searchCommandsWithDiagnostics(
+        query,
+        DEFAULT_RESULT_LIMIT,
+        FIND_API_BASE,
+      )
+    : { items: [], failures: [] };
+  const mcpResult = shouldSearchMcp
+    ? await searchMcpWithDiagnostics(query, DEFAULT_RESULT_LIMIT, FIND_API_BASE)
+    : { items: [], failures: [] };
+  const skillResult = shouldSearchSkills
+    ? await searchSkillsWithDiagnostics(
+        query,
+        DEFAULT_RESULT_LIMIT,
+        FIND_API_BASE,
+      )
+    : { items: [], failures: [] };
+
+  if (target === "agent") {
+    const results = agentResult.agents;
+    const failures = agentResult.failures;
+
+    if (results.length === 0) {
+      if (failures.length > 0) {
+        const details = failures.slice(0, 3).join("; ");
+        throw new Error(
+          `Agent search could not complete reliably (${failures.length} repository/file checks failed): ${details}`,
+        );
+      }
+      console.log(`No shared agents found for "${query}".`);
+      return;
     }
-    console.log(`No shared agents found for "${query}".`);
+
+    const partialSuffix =
+      failures.length > 0
+        ? ` (partial results: ${failures.length} repository scan${failures.length === 1 ? "" : "s"} failed)`
+        : "";
+    console.log(
+      `Found ${results.length} matching agent${results.length === 1 ? "" : "s"} for "${query}"${partialSuffix}:`,
+    );
+    console.log("");
+
+    if (failures.length > 0) {
+      console.log("Scan warnings:");
+      for (const failure of failures.slice(0, 3)) {
+        console.log(`  - ${failure}`);
+      }
+      if (failures.length > 3) {
+        console.log(`  - ...and ${failures.length - 3} more`);
+      }
+      console.log("");
+    }
+
+    for (const result of results) {
+      console.log(
+        `${result.repo}@${result.agentName}${formatStars(result.stars)} (${result.filePath})`,
+      );
+      console.log(`  ${result.fileUrl}`);
+      console.log(`  Install: ${buildInstallCommand(result)}`);
+      console.log("");
+    }
     return;
   }
 
-  const partialSuffix =
-    failures.length > 0
-      ? ` (partial results: ${failures.length} repository scan${failures.length === 1 ? "" : "s"} failed)`
-      : "";
-  console.log(
-    `Found ${results.length} matching agent${results.length === 1 ? "" : "s"} for "${query}"${partialSuffix}:`,
-  );
+  const local = searchLocalMatches(query, target);
+  const total =
+    agentResult.agents.length +
+    commandResult.items.length +
+    mcpResult.items.length +
+    skillResult.items.length +
+    local.total;
+
+  if (total === 0) {
+    const failureCount =
+      agentResult.failures.length +
+      commandResult.failures.length +
+      mcpResult.failures.length +
+      skillResult.failures.length;
+    if (failureCount > 0) {
+      throw new Error(
+        `Search returned no results and encountered ${failureCount} remote scan failure(s).`,
+      );
+    }
+    console.log(`No matches found for "${query}".`);
+    return;
+  }
+
+  console.log(`Found ${total} match(es) for "${query}".`);
   console.log("");
 
-  if (failures.length > 0) {
-    console.log("Scan warnings:");
-    for (const failure of failures.slice(0, 3)) {
-      console.log(`  - ${failure}`);
-    }
-    if (failures.length > 3) {
-      console.log(`  - ...and ${failures.length - 3} more`);
+  if (local.total > 0) {
+    console.log("Local matches:");
+    for (const item of local.lines) {
+      console.log(`  - ${item}`);
     }
     console.log("");
   }
 
-  for (const result of results) {
-    console.log(
-      `${result.repo}@${result.agentName}${formatStars(result.stars)} (${result.filePath})`,
-    );
-    console.log(`  ${result.fileUrl}`);
-    console.log(`  Install: ${buildInstallCommand(result)}`);
+  if (agentResult.agents.length > 0) {
+    console.log("Agent matches:");
+    for (const result of agentResult.agents) {
+      console.log(
+        `  - ${result.repo}@${result.agentName}${formatStars(result.stars)} (${result.filePath})`,
+      );
+      console.log(`    ${result.fileUrl}`);
+      console.log(`    Install: ${buildInstallCommand(result)}`);
+    }
     console.log("");
+  }
+
+  if (commandResult.items.length > 0) {
+    console.log("Command matches:");
+    for (const result of commandResult.items) {
+      console.log(
+        `  - ${result.repo}@${result.commandName}${formatStars(result.stars)} (${result.filePath})`,
+      );
+      console.log(`    ${result.fileUrl}`);
+      console.log(`    Install: ${buildCommandInstallCommand(result)}`);
+    }
+    console.log("");
+  }
+
+  if (mcpResult.items.length > 0) {
+    console.log("MCP matches:");
+    for (const result of mcpResult.items) {
+      console.log(
+        `  - ${result.repo}@${result.serverName}${formatStars(result.stars)} (${result.filePath})`,
+      );
+      console.log(`    ${result.fileUrl}`);
+      console.log(`    Install: ${buildMcpInstallCommand(result)}`);
+    }
+    console.log("");
+  }
+
+  if (skillResult.items.length > 0) {
+    console.log("Skill matches:");
+    for (const result of skillResult.items) {
+      console.log(
+        `  - ${result.repo}@${result.skillName}${formatStars(result.stars)} (${result.filePath})`,
+      );
+      console.log(`    ${result.fileUrl}`);
+      console.log(`    Install: ${buildSkillInstallCommand(result)}`);
+    }
+    console.log("");
+  }
+
+  const failures = [
+    ...agentResult.failures,
+    ...commandResult.failures,
+    ...mcpResult.failures,
+    ...skillResult.failures,
+  ];
+  if (failures.length > 0) {
+    console.log("Warnings:");
+    for (const failure of failures.slice(0, 5)) {
+      console.log(`  - ${failure}`);
+    }
   }
 }
 
 function buildQueryFromArgs(argv: ParsedArgs): string {
-  const positionalTokens = argv._.slice(1)
+  const root = String(argv._[0] ?? "")
+    .trim()
+    .toLowerCase();
+  const action = String(argv._[1] ?? "")
+    .trim()
+    .toLowerCase();
+  const positionalStartIndex = root === "find" ? 1 : action === "find" ? 2 : 1;
+
+  const positionalTokens = argv._.slice(positionalStartIndex)
     .map((value) => String(value).trim())
     .filter(Boolean);
   const passthroughTokens = Array.isArray(argv["--"])
@@ -230,6 +413,172 @@ export async function searchAgentsWithDiagnostics(
     agents: installable.map((item) => item.agent),
     failures: allFailures,
   };
+}
+
+async function searchCommandsWithDiagnostics(
+  query: string,
+  limit: number,
+  apiBase: string,
+): Promise<SearchEntityResult<FoundCommand>> {
+  const tokens = tokenizeQuery(query);
+  const repos = await searchReposByQuery(query, apiBase);
+  const candidates = repos.slice(0, DEFAULT_REPO_SCAN_LIMIT);
+
+  const scanned = await Promise.allSettled(
+    candidates.map(async (repo) => {
+      const tree = await getRepoTree(repo, apiBase);
+      const matches: FoundCommand[] = [];
+
+      for (const entry of tree) {
+        if (entry.type !== "blob") continue;
+        const filePath = toTrimmedString(entry.path);
+        if (!filePath) continue;
+
+        const parsed = parseCommandPath(filePath);
+        if (!parsed) continue;
+
+        const haystack =
+          `${repo.fullName} ${filePath} ${parsed.commandName}`.toLowerCase();
+        if (
+          tokens.length > 0 &&
+          !tokens.some((token) => haystack.includes(token))
+        ) {
+          continue;
+        }
+
+        matches.push({
+          repo: repo.fullName,
+          commandName: parsed.commandName,
+          filePath,
+          fileUrl: `${repo.repoWebUrl}/blob/${repo.defaultBranch}/${filePath}`,
+          source: repo.installSource,
+          stars: repo.stars,
+          subdir: parsed.subdir,
+        });
+      }
+
+      return matches;
+    }),
+  );
+
+  return normalizeEntityScanResults(scanned, limit);
+}
+
+async function searchMcpWithDiagnostics(
+  query: string,
+  limit: number,
+  apiBase: string,
+): Promise<SearchEntityResult<FoundMcpServer>> {
+  const tokens = tokenizeQuery(query);
+  const repos = await searchReposByQuery(query, apiBase);
+  const candidates = repos.slice(0, DEFAULT_REPO_SCAN_LIMIT);
+
+  const scanned = await Promise.allSettled(
+    candidates.map(async (repo) => {
+      const tree = await getRepoTree(repo, apiBase);
+      const mcpFiles = tree
+        .filter((entry) => entry.type === "blob")
+        .map((entry) => toTrimmedString(entry.path))
+        .filter(Boolean)
+        .filter((filePath) => isMcpPath(filePath));
+
+      const matches: FoundMcpServer[] = [];
+
+      for (const filePath of mcpFiles) {
+        try {
+          const content = await fetchRepositoryFile(
+            repo.fullName,
+            filePath,
+            apiBase,
+          );
+          const parsed = JSON.parse(content) as {
+            mcpServers?: Record<string, unknown>;
+          };
+          const serverNames = Object.keys(parsed.mcpServers ?? {});
+
+          for (const serverName of serverNames) {
+            const haystack =
+              `${repo.fullName} ${filePath} ${serverName}`.toLowerCase();
+            if (
+              tokens.length > 0 &&
+              !tokens.some((token) => haystack.includes(token))
+            ) {
+              continue;
+            }
+
+            matches.push({
+              repo: repo.fullName,
+              serverName,
+              filePath,
+              fileUrl: `${repo.repoWebUrl}/blob/${repo.defaultBranch}/${filePath}`,
+              source: repo.installSource,
+              stars: repo.stars,
+            });
+          }
+        } catch {
+          // Ignore invalid mcp files and continue scanning.
+        }
+      }
+
+      return matches;
+    }),
+  );
+
+  return normalizeEntityScanResults(
+    scanned,
+    limit,
+    (item) =>
+      `${item.repo}::${item.filePath}::${item.serverName.toLowerCase()}`,
+  );
+}
+
+async function searchSkillsWithDiagnostics(
+  query: string,
+  limit: number,
+  apiBase: string,
+): Promise<SearchEntityResult<FoundSkill>> {
+  const tokens = tokenizeQuery(query);
+  const repos = await searchReposByQuery(query, apiBase);
+  const candidates = repos.slice(0, DEFAULT_REPO_SCAN_LIMIT);
+
+  const scanned = await Promise.allSettled(
+    candidates.map(async (repo) => {
+      const tree = await getRepoTree(repo, apiBase);
+      const matches: FoundSkill[] = [];
+
+      for (const entry of tree) {
+        if (entry.type !== "blob") continue;
+        const filePath = toTrimmedString(entry.path);
+        if (!filePath) continue;
+
+        const parsed = parseSkillPath(filePath);
+        if (!parsed) continue;
+
+        const haystack =
+          `${repo.fullName} ${filePath} ${parsed.skillName}`.toLowerCase();
+        if (
+          tokens.length > 0 &&
+          !tokens.some((token) => haystack.includes(token))
+        ) {
+          continue;
+        }
+
+        matches.push({
+          repo: repo.fullName,
+          skillName: parsed.skillName,
+          filePath,
+          fileUrl: `${repo.repoWebUrl}/blob/${repo.defaultBranch}/${filePath}`,
+          source: repo.installSource,
+          stars: repo.stars,
+          subdir: parsed.subdir,
+        });
+      }
+
+      return matches;
+    }),
+  );
+
+  return normalizeEntityScanResults(scanned, limit);
 }
 
 async function searchReposByQuery(
@@ -373,6 +722,86 @@ function parseAgentPath(
   }
 
   return null;
+}
+
+function parseCommandPath(
+  filePath: string,
+): { commandName: string; subdir?: string } | null {
+  const directAgentloom = filePath.match(
+    /^\.agents\/commands\/([^/]+)\.(md|mdc)$/i,
+  );
+  if (directAgentloom) {
+    return { commandName: directAgentloom[1] };
+  }
+
+  const nestedAgentloom = filePath.match(
+    /^(.+)\/\.agents\/commands\/([^/]+)\.(md|mdc)$/i,
+  );
+  if (nestedAgentloom) {
+    return {
+      subdir: nestedAgentloom[1],
+      commandName: nestedAgentloom[2],
+    };
+  }
+
+  const directCommands = filePath.match(/^commands\/([^/]+)\.(md|mdc)$/i);
+  if (directCommands) {
+    return { commandName: directCommands[1] };
+  }
+
+  const nestedCommands = filePath.match(/^(.+)\/commands\/([^/]+)\.(md|mdc)$/i);
+  if (nestedCommands) {
+    return {
+      subdir: nestedCommands[1],
+      commandName: nestedCommands[2],
+    };
+  }
+
+  return null;
+}
+
+function parseSkillPath(
+  filePath: string,
+): { skillName: string; subdir?: string } | null {
+  const directAgentloom = filePath.match(
+    /^\.agents\/skills\/([^/]+)\/SKILL\.md$/i,
+  );
+  if (directAgentloom) {
+    return { skillName: directAgentloom[1] };
+  }
+
+  const nestedAgentloom = filePath.match(
+    /^(.+)\/\.agents\/skills\/([^/]+)\/SKILL\.md$/i,
+  );
+  if (nestedAgentloom) {
+    return {
+      subdir: nestedAgentloom[1],
+      skillName: nestedAgentloom[2],
+    };
+  }
+
+  const directSkills = filePath.match(/^skills\/([^/]+)\/SKILL\.md$/i);
+  if (directSkills) {
+    return { skillName: directSkills[1] };
+  }
+
+  const nestedSkills = filePath.match(/^(.+)\/skills\/([^/]+)\/SKILL\.md$/i);
+  if (nestedSkills) {
+    return {
+      subdir: nestedSkills[1],
+      skillName: nestedSkills[2],
+    };
+  }
+
+  return null;
+}
+
+function isMcpPath(filePath: string): boolean {
+  return (
+    /^mcp\.json$/i.test(filePath) ||
+    /^\.agents\/mcp\.json$/i.test(filePath) ||
+    /\/mcp\.json$/i.test(filePath)
+  );
 }
 
 async function selectInstallableCandidates(
@@ -520,6 +949,41 @@ function normalizeSearchResult(
   return value;
 }
 
+function normalizeEntityScanResults<
+  T extends { repo: string; filePath: string },
+>(
+  scanned: PromiseSettledResult<T[]>[],
+  limit: number,
+  getKey: (item: T) => string = (item) => `${item.repo}::${item.filePath}`,
+): SearchEntityResult<T> {
+  const items: T[] = [];
+  const failures: string[] = [];
+  const seen = new Set<string>();
+
+  for (const result of scanned) {
+    if (result.status === "fulfilled") {
+      for (const item of result.value) {
+        const key = getKey(item);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        items.push(item);
+      }
+      continue;
+    }
+
+    failures.push(
+      result.reason instanceof Error
+        ? result.reason.message
+        : String(result.reason),
+    );
+  }
+
+  return {
+    items: items.slice(0, limit),
+    failures,
+  };
+}
+
 function buildInstallCommand(result: FoundAgent): string {
   const source = result.source?.trim() || result.repo;
   const repoArg = quoteShellArg(source);
@@ -527,6 +991,96 @@ function buildInstallCommand(result: FoundAgent): string {
     return `agentloom add ${repoArg} --subdir ${quoteShellArg(result.subdir)}`;
   }
   return `agentloom add ${repoArg}`;
+}
+
+function buildCommandInstallCommand(result: FoundCommand): string {
+  const source = result.source?.trim() || result.repo;
+  const repoArg = quoteShellArg(source);
+  if (result.subdir && result.subdir.trim()) {
+    return `agentloom command add ${repoArg} --subdir ${quoteShellArg(result.subdir)}`;
+  }
+  return `agentloom command add ${repoArg}`;
+}
+
+function buildMcpInstallCommand(result: FoundMcpServer): string {
+  const source = result.source?.trim() || result.repo;
+  return `agentloom mcp add ${quoteShellArg(source)} --mcps ${quoteShellArg(result.serverName)}`;
+}
+
+function buildSkillInstallCommand(result: FoundSkill): string {
+  const source = result.source?.trim() || result.repo;
+  const repoArg = quoteShellArg(source);
+  if (result.subdir && result.subdir.trim()) {
+    return `agentloom skill add ${repoArg} --subdir ${quoteShellArg(result.subdir)} --skills ${quoteShellArg(result.skillName)}`;
+  }
+  return `agentloom skill add ${repoArg} --skills ${quoteShellArg(result.skillName)}`;
+}
+
+function tokenizeQuery(query: string): string[] {
+  return query
+    .toLowerCase()
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function searchLocalMatches(
+  query: string,
+  target: EntityType | "all",
+): { lines: string[]; total: number } {
+  const tokens = tokenizeQuery(query);
+  const paths = buildScopePaths(process.cwd(), "local");
+  const lines: string[] = [];
+
+  if ((target === "all" || target === "agent") && fsExists(paths.agentsDir)) {
+    const agents = parseAgentsDir(paths.agentsDir);
+    for (const agent of agents) {
+      if (!matchesTokens(`${agent.name} ${agent.fileName}`, tokens)) continue;
+      lines.push(`agent: ${agent.name} (${agent.fileName})`);
+    }
+  }
+
+  if (
+    (target === "all" || target === "command") &&
+    fsExists(paths.commandsDir)
+  ) {
+    const commands = parseCommandsDir(paths.commandsDir);
+    for (const command of commands) {
+      if (!matchesTokens(command.fileName, tokens)) continue;
+      lines.push(`command: ${command.fileName}`);
+    }
+  }
+
+  if ((target === "all" || target === "mcp") && fsExists(paths.mcpPath)) {
+    const mcp = readCanonicalMcp(paths);
+    for (const name of Object.keys(mcp.mcpServers)) {
+      if (!matchesTokens(name, tokens)) continue;
+      lines.push(`mcp: ${name}`);
+    }
+  }
+
+  if ((target === "all" || target === "skill") && fsExists(paths.skillsDir)) {
+    const skills = parseSkillsDir(paths.skillsDir);
+    for (const skill of skills) {
+      if (!matchesTokens(skill.name, tokens)) continue;
+      lines.push(`skill: ${skill.name}`);
+    }
+  }
+
+  return {
+    lines,
+    total: lines.length,
+  };
+}
+
+function matchesTokens(value: string, tokens: string[]): boolean {
+  if (tokens.length === 0) return true;
+  const haystack = value.toLowerCase();
+  return tokens.every((token) => haystack.includes(token));
+}
+
+function fsExists(value: string): boolean {
+  return fs.existsSync(value);
 }
 
 function normalizeSubdirForIdentity(subdir?: string): string {

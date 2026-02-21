@@ -10,7 +10,9 @@ import {
 import type {
   CanonicalAgent,
   CanonicalMcpFile,
+  Provider,
   LockEntry,
+  SelectionMode,
   ScopePaths,
 } from "../types.js";
 import {
@@ -23,6 +25,13 @@ import {
   parseCommandsDir,
   resolveCommandSelections,
 } from "./commands.js";
+import {
+  mapProvidersToSkillsAgents,
+  parseSkillsDir,
+  resolveSkillSelections,
+  runSkillsCommand,
+  type CanonicalSkill,
+} from "./skills.js";
 import {
   ensureDir,
   hashContent,
@@ -37,6 +46,7 @@ import {
   discoverSourceAgentsDir,
   discoverSourceCommandsDir,
   discoverSourceMcpPath,
+  discoverSourceSkillsDir,
   prepareSource,
 } from "./sources.js";
 
@@ -61,6 +71,16 @@ export interface ImportOptions {
   importCommands?: boolean;
   requireCommands?: boolean;
   importMcp?: boolean;
+  requireMcp?: boolean;
+  mcpSelectors?: string[];
+  promptForMcp?: boolean;
+  importSkills?: boolean;
+  requireSkills?: boolean;
+  skillSelectors?: string[];
+  promptForSkills?: boolean;
+  skillsProviders?: Provider[];
+  skillsAgentTargets?: string[];
+  selectionMode?: SelectionMode;
   commandSelectors?: string[];
   commandRenameMap?: Record<string, string>;
   promptForCommands?: boolean;
@@ -72,6 +92,7 @@ export interface ImportSummary {
   importedAgents: string[];
   importedCommands: string[];
   importedMcpServers: string[];
+  importedSkills: string[];
   resolvedCommit: string;
 }
 
@@ -80,14 +101,35 @@ interface AgentsToImportResult {
   requestedAgentsForLock?: string[];
 }
 
+interface CommandSelectionResult {
+  selectedCommands: ReturnType<typeof parseCommandsDir>;
+  selectionMode: SelectionMode;
+}
+
+interface McpSelectionResult {
+  selectedServerNames: string[];
+  selectionMode: SelectionMode;
+}
+
+interface SkillSelectionResult {
+  selectedSkills: CanonicalSkill[];
+  selectionMode: SelectionMode;
+}
+
 export async function importSource(
   options: ImportOptions,
 ): Promise<ImportSummary> {
   const shouldImportAgents = options.importAgents ?? true;
   const shouldImportCommands = options.importCommands ?? true;
   const shouldImportMcp = options.importMcp ?? true;
+  const shouldImportSkills = options.importSkills ?? false;
 
-  if (!shouldImportAgents && !shouldImportCommands && !shouldImportMcp) {
+  if (
+    !shouldImportAgents &&
+    !shouldImportCommands &&
+    !shouldImportMcp &&
+    !shouldImportSkills
+  ) {
     throw new Error("No import targets selected.");
   }
 
@@ -107,11 +149,15 @@ export async function importSource(
     const sourceMcpPath = shouldImportMcp
       ? discoverSourceMcpPath(prepared.importRoot)
       : null;
+    const sourceSkillsDir = shouldImportSkills
+      ? discoverSourceSkillsDir(prepared.importRoot)
+      : null;
 
     const sourceAgents = sourceAgentsDir ? parseAgentsDir(sourceAgentsDir) : [];
     const sourceCommands = sourceCommandsDir
       ? parseCommandsDir(sourceCommandsDir)
       : [];
+    const sourceSkills = sourceSkillsDir ? parseSkillsDir(sourceSkillsDir) : [];
     const hasExplicitCommandSelection =
       (options.commandSelectors?.length ?? 0) > 0;
 
@@ -130,6 +176,23 @@ export async function importSource(
     ) {
       throw new Error(`No command files found in ${sourceCommandsDir}.`);
     }
+    if (shouldImportMcp && options.requireMcp && !sourceMcpPath) {
+      throw new Error(
+        `No source mcp.json found under ${prepared.importRoot} (expected mcp.json or .agents/mcp.json).`,
+      );
+    }
+    if (shouldImportSkills && options.requireSkills && !sourceSkillsDir) {
+      throw new Error(
+        `No source skills directory found under ${prepared.importRoot} (expected skills/ or .agents/skills/).`,
+      );
+    }
+    if (
+      shouldImportSkills &&
+      options.requireSkills &&
+      sourceSkills.length === 0
+    ) {
+      throw new Error(`No skills found in ${sourceSkillsDir}.`);
+    }
 
     const selection: AgentsToImportResult = shouldImportAgents
       ? await resolveAgentsToImport({
@@ -138,6 +201,7 @@ export async function importSource(
           yes: !!options.yes,
           nonInteractive: !!options.nonInteractive,
           promptForAgentSelection: options.promptForAgentSelection ?? true,
+          selectionMode: options.selectionMode,
         })
       : { selectedAgents: [] };
 
@@ -179,13 +243,17 @@ export async function importSource(
     const importedCommands: string[] = [];
     const importedCommandRenameMap: Record<string, string> = {};
     let selectedSourceCommandFiles: string[] = [];
+    let commandSelectionMode: SelectionMode = "all";
     if (shouldImportCommands && sourceCommandsDir) {
-      const selectedSourceCommands = await resolveCommandsToImport({
+      const commandSelection = await resolveCommandsToImport({
         sourceCommands,
         selectors: options.commandSelectors ?? [],
         promptForCommands: Boolean(options.promptForCommands),
         nonInteractive: Boolean(options.nonInteractive),
+        selectionMode: options.selectionMode,
       });
+      const selectedSourceCommands = commandSelection.selectedCommands;
+      commandSelectionMode = commandSelection.selectionMode;
       selectedSourceCommandFiles = selectedSourceCommands.map(
         (command) => command.fileName,
       );
@@ -233,41 +301,183 @@ export async function importSource(
     }
 
     const importedMcpServers: string[] = [];
+    let selectedSourceMcpServers: string[] = [];
+    let sourceMcpServerNames: string[] = [];
+    let mcpSelectionMode: SelectionMode = "all";
 
     if (shouldImportMcp && sourceMcpPath) {
       const sourceMcp = normalizeMcp(
         readJsonIfExists<Record<string, unknown>>(sourceMcpPath),
       );
-      const targetMcp = readCanonicalMcp(options.paths);
+      sourceMcpServerNames = Object.keys(sourceMcp.mcpServers).sort();
 
-      const merged = await resolveMcpConflict({
+      const mcpSelection = await resolveMcpServersToImport({
         sourceMcp,
-        targetMcp,
-        yes: !!options.yes,
-        nonInteractive: !!options.nonInteractive,
+        selectors: options.mcpSelectors ?? [],
+        promptForMcp: options.promptForMcp ?? true,
+        nonInteractive: Boolean(options.nonInteractive),
+        selectionMode: options.selectionMode,
       });
+      selectedSourceMcpServers = mcpSelection.selectedServerNames;
+      mcpSelectionMode = mcpSelection.selectionMode;
 
-      writeCanonicalMcp(options.paths, merged);
-      importedMcpServers.push(...Object.keys(sourceMcp.mcpServers));
+      const selectedSourceMcp: CanonicalMcpFile = {
+        version: 1,
+        mcpServers: Object.fromEntries(
+          selectedSourceMcpServers.map((serverName) => [
+            serverName,
+            sourceMcp.mcpServers[serverName] ?? {},
+          ]),
+        ),
+      };
+
+      if (selectedSourceMcpServers.length > 0) {
+        const targetMcp = readCanonicalMcp(options.paths);
+
+        const merged = await resolveMcpConflict({
+          sourceMcp: selectedSourceMcp,
+          targetMcp,
+          yes: !!options.yes,
+          nonInteractive: !!options.nonInteractive,
+        });
+
+        writeCanonicalMcp(options.paths, merged);
+      }
+
+      importedMcpServers.push(...selectedSourceMcpServers);
     }
 
+    const importedSkills: string[] = [];
+    let selectedSourceSkills: string[] = [];
+    let skillsAgentTargetsForLock: string[] | undefined;
+    let skillSelectionMode: SelectionMode = "all";
+
+    if (shouldImportSkills && sourceSkillsDir) {
+      const skillSelection = await resolveSkillsToImport({
+        sourceSkills,
+        selectors: options.skillSelectors ?? [],
+        promptForSkills: options.promptForSkills ?? true,
+        nonInteractive: Boolean(options.nonInteractive),
+        selectionMode: options.selectionMode,
+      });
+      const selectedSkills = skillSelection.selectedSkills;
+      skillSelectionMode = skillSelection.selectionMode;
+
+      selectedSourceSkills = selectedSkills.map((skill) => skill.name);
+
+      if (selectedSkills.length > 0) {
+        const args = ["add", prepared.importRoot, "--yes"];
+
+        if (
+          skillSelectionMode === "custom" ||
+          selectedSkills.length < sourceSkills.length
+        ) {
+          for (const skill of selectedSkills) {
+            args.push("--skill", skill.name);
+          }
+        }
+
+        if (options.paths.scope === "global") {
+          args.push("--global");
+        }
+
+        if (
+          options.skillsAgentTargets &&
+          options.skillsAgentTargets.length > 0
+        ) {
+          for (const target of options.skillsAgentTargets) {
+            args.push("--agent", target);
+          }
+          skillsAgentTargetsForLock = [...new Set(options.skillsAgentTargets)];
+        } else if (
+          options.skillsProviders &&
+          options.skillsProviders.length > 0
+        ) {
+          const mappedTargets = mapProvidersToSkillsAgents(
+            options.skillsProviders,
+          );
+          for (const target of mappedTargets) {
+            args.push("--agent", target);
+          }
+          skillsAgentTargetsForLock = mappedTargets;
+        }
+
+        runSkillsCommand({
+          args,
+          cwd: options.paths.workspaceRoot,
+          inheritStdio: !options.nonInteractive,
+        });
+      }
+
+      importedSkills.push(...selectedSourceSkills);
+    }
+
+    const selectedSubsetOfSourceCommands =
+      sourceCommands.length > 0 &&
+      selectedSourceCommandFiles.length < sourceCommands.length;
+    const selectedSubsetOfSourceMcp =
+      sourceMcpServerNames.length > 0 &&
+      selectedSourceMcpServers.length < sourceMcpServerNames.length;
+    const selectedSubsetOfSourceSkills =
+      sourceSkills.length > 0 &&
+      selectedSourceSkills.length < sourceSkills.length;
+    const shouldPersistCommandSelection =
+      shouldImportCommands && commandSelectionMode === "custom";
+    const shouldPersistMcpSelection =
+      shouldImportMcp && mcpSelectionMode === "custom";
+    const shouldPersistSkillSelection =
+      shouldImportSkills && skillSelectionMode === "custom";
+
+    const selectedSourceCommandsForLock =
+      shouldPersistCommandSelection || selectedSubsetOfSourceCommands
+        ? selectedSourceCommandFiles
+        : undefined;
+    const selectedSourceMcpServersForLock =
+      shouldPersistMcpSelection || selectedSubsetOfSourceMcp
+        ? selectedSourceMcpServers
+        : undefined;
+    const selectedSourceSkillsForLock =
+      shouldPersistSkillSelection || selectedSubsetOfSourceSkills
+        ? selectedSourceSkills
+        : undefined;
+
     const lockfile = readLockfile(options.paths);
-    const existingEntry = findMatchingLockEntry(lockfile.entries, {
-      source: prepared.spec.source,
-      sourceType: prepared.spec.type,
-      subdir: options.subdir,
-      requestedAgents: shouldImportAgents
-        ? selection.requestedAgentsForLock
-        : options.agents,
-    });
     const isCommandOnlyImport =
-      !shouldImportAgents && shouldImportCommands && !shouldImportMcp;
+      !shouldImportAgents &&
+      shouldImportCommands &&
+      !shouldImportMcp &&
+      !shouldImportSkills;
+    const existingEntry = isCommandOnlyImport
+      ? findRelaxedCommandEntry(lockfile.entries, {
+          source: prepared.spec.source,
+          sourceType: prepared.spec.type,
+          subdir: options.subdir,
+          requestedAgents: options.agents,
+        })
+      : findMatchingLockEntry(lockfile.entries, {
+          source: prepared.spec.source,
+          sourceType: prepared.spec.type,
+          subdir: options.subdir,
+          requestedAgents: shouldImportAgents
+            ? selection.requestedAgentsForLock
+            : options.agents,
+          selectedSourceCommands: selectedSourceCommandsForLock,
+          selectedSourceMcpServers: selectedSourceMcpServersForLock,
+          selectedSourceSkills: selectedSourceSkillsForLock,
+          skillsAgentTargets: skillsAgentTargetsForLock,
+        });
+    const shouldMergeCommandOnlyEntry =
+      isCommandOnlyImport &&
+      Boolean(existingEntry) &&
+      (existingEntry?.importedAgents.length ?? 0) === 0 &&
+      (existingEntry?.importedMcpServers.length ?? 0) === 0 &&
+      (existingEntry?.importedSkills.length ?? 0) === 0;
 
     const lockImportedAgents = shouldImportAgents
       ? importedAgents
       : (existingEntry?.importedAgents ?? []);
     const lockImportedCommands = shouldImportCommands
-      ? isCommandOnlyImport
+      ? shouldMergeCommandOnlyEntry
         ? uniqueStrings([
             ...(existingEntry?.importedCommands ?? []),
             ...importedCommands,
@@ -277,19 +487,23 @@ export async function importSource(
     const lockImportedMcpServers = shouldImportMcp
       ? importedMcpServers
       : (existingEntry?.importedMcpServers ?? []);
-    const selectedSubsetOfSourceCommands =
-      sourceCommands.length > 0 &&
-      selectedSourceCommandFiles.length < sourceCommands.length;
+    const lockImportedSkills = shouldImportSkills
+      ? importedSkills
+      : (existingEntry?.importedSkills ?? []);
 
     let lockSelectedSourceCommands: string[] | undefined;
     if (shouldImportCommands) {
-      if (isCommandOnlyImport) {
-        lockSelectedSourceCommands = uniqueStrings([
-          ...(existingEntry?.selectedSourceCommands ?? []),
-          ...selectedSourceCommandFiles,
-        ]);
+      if (shouldMergeCommandOnlyEntry) {
+        if (shouldPersistCommandSelection || selectedSubsetOfSourceCommands) {
+          lockSelectedSourceCommands = uniqueStrings([
+            ...(existingEntry?.selectedSourceCommands ?? []),
+            ...selectedSourceCommandFiles,
+          ]);
+        } else {
+          lockSelectedSourceCommands = undefined;
+        }
       } else if (
-        hasExplicitCommandSelection ||
+        shouldPersistCommandSelection ||
         selectedSubsetOfSourceCommands
       ) {
         lockSelectedSourceCommands = [...selectedSourceCommandFiles];
@@ -299,9 +513,24 @@ export async function importSource(
     } else {
       lockSelectedSourceCommands = existingEntry?.selectedSourceCommands;
     }
+
+    const lockSelectedSourceMcpServers = shouldImportMcp
+      ? shouldPersistMcpSelection || selectedSubsetOfSourceMcp
+        ? [...selectedSourceMcpServers]
+        : undefined
+      : existingEntry?.selectedSourceMcpServers;
+
+    const lockSelectedSourceSkills = shouldImportSkills
+      ? shouldPersistSkillSelection || selectedSubsetOfSourceSkills
+        ? [...selectedSourceSkills]
+        : undefined
+      : existingEntry?.selectedSourceSkills;
+    const lockSkillsAgentTargets = shouldImportSkills
+      ? (skillsAgentTargetsForLock ?? existingEntry?.skillsAgentTargets)
+      : existingEntry?.skillsAgentTargets;
     let lockCommandRenameMap: Record<string, string> | undefined;
     if (shouldImportCommands) {
-      if (isCommandOnlyImport) {
+      if (shouldMergeCommandOnlyEntry) {
         lockCommandRenameMap = mergeCommandRenameMaps(
           existingEntry?.commandRenameMap,
           importedCommandRenameMap,
@@ -315,6 +544,27 @@ export async function importSource(
       lockCommandRenameMap = existingEntry?.commandRenameMap;
     }
 
+    const trackedEntities = uniqueStrings(
+      [
+        ...(shouldImportAgents ||
+        (existingEntry?.trackedEntities ?? []).includes("agent")
+          ? ["agent"]
+          : []),
+        ...(shouldImportCommands ||
+        (existingEntry?.trackedEntities ?? []).includes("command")
+          ? ["command"]
+          : []),
+        ...(shouldImportMcp ||
+        (existingEntry?.trackedEntities ?? []).includes("mcp")
+          ? ["mcp"]
+          : []),
+        ...(shouldImportSkills ||
+        (existingEntry?.trackedEntities ?? []).includes("skill")
+          ? ["skill"]
+          : []),
+      ].filter(Boolean),
+    ) as ("agent" | "command" | "mcp" | "skill")[];
+
     const contentHash = hashContent(
       JSON.stringify({
         agents: lockImportedAgents,
@@ -322,6 +572,11 @@ export async function importSource(
         selectedSourceCommands: lockSelectedSourceCommands ?? [],
         commandRenameMap: lockCommandRenameMap ?? {},
         mcp: lockImportedMcpServers,
+        selectedSourceMcpServers: lockSelectedSourceMcpServers ?? [],
+        skills: lockImportedSkills,
+        selectedSourceSkills: lockSelectedSourceSkills ?? [],
+        skillsAgentTargets: lockSkillsAgentTargets ?? [],
+        trackedEntities,
       }),
     );
 
@@ -340,10 +595,24 @@ export async function importSource(
       selectedSourceCommands: lockSelectedSourceCommands,
       commandRenameMap: lockCommandRenameMap,
       importedMcpServers: lockImportedMcpServers,
+      selectedSourceMcpServers: lockSelectedSourceMcpServers,
+      importedSkills: lockImportedSkills,
+      selectedSourceSkills: lockSelectedSourceSkills,
+      skillsAgentTargets: lockSkillsAgentTargets,
+      trackedEntities,
       contentHash,
     };
 
-    upsertLockEntry(lockfile, lockEntry);
+    if (existingEntry) {
+      const existingIndex = lockfile.entries.indexOf(existingEntry);
+      if (existingIndex >= 0) {
+        lockfile.entries[existingIndex] = lockEntry;
+      } else {
+        upsertLockEntry(lockfile, lockEntry);
+      }
+    } else {
+      upsertLockEntry(lockfile, lockEntry);
+    }
     writeLockfile(options.paths, lockfile);
 
     return {
@@ -352,6 +621,7 @@ export async function importSource(
       importedAgents,
       importedCommands,
       importedMcpServers,
+      importedSkills,
       resolvedCommit: prepared.resolvedCommit,
     };
   } finally {
@@ -365,6 +635,7 @@ async function resolveAgentsToImport(options: {
   yes: boolean;
   nonInteractive: boolean;
   promptForAgentSelection: boolean;
+  selectionMode?: SelectionMode;
 }): Promise<AgentsToImportResult> {
   const requestedAgents = normalizeRequestedAgents(options.requestedAgents);
   if (requestedAgents && requestedAgents.length > 0) {
@@ -386,13 +657,30 @@ async function resolveAgentsToImport(options: {
     };
   }
 
+  const selectionMode = await resolveSelectionMode({
+    entityLabel: "agents",
+    selectionMode: options.selectionMode,
+    promptForSelection: options.promptForAgentSelection,
+    nonInteractive: options.nonInteractive,
+  });
+
+  if (selectionMode === "all") {
+    return { selectedAgents: options.sourceAgents };
+  }
+
   if (
     options.yes ||
     options.nonInteractive ||
     options.sourceAgents.length <= 1 ||
     !options.promptForAgentSelection
   ) {
-    return { selectedAgents: options.sourceAgents };
+    return {
+      selectedAgents: options.sourceAgents,
+      requestedAgentsForLock: getStableRequestedAgentsForLock({
+        selectedAgents: options.sourceAgents,
+        sourceAgents: options.sourceAgents,
+      }),
+    };
   }
 
   const selected = await promptAgentSelection(options.sourceAgents);
@@ -401,13 +689,10 @@ async function resolveAgentsToImport(options: {
       "No agents selected. Use --agent <name> or rerun and select at least one agent.",
     );
   }
-  const requestedAgentsForLock =
-    selected.length < options.sourceAgents.length
-      ? getStableRequestedAgentsForLock({
-          selectedAgents: selected,
-          sourceAgents: options.sourceAgents,
-        })
-      : undefined;
+  const requestedAgentsForLock = getStableRequestedAgentsForLock({
+    selectedAgents: selected,
+    sourceAgents: options.sourceAgents,
+  });
   return { selectedAgents: selected, requestedAgentsForLock };
 }
 
@@ -568,15 +853,69 @@ async function promptAgentSelection(
 
 function findMatchingLockEntry(
   entries: LockEntry[],
-  key: Pick<LockEntry, "source" | "sourceType" | "subdir" | "requestedAgents">,
+  key: Pick<
+    LockEntry,
+    | "source"
+    | "sourceType"
+    | "subdir"
+    | "requestedAgents"
+    | "selectedSourceCommands"
+    | "selectedSourceMcpServers"
+    | "selectedSourceSkills"
+    | "skillsAgentTargets"
+  >,
 ): LockEntry | undefined {
   return entries.find(
     (entry) =>
       entry.source === key.source &&
       entry.sourceType === key.sourceType &&
       entry.subdir === key.subdir &&
+      sameRequestedAgentsForMatch(entry.requestedAgents, key.requestedAgents) &&
+      sameStringSelectionForMatch(
+        entry.selectedSourceCommands,
+        key.selectedSourceCommands,
+      ) &&
+      sameStringSelectionForMatch(
+        entry.selectedSourceMcpServers,
+        key.selectedSourceMcpServers,
+      ) &&
+      sameStringSelectionForMatch(
+        entry.selectedSourceSkills,
+        key.selectedSourceSkills,
+        { wildcardWhenRightIsUndefined: true },
+      ) &&
+      sameStringSelectionForMatch(
+        entry.skillsAgentTargets,
+        key.skillsAgentTargets,
+        {
+          wildcardWhenRightIsUndefined: true,
+        },
+      ),
+  );
+}
+
+function findRelaxedCommandEntry(
+  entries: LockEntry[],
+  key: Pick<LockEntry, "source" | "sourceType" | "subdir" | "requestedAgents">,
+): LockEntry | undefined {
+  const matches = entries.filter(
+    (entry) =>
+      entry.source === key.source &&
+      entry.sourceType === key.sourceType &&
+      entry.subdir === key.subdir &&
       sameRequestedAgentsForMatch(entry.requestedAgents, key.requestedAgents),
   );
+
+  if (matches.length === 0) return undefined;
+
+  const mixed = matches.find(
+    (entry) =>
+      entry.importedAgents.length > 0 ||
+      entry.importedMcpServers.length > 0 ||
+      entry.importedSkills.length > 0,
+  );
+
+  return mixed ?? matches[0];
 }
 
 function sameRequestedAgentsForMatch(
@@ -602,6 +941,27 @@ function normalizeRequestedAgentsForMatch(
   return [
     ...new Set(value.map((item) => item.trim().toLowerCase()).filter(Boolean)),
   ].sort();
+}
+
+function sameStringSelectionForMatch(
+  left: string[] | undefined,
+  right: string[] | undefined,
+  options: { wildcardWhenRightIsUndefined?: boolean } = {},
+): boolean {
+  if (options.wildcardWhenRightIsUndefined && right === undefined) {
+    return true;
+  }
+
+  const normalizedLeft = normalizeRequestedAgentsForMatch(left);
+  const normalizedRight = normalizeRequestedAgentsForMatch(right);
+
+  if (normalizedLeft.length !== normalizedRight.length) {
+    return false;
+  }
+
+  return normalizedLeft.every(
+    (value, index) => value === normalizedRight[index],
+  );
 }
 
 function uniqueStrings(values: string[]): string[] {
@@ -801,7 +1161,8 @@ async function resolveCommandsToImport(options: {
   selectors: string[];
   promptForCommands: boolean;
   nonInteractive: boolean;
-}): Promise<ReturnType<typeof parseCommandsDir>> {
+  selectionMode?: SelectionMode;
+}): Promise<CommandSelectionResult> {
   const selectors = options.selectors
     .map((selector) => selector.trim())
     .filter(Boolean);
@@ -818,11 +1179,28 @@ async function resolveCommandsToImport(options: {
       );
     }
 
-    return selected;
+    return {
+      selectedCommands: selected,
+      selectionMode: "custom",
+    };
   }
 
-  if (!options.promptForCommands || options.nonInteractive) {
-    return options.sourceCommands;
+  const selectionMode = await resolveSelectionMode({
+    entityLabel: "commands",
+    selectionMode: options.selectionMode,
+    promptForSelection: options.promptForCommands,
+    nonInteractive: options.nonInteractive,
+  });
+
+  if (
+    selectionMode === "all" ||
+    !options.promptForCommands ||
+    options.nonInteractive
+  ) {
+    return {
+      selectedCommands: options.sourceCommands,
+      selectionMode,
+    };
   }
 
   const selected = await multiselect({
@@ -843,9 +1221,208 @@ async function resolveCommandsToImport(options: {
     ? new Set(selected.map((value) => String(value)))
     : new Set<string>();
 
-  return options.sourceCommands.filter((item) =>
-    selectedNames.has(item.fileName),
-  );
+  return {
+    selectedCommands: options.sourceCommands.filter((item) =>
+      selectedNames.has(item.fileName),
+    ),
+    selectionMode,
+  };
+}
+
+async function resolveMcpServersToImport(options: {
+  sourceMcp: CanonicalMcpFile;
+  selectors: string[];
+  promptForMcp: boolean;
+  nonInteractive: boolean;
+  selectionMode?: SelectionMode;
+}): Promise<McpSelectionResult> {
+  const available = Object.keys(options.sourceMcp.mcpServers).sort();
+  const selectors = options.selectors
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  if (selectors.length > 0) {
+    const selected = new Set<string>();
+    const unmatched: string[] = [];
+
+    for (const selector of selectors) {
+      if (
+        !Object.prototype.hasOwnProperty.call(
+          options.sourceMcp.mcpServers,
+          selector,
+        )
+      ) {
+        unmatched.push(selector);
+        continue;
+      }
+      selected.add(selector);
+    }
+
+    if (unmatched.length > 0) {
+      throw new Error(
+        `MCP server(s) not found in source: ${unmatched.join(", ")}. Available: ${available.join(", ")}`,
+      );
+    }
+
+    return {
+      selectedServerNames: [...selected],
+      selectionMode: "custom",
+    };
+  }
+
+  const selectionMode = await resolveSelectionMode({
+    entityLabel: "MCP servers",
+    selectionMode: options.selectionMode,
+    promptForSelection: options.promptForMcp,
+    nonInteractive: options.nonInteractive,
+  });
+
+  if (
+    selectionMode === "all" ||
+    !options.promptForMcp ||
+    options.nonInteractive
+  ) {
+    return {
+      selectedServerNames: available,
+      selectionMode,
+    };
+  }
+
+  const selected = await multiselect({
+    message: "Select MCP servers to import",
+    options: available.map((serverName) => ({
+      value: serverName,
+      label: serverName,
+    })),
+    initialValues: available,
+  });
+
+  if (isCancel(selected)) {
+    cancel("Operation cancelled.");
+    process.exit(1);
+  }
+
+  const selectedNames = Array.isArray(selected)
+    ? new Set(selected.map((value) => String(value)))
+    : new Set<string>();
+
+  return {
+    selectedServerNames: available.filter((serverName) =>
+      selectedNames.has(serverName),
+    ),
+    selectionMode,
+  };
+}
+
+async function resolveSkillsToImport(options: {
+  sourceSkills: CanonicalSkill[];
+  selectors: string[];
+  promptForSkills: boolean;
+  nonInteractive: boolean;
+  selectionMode?: SelectionMode;
+}): Promise<SkillSelectionResult> {
+  const selectors = options.selectors
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (selectors.length > 0) {
+    const { selected, unmatched } = resolveSkillSelections(
+      options.sourceSkills,
+      selectors,
+    );
+
+    if (unmatched.length > 0) {
+      throw new Error(
+        `Skill(s) not found in source: ${unmatched.join(", ")}. Available: ${options.sourceSkills.map((skill) => skill.name).join(", ")}`,
+      );
+    }
+
+    return {
+      selectedSkills: selected,
+      selectionMode: "custom",
+    };
+  }
+
+  const selectionMode = await resolveSelectionMode({
+    entityLabel: "skills",
+    selectionMode: options.selectionMode,
+    promptForSelection: options.promptForSkills,
+    nonInteractive: options.nonInteractive,
+  });
+
+  if (
+    selectionMode === "all" ||
+    !options.promptForSkills ||
+    options.nonInteractive
+  ) {
+    return {
+      selectedSkills: options.sourceSkills,
+      selectionMode,
+    };
+  }
+
+  const selected = await multiselect({
+    message: "Select skills to import",
+    options: options.sourceSkills.map((skill) => ({
+      value: skill.name,
+      label: skill.name,
+    })),
+    initialValues: options.sourceSkills.map((skill) => skill.name),
+  });
+
+  if (isCancel(selected)) {
+    cancel("Operation cancelled.");
+    process.exit(1);
+  }
+
+  const selectedNames = Array.isArray(selected)
+    ? new Set(selected.map((value) => String(value)))
+    : new Set<string>();
+
+  return {
+    selectedSkills: options.sourceSkills.filter((skill) =>
+      selectedNames.has(skill.name),
+    ),
+    selectionMode,
+  };
+}
+
+async function resolveSelectionMode(options: {
+  entityLabel: string;
+  selectionMode?: SelectionMode;
+  promptForSelection: boolean;
+  nonInteractive: boolean;
+}): Promise<SelectionMode> {
+  if (options.selectionMode) {
+    return options.selectionMode;
+  }
+
+  if (!options.promptForSelection || options.nonInteractive) {
+    return "all";
+  }
+
+  const choice = await select({
+    message: `How should ${options.entityLabel} be tracked for future updates?`,
+    options: [
+      {
+        value: "all",
+        label: "Sync everything from source",
+        hint: "Include new items on update",
+      },
+      {
+        value: "custom",
+        label: "Use custom selection",
+        hint: "Update only currently selected items",
+      },
+    ],
+    initialValue: "all",
+  });
+
+  if (isCancel(choice)) {
+    cancel("Operation cancelled.");
+    process.exit(1);
+  }
+
+  return choice === "custom" ? "custom" : "all";
 }
 
 function normalizeMcp(raw: Record<string, unknown> | null): CanonicalMcpFile {

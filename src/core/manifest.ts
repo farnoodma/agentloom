@@ -15,7 +15,16 @@ export function readManifest(paths: ScopePaths): SyncManifest {
   ) {
     return { ...EMPTY_MANIFEST };
   }
-  return manifest;
+
+  const generatedByEntity =
+    manifest.generatedByEntity && typeof manifest.generatedByEntity === "object"
+      ? manifest.generatedByEntity
+      : undefined;
+
+  return {
+    ...manifest,
+    generatedByEntity,
+  };
 }
 
 export function writeManifest(paths: ScopePaths, manifest: SyncManifest): void {

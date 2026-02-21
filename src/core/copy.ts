@@ -7,20 +7,27 @@ type UsageErrorInput = {
 const PROVIDERS_CSV = "cursor,claude,codex,opencode,gemini,copilot";
 
 export function getRootHelpText(): string {
-  return `agentloom - unified agent and MCP sync CLI
+  return `agentloom - unified canonical agent package manager
 
 Usage:
-  agentloom <command> [options]
+  agentloom <aggregate-command> [options]
+  agentloom <entity> <verb> [options]
 
-Commands:
-  find <query>               Search for shared agents from external repos
-  skills ...                 Pass through to "npx skills ..." (vercel-labs/skills)
-  add <source>               Import agents, commands, and MCP from a repo source
-  update                     Refresh lockfile-managed imports
+Aggregate commands:
+  add <source>               Import agents/commands/mcp/skills from a source
+  find <query>               Search remote + local entities
+  update [source]            Refresh lockfile-managed imports
   sync                       Generate provider-specific outputs
-  command <add|list|delete>  Manage canonical command files
-  mcp <add|list|delete>      Manage canonical MCP servers
-  help                       Show this help text
+  delete <source|name>       Delete imported entities by source or name
+
+Entity commands:
+  agent <add|list|delete|find|update|sync>
+  command <add|list|delete|find|update|sync>
+  mcp <add|list|delete|find|update|sync>
+  skill <add|list|delete|find|update|sync>
+
+MCP manual server commands:
+  mcp server <add|list|delete>
 
 Common options:
   --local                    Use .agents from current workspace
@@ -29,33 +36,43 @@ Common options:
   --no-sync                  Skip post-change sync (mutating commands)
   --providers <csv>          Limit sync providers (${PROVIDERS_CSV})
   --dry-run                  Print planned sync changes without writing files
+  --agents <csv>             Agent selectors for add/delete
+  --commands <csv>           Command selectors for add/delete
+  --mcps <csv>               MCP selectors for add/delete
+  --skills <csv>             Skill selectors for add/delete
+  --selection-mode <mode>    Add mode: all (default) or custom
+  --source <value>           Explicit source filter for update/delete
+  --name <value>             Explicit name filter for delete
+  --entity <type>            Delete disambiguation for aggregate delete
 
 Examples:
-  agentloom find reviewer
   agentloom add farnoodma/agents
-  agentloom add farnoodma/agents --agent issue-creator
-  agentloom add /repo --subdir packages/agents
-  agentloom update --local
-  agentloom sync --providers codex,claude,cursor
-  agentloom command add ./command-pack
-  agentloom mcp add browser-tools --command npx --arg browser-tools-mcp
+  agentloom agent add farnoodma/agents --agents issue-creator
+  agentloom command add farnoodma/agents --commands review
+  agentloom mcp add farnoodma/agents --mcps browser
+  agentloom skill add farnoodma/agents --skills pr-review
+  agentloom update
+  agentloom command update farnoodma/agents
+  agentloom delete farnoodma/agents
+  agentloom mcp server add browser --command npx --arg browser-tools-mcp
 `;
 }
 
 export function getFindHelpText(): string {
-  return `Search shared agent repositories for installable agents.
+  return `Search remote repositories and local .agents entities.
 
 Usage:
   agentloom find <query>
+  agentloom <agent|command|mcp|skill> find <query>
 
 Examples:
   agentloom find reviewer
-  agentloom find "react performance"
+  agentloom command find release
 `;
 }
 
 export function getAddHelpText(): string {
-  return `Import canonical agents, commands, and MCP from a source repository.
+  return `Import canonical entities from a source repository.
 
 Usage:
   agentloom add <source> [options]
@@ -63,16 +80,20 @@ Usage:
 Options:
   --ref <ref>                Git ref (branch/tag/commit) for remote sources
   --subdir <path>            Subdirectory inside source repo
-  --agent <name>             Import only selected agent(s) (repeatable/csv)
-  --rename <name>            Rename imported agent (single-agent import only)
+  --agents <name>            Import selected agents (repeatable/csv)
+  --commands <name>          Import selected commands (repeatable/csv)
+  --mcps <name>              Import selected MCP servers (repeatable/csv)
+  --skills <name>            Import selected skills (repeatable/csv)
+  --selection-mode <mode>    all|sync-all (include future items) or custom (pin selection)
+  --rename <name>            Rename imported item for single-item add flows
   --local | --global         Choose destination scope
-  --yes                      Skip conflict prompts (overwrite/merge defaults)
+  --yes                      Skip conflict prompts
   --no-sync                  Do not run sync after import
   --providers <csv>          Providers for post-import sync (${PROVIDERS_CSV})
   --dry-run                  Show sync plan without writing provider files
 
 Example:
-  agentloom add farnoodma/agents --agent issue-creator --providers codex,claude
+  agentloom add farnoodma/agents --providers codex,claude
 `;
 }
 
@@ -80,9 +101,11 @@ export function getUpdateHelpText(): string {
   return `Refresh lockfile-managed sources and re-import updated revisions.
 
 Usage:
-  agentloom update [options]
+  agentloom update [source] [options]
+  agentloom <agent|command|mcp|skill> update [source] [options]
 
 Options:
+  --source <value>           Explicit source filter
   --local | --global         Choose lockfile scope
   --yes                      Skip conflict prompts during re-import
   --no-sync                  Do not run sync after updates
@@ -90,47 +113,30 @@ Options:
   --dry-run                  Show sync plan without writing provider files
 
 Example:
-  agentloom update --local --providers codex,cursor
+  agentloom update farnoodma/agents --providers codex,cursor
 `;
 }
 
 export function getSyncHelpText(): string {
-  return `Generate provider-specific agent and MCP files from canonical .agents data.
+  return `Generate provider-specific files from canonical .agents data.
 
 Usage:
   agentloom sync [options]
+  agentloom <agent|command|mcp|skill> sync [options]
 
 Options:
   --local | --global         Choose canonical scope
   --providers <csv>          Limit providers (${PROVIDERS_CSV})
   --yes                      Auto-delete stale generated files
   --dry-run                  Show file changes without writing
-
-Example:
-  agentloom sync --local --providers codex,claude,cursor --dry-run
 `;
 }
 
 export function getCommandHelpText(): string {
-  return `Manage canonical command files in .agents/commands.
+  return `Manage canonical command entities.
 
 Usage:
-  agentloom command <command> [options]
-
-Commands:
-  add <source>               Import commands from a repo source
-  list                       List canonical command files
-  delete <name>              Delete a canonical command file
-
-Shared options:
-  --local | --global         Choose canonical scope
-  --no-sync                  Skip post-change sync (add/delete only)
-  --providers <csv>          Providers for post-change sync (${PROVIDERS_CSV})
-
-Examples:
-  agentloom command add ./command-pack
-  agentloom command list
-  agentloom command delete review
+  agentloom command <add|list|delete|find|update|sync> [options]
 `;
 }
 
@@ -141,21 +147,10 @@ Usage:
   agentloom command add <source> [options]
 
 Options:
-  --command <name>           Repeatable command selector (name or filename)
+  --commands <name>          Repeatable command selector (name or filename)
   --ref <ref>                Git ref (branch/tag/commit) for remote sources
   --subdir <path>            Subdirectory inside source repo
   --rename <name>            Rename imported command (single-command import only)
-  --local | --global         Choose destination scope
-  --yes                      Skip conflict prompts (overwrite defaults)
-  --no-sync                  Do not run sync after import
-  --providers <csv>          Providers for post-import sync (${PROVIDERS_CSV})
-  --dry-run                  Show sync plan without writing provider files
-
-Behavior:
-  Without --command, interactive sessions open a multi-select list (all selected by default).
-
-Example:
-  agentloom command add farnoodma/agents --command review
 `;
 }
 
@@ -163,71 +158,50 @@ export function getCommandListHelpText(): string {
   return `List canonical command files.
 
 Usage:
-  agentloom command list [options]
-
-Options:
-  --json                     Print raw JSON
-  --local | --global         Choose canonical scope
-
-Example:
-  agentloom command list --json
+  agentloom command list [--json] [--local|--global]
 `;
 }
 
 export function getCommandDeleteHelpText(): string {
-  return `Delete a command file from canonical .agents/commands.
+  return `Delete command imports by source or name.
 
 Usage:
-  agentloom command delete <name> [options]
-
-Options:
-  --local | --global         Choose canonical scope
-  --no-sync                  Skip post-change sync
-
-Example:
-  agentloom command delete review
+  agentloom command delete <source|name> [options]
 `;
 }
 
 export function getMcpHelpText(): string {
-  return `Manage canonical MCP servers in .agents/mcp.json.
+  return `Manage MCP entities imported from sources.
 
 Usage:
-  agentloom mcp <command> [options]
+  agentloom mcp <add|list|delete|find|update|sync> [options]
+  agentloom mcp server <add|list|delete> [options]
+`;
+}
 
-Commands:
-  add <name>                 Add or update an MCP server
-  list                       List configured MCP servers
-  delete <name>              Remove an MCP server
+export function getMcpServerHelpText(): string {
+  return `Manage manual MCP servers in canonical .agents/mcp.json.
 
-Shared options:
-  --local | --global         Choose canonical scope
-  --no-sync                  Skip post-change sync (add/delete only)
-  --providers <csv>          Providers for post-change sync (${PROVIDERS_CSV})
+Usage:
+  agentloom mcp server <add|list|delete> [options]
 
 Examples:
-  agentloom mcp add browser --command npx --arg browser-tools-mcp
-  agentloom mcp list --json
-  agentloom mcp delete browser
+  agentloom mcp server add browser --command npx --arg browser-tools-mcp
+  agentloom mcp server list --json
+  agentloom mcp server delete browser
 `;
 }
 
 export function getMcpAddHelpText(): string {
-  return `Add or update an MCP server in canonical .agents/mcp.json.
+  return `Add or update a manual MCP server in canonical .agents/mcp.json.
 
 Usage:
-  agentloom mcp add <name> (--url <url> | --command <cmd>) [options]
+  agentloom mcp server add <name> (--url <url> | --command <cmd>) [options]
 
 Options:
   --arg <value>              Repeatable command argument
   --env KEY=VALUE            Repeatable environment variable
   --providers <csv>          Provider-specific server assignment (${PROVIDERS_CSV})
-  --local | --global         Choose canonical scope
-  --no-sync                  Skip post-change sync
-
-Examples:
-  agentloom mcp add browser --command npx --arg browser-tools-mcp
-  agentloom mcp add docs --url https://example.com/mcp --providers codex,claude
 `;
 }
 
@@ -235,29 +209,15 @@ export function getMcpListHelpText(): string {
   return `List canonical MCP servers.
 
 Usage:
-  agentloom mcp list [options]
-
-Options:
-  --json                     Print raw JSON
-  --local | --global         Choose canonical scope
-
-Example:
-  agentloom mcp list --json
+  agentloom mcp server list [--json] [--local|--global]
 `;
 }
 
 export function getMcpDeleteHelpText(): string {
-  return `Delete an MCP server from canonical .agents/mcp.json.
+  return `Delete a manual MCP server from canonical .agents/mcp.json.
 
 Usage:
-  agentloom mcp delete <name> [options]
-
-Options:
-  --local | --global         Choose canonical scope
-  --no-sync                  Skip post-change sync
-
-Example:
-  agentloom mcp delete browser
+  agentloom mcp server delete <name> [options]
 `;
 }
 
@@ -272,6 +232,14 @@ export function formatUsageError(input: UsageErrorInput): string {
 }
 
 export function formatUnknownCommandError(command: string): string {
+  if (command === "skills") {
+    return formatUsageError({
+      issue: 'Command "skills" was removed.',
+      usage: "agentloom skill <add|list|delete|find|update|sync> [options]",
+      example: "agentloom skill find typescript",
+    });
+  }
+
   return formatUsageError({
     issue: `Unknown command "${command}".`,
     usage: "agentloom --help",

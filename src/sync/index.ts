@@ -7,6 +7,7 @@ import YAML from "yaml";
 import type {
   CanonicalAgent,
   AgentloomSettings,
+  EntityType,
   Provider,
   ScopePaths,
   SyncManifest,
@@ -42,6 +43,7 @@ export interface SyncOptions {
   yes?: boolean;
   nonInteractive?: boolean;
   dryRun?: boolean;
+  target?: EntityType | "all";
 }
 
 export interface SyncSummary {
@@ -60,47 +62,104 @@ export async function syncFromCanonical(
   const settings = readSettings(options.paths.settingsPath);
 
   const providers = resolveProviders(options.providers, settings);
+  const target = options.target ?? "all";
 
   const nextManifest: SyncManifest = {
     version: 1,
     generatedFiles: [],
+    generatedByEntity: {},
     codex: {
-      roles: [],
-      mcpServers: [],
+      roles: [...(manifest.codex?.roles ?? [])],
+      mcpServers: [...(manifest.codex?.mcpServers ?? [])],
     },
   };
 
-  const generated = new Set<string>();
+  const generatedAgents = new Set<string>();
+  const generatedCommands = new Set<string>();
+  const generatedMcp = new Set<string>();
 
-  for (const provider of providers) {
-    syncProviderAgents({
-      provider,
+  if (target === "all" || target === "agent") {
+    for (const provider of providers) {
+      syncProviderAgents({
+        provider,
+        paths: options.paths,
+        agents,
+        generated: generatedAgents,
+        dryRun: !!options.dryRun,
+      });
+    }
+  }
+
+  if (target === "all" || target === "command") {
+    for (const provider of providers) {
+      syncProviderCommands({
+        provider,
+        paths: options.paths,
+        commands,
+        generated: generatedCommands,
+        dryRun: !!options.dryRun,
+      });
+    }
+  }
+
+  if (target === "all" || target === "mcp") {
+    syncProviderMcp({
+      providers,
       paths: options.paths,
-      agents,
-      generated,
-      dryRun: !!options.dryRun,
-    });
-    syncProviderCommands({
-      provider,
-      paths: options.paths,
-      commands,
-      generated,
+      mcp,
+      generated: generatedMcp,
       dryRun: !!options.dryRun,
     });
   }
 
-  syncProviderMcp({
-    providers,
-    paths: options.paths,
-    agents,
-    mcp,
-    generated,
-    manifest,
-    nextManifest,
-    dryRun: !!options.dryRun,
-  });
+  if (providers.includes("codex")) {
+    const includeRoles = target === "all" || target === "agent";
+    const includeMcp = target === "all" || target === "mcp";
+    if (includeRoles || includeMcp) {
+      syncCodex({
+        paths: options.paths,
+        agents,
+        resolvedMcp: resolveMcpForProvider(mcp, "codex"),
+        generated: includeRoles ? generatedAgents : generatedMcp,
+        manifest,
+        nextManifest,
+        dryRun: !!options.dryRun,
+        includeRoles,
+        includeMcp,
+      });
+    } else {
+      nextManifest.codex = {
+        roles: [...(manifest.codex?.roles ?? [])],
+        mcpServers: [...(manifest.codex?.mcpServers ?? [])],
+      };
+    }
+  }
 
-  nextManifest.generatedFiles = [...generated].sort();
+  const previousByEntity = normalizeGeneratedByEntity(manifest);
+  const nextByEntity = {
+    ...previousByEntity,
+  };
+
+  if (target === "all" || target === "agent") {
+    nextByEntity.agent = [...generatedAgents].sort();
+  }
+  if (target === "all" || target === "command") {
+    nextByEntity.command = [...generatedCommands].sort();
+  }
+  if (target === "all" || target === "mcp") {
+    nextByEntity.mcp = [...generatedMcp].sort();
+  }
+
+  nextManifest.generatedByEntity = pruneGeneratedByEntity(nextByEntity);
+
+  nextManifest.generatedFiles = [
+    ...new Set([
+      ...(nextManifest.generatedByEntity.agent ?? []),
+      ...(nextManifest.generatedByEntity.command ?? []),
+      ...(nextManifest.generatedByEntity.mcp ?? []),
+      ...(nextManifest.generatedByEntity.skill ?? []),
+    ]),
+  ].sort();
 
   const removedFiles = await removeStaleGeneratedFiles({
     oldManifest: manifest,
@@ -334,14 +393,12 @@ function getProviderCommandsDir(paths: ScopePaths, provider: Provider): string {
 function syncProviderMcp(options: {
   providers: Provider[];
   paths: ScopePaths;
-  agents: CanonicalAgent[];
   mcp: ReturnType<typeof readCanonicalMcp>;
   generated: Set<string>;
-  manifest: SyncManifest;
-  nextManifest: SyncManifest;
   dryRun: boolean;
 }): void {
   for (const provider of options.providers) {
+    if (provider === "codex") continue;
     const resolved = resolveMcpForProvider(options.mcp, provider);
 
     if (provider === "cursor") {
@@ -392,19 +449,6 @@ function syncProviderMcp(options: {
       settings.enabledMcpjsonServers = Object.keys(claudeServers).sort();
       maybeWriteJson(settingsPath, settings, options.dryRun);
       options.generated.add(settingsPath);
-      continue;
-    }
-
-    if (provider === "codex") {
-      syncCodex({
-        paths: options.paths,
-        agents: options.agents,
-        resolvedMcp: resolved,
-        generated: options.generated,
-        manifest: options.manifest,
-        nextManifest: options.nextManifest,
-        dryRun: options.dryRun,
-      });
       continue;
     }
 
@@ -537,6 +581,8 @@ function syncCodex(options: {
   manifest: SyncManifest;
   nextManifest: SyncManifest;
   dryRun: boolean;
+  includeRoles: boolean;
+  includeMcp: boolean;
 }): void {
   const codexDir =
     options.paths.scope === "local"
@@ -559,75 +605,84 @@ function syncCodex(options: {
 
   const agentsTable = isObject(parsed.agents) ? { ...parsed.agents } : {};
 
-  const previousRoles = new Set(options.manifest.codex?.roles ?? []);
-  const nextRoles: string[] = [];
-  const enabledCodexRoles = new Set(
-    options.agents
-      .filter((agent) => isProviderEnabled(agent.frontmatter, "codex"))
-      .map((agent) => slugify(agent.name))
-      .filter((role) => role.length > 0),
-  );
-
-  for (const oldRole of previousRoles) {
-    if (!enabledCodexRoles.has(oldRole)) {
-      delete agentsTable[oldRole];
-    }
-  }
-
-  for (const agent of options.agents) {
-    if (!isProviderEnabled(agent.frontmatter, "codex")) continue;
-    const codexConfig = getProviderConfig(agent.frontmatter, "codex") ?? {};
-    const role = slugify(agent.name);
-    if (!role) continue;
-
-    const roleTomlPath = path.join(codexAgentsDir, `${role}.toml`);
-    const roleInstructionsPath = path.join(
-      codexAgentsDir,
-      `${role}.instructions.md`,
+  let nextRoles = [...(options.manifest.codex?.roles ?? [])];
+  if (options.includeRoles) {
+    const previousRoles = new Set(options.manifest.codex?.roles ?? []);
+    nextRoles = [];
+    const enabledCodexRoles = new Set(
+      options.agents
+        .filter((agent) => isProviderEnabled(agent.frontmatter, "codex"))
+        .map((agent) => slugify(agent.name))
+        .filter((role) => role.length > 0),
     );
 
-    const roleToml = buildCodexRoleToml(roleInstructionsPath, codexConfig);
-
-    if (!options.dryRun) {
-      ensureDir(codexAgentsDir);
-      writeTextAtomic(roleInstructionsPath, `${agent.body.trimStart()}\n`);
-      writeTextAtomic(roleTomlPath, TOML.stringify(roleToml as TOML.JsonMap));
+    for (const oldRole of previousRoles) {
+      if (!enabledCodexRoles.has(oldRole)) {
+        delete agentsTable[oldRole];
+      }
     }
 
-    options.generated.add(roleTomlPath);
-    options.generated.add(roleInstructionsPath);
+    for (const agent of options.agents) {
+      if (!isProviderEnabled(agent.frontmatter, "codex")) continue;
+      const codexConfig = getProviderConfig(agent.frontmatter, "codex") ?? {};
+      const role = slugify(agent.name);
+      if (!role) continue;
 
-    agentsTable[role] = {
-      description: agent.description,
-      config_file: `./agents/${role}.toml`,
-    };
+      const roleTomlPath = path.join(codexAgentsDir, `${role}.toml`);
+      const roleInstructionsPath = path.join(
+        codexAgentsDir,
+        `${role}.instructions.md`,
+      );
 
-    nextRoles.push(role);
-  }
+      const roleToml = buildCodexRoleToml(roleInstructionsPath, codexConfig);
 
-  parsed.agents = agentsTable;
+      if (!options.dryRun) {
+        ensureDir(codexAgentsDir);
+        writeTextAtomic(roleInstructionsPath, `${agent.body.trimStart()}\n`);
+        writeTextAtomic(roleTomlPath, TOML.stringify(roleToml as TOML.JsonMap));
+      }
 
-  const previousServers = new Set(options.manifest.codex?.mcpServers ?? []);
-  const mcpServers = isObject(parsed.mcp_servers)
-    ? { ...parsed.mcp_servers }
-    : {};
+      options.generated.add(roleTomlPath);
+      options.generated.add(roleInstructionsPath);
 
-  for (const oldServer of previousServers) {
-    if (!Object.prototype.hasOwnProperty.call(options.resolvedMcp, oldServer)) {
-      delete mcpServers[oldServer];
+      agentsTable[role] = {
+        description: agent.description,
+        config_file: `./agents/${role}.toml`,
+      };
+
+      nextRoles.push(role);
     }
+
+    parsed.agents = agentsTable;
   }
 
-  for (const [serverName, config] of Object.entries(options.resolvedMcp)) {
-    const mapped: Record<string, unknown> = {};
-    if (typeof config.url === "string") mapped.url = config.url;
-    if (typeof config.command === "string") mapped.command = config.command;
-    if (Array.isArray(config.args)) mapped.args = config.args;
-    if (isObject(config.env)) mapped.env = config.env;
-    mcpServers[serverName] = mapped;
-  }
+  let nextServers = [...(options.manifest.codex?.mcpServers ?? [])];
+  if (options.includeMcp) {
+    const previousServers = new Set(options.manifest.codex?.mcpServers ?? []);
+    const mcpServers = isObject(parsed.mcp_servers)
+      ? { ...parsed.mcp_servers }
+      : {};
 
-  parsed.mcp_servers = mcpServers;
+    for (const oldServer of previousServers) {
+      if (
+        !Object.prototype.hasOwnProperty.call(options.resolvedMcp, oldServer)
+      ) {
+        delete mcpServers[oldServer];
+      }
+    }
+
+    for (const [serverName, config] of Object.entries(options.resolvedMcp)) {
+      const mapped: Record<string, unknown> = {};
+      if (typeof config.url === "string") mapped.url = config.url;
+      if (typeof config.command === "string") mapped.command = config.command;
+      if (Array.isArray(config.args)) mapped.args = config.args;
+      if (isObject(config.env)) mapped.env = config.env;
+      mcpServers[serverName] = mapped;
+    }
+
+    parsed.mcp_servers = mcpServers;
+    nextServers = Object.keys(options.resolvedMcp).sort();
+  }
 
   if (!options.dryRun) {
     ensureDir(codexDir);
@@ -638,7 +693,7 @@ function syncCodex(options: {
 
   options.nextManifest.codex = {
     roles: nextRoles.sort(),
-    mcpServers: Object.keys(options.resolvedMcp).sort(),
+    mcpServers: nextServers.sort(),
   };
 }
 
@@ -776,6 +831,41 @@ function getVsCodeSettingsPath(homeDir: string): string {
     default:
       return path.join(homeDir, ".config", "Code", "User", "settings.json");
   }
+}
+
+function normalizeGeneratedByEntity(
+  manifest: SyncManifest,
+): Partial<Record<EntityType, string[]>> {
+  const source = manifest.generatedByEntity;
+  if (!source || typeof source !== "object") {
+    return {
+      agent: [...manifest.generatedFiles],
+      command: [...manifest.generatedFiles],
+      mcp: [...manifest.generatedFiles],
+      skill: [],
+    };
+  }
+
+  return {
+    agent: Array.isArray(source.agent) ? [...source.agent] : [],
+    command: Array.isArray(source.command) ? [...source.command] : [],
+    mcp: Array.isArray(source.mcp) ? [...source.mcp] : [],
+    skill: Array.isArray(source.skill) ? [...source.skill] : [],
+  };
+}
+
+function pruneGeneratedByEntity(
+  value: Partial<Record<EntityType, string[]>>,
+): Partial<Record<EntityType, string[]>> {
+  const next: Partial<Record<EntityType, string[]>> = {};
+
+  for (const entity of ["agent", "command", "mcp", "skill"] as const) {
+    const files = value[entity];
+    if (!files || files.length === 0) continue;
+    next[entity] = [...new Set(files)].sort();
+  }
+
+  return next;
 }
 
 export function formatSyncSummary(
