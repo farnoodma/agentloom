@@ -1,8 +1,30 @@
 # agentloom
 
-`agentloom` is a unified CLI for managing agent definitions and MCP configuration across multiple AI coding tools.
+`agentloom` is a monorepo with:
 
-It uses `.agents` as the canonical source of truth and syncs provider-native files for:
+- `packages/cli`: the published `agentloom` CLI
+- `apps/web`: the Agentloom public directory web app
+
+## Install CLI
+
+```bash
+npm i -g agentloom
+# or
+npx agentloom --help
+```
+
+## Monorepo layout
+
+```text
+packages/
+  cli/      # npm package: agentloom
+apps/
+  web/      # Next.js directory + telemetry ingest API
+```
+
+## CLI overview
+
+The CLI manages canonical `.agents` config and syncs provider-native outputs for:
 
 - Cursor
 - Claude
@@ -11,222 +33,60 @@ It uses `.agents` as the canonical source of truth and syncs provider-native fil
 - Gemini
 - Copilot
 
-## Install
-
-```bash
-npm i -g agentloom
-# or
-npx agentloom --help
-```
-
-## Canonical layout
-
-Project scope:
+Canonical local layout:
 
 ```text
 .agents/
   agents/
-    reviewer.md
-    debugger.md
   commands/
-    review.md
-    ship.md
   skills/
-    reviewing/
-      SKILL.md
-      references/
-      assets/
-    debugging/
-      SKILL.md
-      references/
-      assets/
   mcp.json
   agents.lock.json
   settings.local.json
 ```
 
-Global scope uses `~/.agents` with the same file layout.
+## Telemetry
 
-## Commands
+Successful GitHub-based `agentloom add` imports can send anonymous install telemetry to the Agentloom directory API.
 
-### Aggregate verbs
-
-- `agentloom add <source>`
-- `agentloom find <query>`
-- `agentloom update [source]`
-- `agentloom sync`
-- `agentloom delete <source|name>`
-
-Aggregate `add` imports discoverable entities from a source (agents, commands, MCP servers, skills). In interactive sessions, each entity supports two tracking modes:
-
-- `Sync everything from source` (default): updates include newly added source items.
-- `Use custom selection`: updates stay pinned to the selected items, even if all current items were selected.
-
-Source path resolution is additive and priority-ordered:
-
-- Agents: `.agents/agents` -> `agents`
-- Commands: `.agents/commands` -> `commands` -> `prompts`
-- Skills: `.agents/skills` -> `skills` -> root `SKILL.md` fallback
-- MCP: `.agents/mcp.json` -> `mcp.json`
-
-Aggregate `agentloom add <source>` can import command/skill/MCP-only repositories even when no `agents/` directory exists.
-
-### Entity verbs
-
-- `agentloom agent <add|list|delete|find|update|sync>`
-- `agentloom command <add|list|delete|find|update|sync>`
-- `agentloom mcp <add|list|delete|find|update|sync>`
-- `agentloom skill <add|list|delete|find|update|sync>`
-
-### Selector flags
-
-- `--agents <csv>`
-- `--commands <csv>`
-- `--mcps <csv>`
-- `--skills <csv>`
-- `--selection-mode <all|sync-all|custom>`
-- `--source <value>`
-- `--name <value>`
-- `--entity <agent|command|mcp|skill>`
-
-### MCP manual server mode
-
-Source-based MCP import lives under `agentloom mcp add ...`.
-Manual server management is under:
-
-- `agentloom mcp server add <name> (--url <url> | --command <cmd>)`
-- `agentloom mcp server list`
-- `agentloom mcp server delete <name>`
-
-Examples:
-
-```bash
-agentloom add farnoodma/agents
-agentloom agent add farnoodma/agents --agents issue-creator
-agentloom command add farnoodma/agents --commands review
-agentloom mcp add farnoodma/agents --mcps browser
-agentloom skill add farnoodma/agents --skills pr-review
-agentloom delete farnoodma/agents
-agentloom mcp server add browser-tools --command npx --arg browser-tools-mcp
-```
-
-### Top-level help
-
-```bash
-agentloom --help
-agentloom find --help
-agentloom add --help
-agentloom update --help
-agentloom sync --help
-agentloom delete --help
-agentloom agent --help
-agentloom skill --help
-agentloom command --help
-agentloom command add --help
-agentloom mcp --help
-agentloom mcp add --help
-agentloom mcp server --help
-```
-
-### Version update notice
-
-`agentloom` now performs a best-effort npm version check and shows an update hint when a newer release is available.
-
-- check is cached (`~/.agents/.agentloom-version-cache.json`)
-- check runs at most once every 12 hours
-- check is skipped in non-interactive sessions
-- disable via:
-
-```bash
-AGENTLOOM_DISABLE_UPDATE_NOTIFIER=1
-```
-
-### Scope resolution
-
-If neither `--local` nor `--global` is provided:
-
-- if `.agents/` exists in current directory, `agentloom` prompts for scope in interactive terminals
-- in non-interactive mode, local scope is selected when `.agents/` exists
-- otherwise global scope (`~/.agents`) is used
-
-## Agent schema
-
-Canonical agents are markdown files with YAML frontmatter.
-
-```md
----
-name: code-reviewer
-description: Review changes and report issues.
-claude:
-  model: sonnet
-codex:
-  model: gpt-5.3-codex
-  reasoningEffort: low
-  webSearch: true
----
-
-You are a strict reviewer...
-```
-
-## MCP schema
-
-Canonical MCP file format:
-
-```json
-{
-  "version": 1,
-  "mcpServers": {
-    "browser": {
-      "base": {
-        "command": "npx",
-        "args": ["browser-tools-mcp"]
-      },
-      "providers": {
-        "codex": {
-          "args": ["browser-tools-mcp", "--codex"]
-        },
-        "gemini": false
-      }
-    }
-  }
-}
-```
-
-## Codex multi-agent output
-
-For Codex, `agentloom sync` writes role-based multi-agent config:
-
-- `.codex/config.toml` (`[features].multi_agent = true`, `[agents.<role>]`)
-- `.codex/agents/<role>.toml`
-- `.codex/agents/<role>.instructions.md`
-
-This follows official Codex multi-agent guidance.
-
-For canonical commands (`.agents/commands`), Codex output is always written to
-global prompts under `~/.codex/prompts` (Codex prompts are global-only), even
-when syncing local scope.
+- tracked: agents, commands, and MCP servers from GitHub sources
+- not tracked: local-path adds and skills
+- opt out: `AGENTLOOM_DISABLE_TELEMETRY=1`
+- override endpoint: `AGENTLOOM_TELEMETRY_ENDPOINT=https://...`
 
 ## Development
 
 ```bash
 pnpm install
 pnpm check
+pnpm test
 pnpm build
 ```
 
-## Release and publish
+Run CLI from source:
 
-The GitHub Actions publish workflow is defined in `.github/workflows/release.yml`.
+```bash
+pnpm --filter agentloom dev -- --help
+```
 
-- Push to `main` with `[patch]` or `[minor]` in commit subjects to trigger an automated npm release.
-- Run the workflow manually (`workflow_dispatch`) and choose `patch` or `minor` to force a release.
-- Push a `v*` tag (for example `v0.2.0`) to publish an already-versioned commit without bumping.
-- Automated bump releases create a `vX.Y.Z` commit/tag via `npm version`, push both to GitHub, then publish to npm with provenance.
+Run web app:
 
-Required GitHub configuration:
+```bash
+pnpm --filter @agentloom/web dev
+```
 
-- npm Trusted Publisher configured for this repo/workflow (`farnoodma/agentloom`, workflow file `release.yml`).
-- Repository setting: `Actions -> General -> Workflow permissions -> Read and write permissions` (required so CI can push version commits/tags).
+## Release and deploy
+
+- preview web deploys: on `push` to `main` (`.github/workflows/preview-deploy.yml`)
+- production web deploy + npm publish: on GitHub `release.published` (`.github/workflows/release.yml`)
+- stable tags only: `vX.Y.Z`
+- release tag must match `packages/cli/package.json` version
+- Vercel auth in workflows: OIDC (no long-lived `VERCEL_TOKEN` GitHub secret required)
+
+Required Vercel env vars:
+
+- `DATABASE_URL`
+- `TELEMETRY_HASH_SALT`
 
 ## License
 

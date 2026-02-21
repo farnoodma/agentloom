@@ -1,35 +1,24 @@
 name: Release
 
 on:
-  push:
-    branches:
-      - main
-    tags:
-      - "v*"
-    paths-ignore:
-      - "**/*.md"
-  workflow_dispatch:
-    inputs:
-      bump:
-        description: Version bump type
-        required: true
-        type: choice
-        options:
-          - patch
-          - minor
+  release:
+    types:
+      - published
 
 jobs:
   publish:
+    if: github.event.release.prerelease == false
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
       id-token: write
+    env:
+      TAG_NAME: ${{ github.event.release.tag_name }}
+      VERCEL_ORG_ID: team_WAYWP5YVRx1V3qB1k7z0lPy7
+      VERCEL_PROJECT_ID: prj_vMaa5JzeMwege71RDHp0MGJM54bw
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -46,62 +35,50 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run checks
+      - name: Validate release tag format
+        run: |
+          if [[ ! "${TAG_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tag must match vX.Y.Z. Received: ${TAG_NAME}"
+            exit 1
+          fi
+
+      - name: Validate CLI package version matches release tag
+        run: |
+          package_version="$(node -p "require('./packages/cli/package.json').version")"
+          tag_version="${TAG_NAME#v}"
+          if [[ "${package_version}" != "${tag_version}" ]]; then
+            echo "packages/cli version (${package_version}) does not match release tag (${tag_version})"
+            exit 1
+          fi
+
+      - name: Run workspace checks
         run: pnpm check
 
-      - name: Build
+      - name: Build workspace
         run: pnpm build
 
-      - name: Determine version bump type
-        id: version
-        shell: bash
+      - name: Publish CLI package
         run: |
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            echo "bump=skip" >> "${GITHUB_OUTPUT}"
-            echo "Tag push detected, skipping version bump"
-            exit 0
-          fi
+          cd packages/cli
+          npm publish --provenance --access public --no-git-checks
 
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            echo "bump=${{ inputs.bump }}" >> "${GITHUB_OUTPUT}"
-            echo "Manual publish requested with bump=${{ inputs.bump }}"
-            exit 0
-          fi
+      - name: Authenticate with Vercel (OIDC)
+        id: vercel-auth
+        uses: vercel/actions/cli@v1
+        with:
+          oidc: true
 
-          latest_tag="$(git describe --tags --abbrev=0 2>/dev/null || true)"
-          if [[ -z "${latest_tag}" ]]; then
-            commits="$(git log --format=%s)"
-          else
-            commits="$(git log "${latest_tag}"..HEAD --format=%s)"
-          fi
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
 
-          if echo "${commits}" | grep -q "\\[minor\\]"; then
-            echo "bump=minor" >> "${GITHUB_OUTPUT}"
-            echo "Found [minor] marker"
-          elif echo "${commits}" | grep -q "\\[patch\\]"; then
-            echo "bump=patch" >> "${GITHUB_OUTPUT}"
-            echo "Found [patch] marker"
-          else
-            echo "bump=none" >> "${GITHUB_OUTPUT}"
-            echo "No [patch]/[minor] marker found, skipping publish"
-          fi
-
-      - name: Configure git
-        if: steps.version.outputs.bump != 'none' && steps.version.outputs.bump != 'skip'
+      - name: Prepare Vercel project link
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          mkdir -p .vercel
+          cat > .vercel/project.json <<EOF
+          {"projectId":"${VERCEL_PROJECT_ID}","orgId":"${VERCEL_ORG_ID}","projectName":"agentloom"}
+          EOF
 
-      - name: Bump version and create tag
-        if: steps.version.outputs.bump != 'none' && steps.version.outputs.bump != 'skip'
-        run: npm version "${{ steps.version.outputs.bump }}" -m "v%s"
-
-      - name: Push version commit and tag
-        if: steps.version.outputs.bump != 'none' && steps.version.outputs.bump != 'skip'
-        run: |
-          git push
-          git push --tags
-
-      - name: Publish to npm
-        if: steps.version.outputs.bump != 'none'
-        run: npm publish --provenance --access public --no-git-checks
+      - name: Deploy web production release
+        env:
+          VERCEL_TOKEN: ${{ steps.vercel-auth.outputs.token }}
+        run: vercel deploy --prod --yes --scope farnoodmas-projects --token "${VERCEL_TOKEN}"
