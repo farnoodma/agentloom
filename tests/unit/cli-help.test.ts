@@ -37,6 +37,25 @@ describe("cli help routing", () => {
     );
   });
 
+  it("prints command help without requiring scope resolution", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await runCli(["command", "--help"]);
+
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(output).toContain("agentloom command <command> [options]");
+    expect(output).toContain("add <source>");
+  });
+
+  it("prints command add help", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await runCli(["command", "add", "--help"]);
+
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(output).toContain("agentloom command add <source> [options]");
+  });
+
   it("throws actionable unknown command message", async () => {
     await expect(runCli(["unknown"])).rejects.toThrow("agentloom --help");
   });

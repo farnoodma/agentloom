@@ -19,6 +19,11 @@ import {
   targetFileNameForAgent,
 } from "./agents.js";
 import {
+  normalizeCommandSelector,
+  parseCommandsDir,
+  resolveCommandSelections,
+} from "./commands.js";
+import {
   ensureDir,
   hashContent,
   readJsonIfExists,
@@ -30,6 +35,7 @@ import { readLockfile, upsertLockEntry, writeLockfile } from "./lockfile.js";
 import { readCanonicalMcp, writeCanonicalMcp } from "./mcp.js";
 import {
   discoverSourceAgentsDir,
+  discoverSourceCommandsDir,
   discoverSourceMcpPath,
   prepareSource,
 } from "./sources.js";
@@ -51,12 +57,20 @@ export interface ImportOptions {
   yes?: boolean;
   nonInteractive?: boolean;
   paths: ScopePaths;
+  importAgents?: boolean;
+  importCommands?: boolean;
+  requireCommands?: boolean;
+  importMcp?: boolean;
+  commandSelectors?: string[];
+  commandRenameMap?: Record<string, string>;
+  promptForCommands?: boolean;
 }
 
 export interface ImportSummary {
   source: string;
   sourceType: "local" | "github" | "git";
   importedAgents: string[];
+  importedCommands: string[];
   importedMcpServers: string[];
   resolvedCommit: string;
 }
@@ -69,6 +83,14 @@ interface AgentsToImportResult {
 export async function importSource(
   options: ImportOptions,
 ): Promise<ImportSummary> {
+  const shouldImportAgents = options.importAgents ?? true;
+  const shouldImportCommands = options.importCommands ?? true;
+  const shouldImportMcp = options.importMcp ?? true;
+
+  if (!shouldImportAgents && !shouldImportCommands && !shouldImportMcp) {
+    throw new Error("No import targets selected.");
+  }
+
   const prepared = prepareSource({
     source: options.source,
     ref: options.ref,
@@ -76,55 +98,143 @@ export async function importSource(
   });
 
   try {
-    const sourceAgentsDir = discoverSourceAgentsDir(prepared.importRoot);
-    const sourceMcpPath = discoverSourceMcpPath(prepared.importRoot);
+    const sourceAgentsDir = shouldImportAgents
+      ? discoverSourceAgentsDir(prepared.importRoot)
+      : null;
+    const sourceCommandsDir = shouldImportCommands
+      ? discoverSourceCommandsDir(prepared.importRoot)
+      : null;
+    const sourceMcpPath = shouldImportMcp
+      ? discoverSourceMcpPath(prepared.importRoot)
+      : null;
 
-    const sourceAgents = parseAgentsDir(sourceAgentsDir);
-    if (sourceAgents.length === 0) {
+    const sourceAgents = sourceAgentsDir ? parseAgentsDir(sourceAgentsDir) : [];
+    const sourceCommands = sourceCommandsDir
+      ? parseCommandsDir(sourceCommandsDir)
+      : [];
+    const hasExplicitCommandSelection =
+      (options.commandSelectors?.length ?? 0) > 0;
+
+    if (shouldImportAgents && sourceAgents.length === 0) {
       throw new Error(`No agent files found in ${sourceAgentsDir}.`);
     }
-    const selection = await resolveAgentsToImport({
-      sourceAgents,
-      requestedAgents: options.agents,
-      yes: !!options.yes,
-      nonInteractive: !!options.nonInteractive,
-      promptForAgentSelection: options.promptForAgentSelection ?? true,
-    });
-    const { selectedAgents } = selection;
+    if (shouldImportCommands && options.requireCommands && !sourceCommandsDir) {
+      throw new Error(
+        `No source commands directory found under ${prepared.importRoot} (expected commands/ or .agents/commands/).`,
+      );
+    }
+    if (
+      shouldImportCommands &&
+      options.requireCommands &&
+      sourceCommands.length === 0
+    ) {
+      throw new Error(`No command files found in ${sourceCommandsDir}.`);
+    }
 
-    ensureDir(options.paths.agentsDir);
+    const selection: AgentsToImportResult = shouldImportAgents
+      ? await resolveAgentsToImport({
+          sourceAgents,
+          requestedAgents: options.agents,
+          yes: !!options.yes,
+          nonInteractive: !!options.nonInteractive,
+          promptForAgentSelection: options.promptForAgentSelection ?? true,
+        })
+      : { selectedAgents: [] };
 
     const importedAgents: string[] = [];
-    const importedAgentHashes: string[] = [];
+    if (shouldImportAgents) {
+      ensureDir(options.paths.agentsDir);
 
-    for (const [index, agent] of selectedAgents.entries()) {
-      let targetFileName = targetFileNameForAgent(agent);
+      for (const [index, agent] of selection.selectedAgents.entries()) {
+        let targetFileName = targetFileNameForAgent(agent);
 
-      if (options.rename && selectedAgents.length === 1) {
-        targetFileName = `${slugify(options.rename) || "agent"}.md`;
+        if (
+          options.rename &&
+          selection.selectedAgents.length === 1 &&
+          !(shouldImportCommands && hasExplicitCommandSelection)
+        ) {
+          targetFileName = `${slugify(options.rename) || "agent"}.md`;
+        }
+
+        const resolvedFileName = await resolveAgentConflict({
+          targetFileName,
+          agentContent: buildAgentMarkdown(agent.frontmatter, agent.body),
+          paths: options.paths,
+          yes: !!options.yes,
+          nonInteractive: !!options.nonInteractive,
+          promptLabel: `${agent.name} (${index + 1}/${selection.selectedAgents.length})`,
+        });
+
+        if (!resolvedFileName) continue;
+
+        const targetPath = path.join(options.paths.agentsDir, resolvedFileName);
+        const content = buildAgentMarkdown(agent.frontmatter, agent.body);
+        writeTextAtomic(targetPath, content);
+        importedAgents.push(
+          relativePosix(options.paths.agentsRoot, targetPath),
+        );
       }
+    }
 
-      const resolvedFileName = await resolveAgentConflict({
-        targetFileName,
-        agentContent: buildAgentMarkdown(agent.frontmatter, agent.body),
-        paths: options.paths,
-        yes: !!options.yes,
-        nonInteractive: !!options.nonInteractive,
-        promptLabel: `${agent.name} (${index + 1}/${selectedAgents.length})`,
+    const importedCommands: string[] = [];
+    const importedCommandRenameMap: Record<string, string> = {};
+    let selectedSourceCommandFiles: string[] = [];
+    if (shouldImportCommands && sourceCommandsDir) {
+      const selectedSourceCommands = await resolveCommandsToImport({
+        sourceCommands,
+        selectors: options.commandSelectors ?? [],
+        promptForCommands: Boolean(options.promptForCommands),
+        nonInteractive: Boolean(options.nonInteractive),
       });
+      selectedSourceCommandFiles = selectedSourceCommands.map(
+        (command) => command.fileName,
+      );
 
-      if (!resolvedFileName) continue;
+      ensureDir(options.paths.commandsDir);
 
-      const targetPath = path.join(options.paths.agentsDir, resolvedFileName);
-      const content = buildAgentMarkdown(agent.frontmatter, agent.body);
-      writeTextAtomic(targetPath, content);
-      importedAgents.push(relativePosix(options.paths.agentsRoot, targetPath));
-      importedAgentHashes.push(hashContent(content));
+      for (const [index, command] of selectedSourceCommands.entries()) {
+        let targetFileName = command.fileName;
+
+        const mappedTargetFileName = resolveMappedTargetFileName(
+          command.fileName,
+          options.commandRenameMap,
+        );
+        if (mappedTargetFileName) {
+          targetFileName = mappedTargetFileName;
+        } else if (
+          options.rename &&
+          selectedSourceCommands.length === 1 &&
+          (!shouldImportAgents || hasExplicitCommandSelection)
+        ) {
+          targetFileName = `${slugify(options.rename) || "command"}.md`;
+        }
+
+        const resolvedFileName = await resolveCommandConflict({
+          targetFileName,
+          commandContent: command.content,
+          paths: options.paths,
+          yes: !!options.yes,
+          nonInteractive: !!options.nonInteractive,
+          promptLabel: `${command.fileName} (${index + 1}/${selectedSourceCommands.length})`,
+        });
+
+        if (!resolvedFileName) continue;
+
+        const targetPath = path.join(
+          options.paths.commandsDir,
+          resolvedFileName,
+        );
+        writeTextAtomic(targetPath, command.content);
+        importedCommands.push(
+          relativePosix(options.paths.agentsRoot, targetPath),
+        );
+        importedCommandRenameMap[command.fileName] = resolvedFileName;
+      }
     }
 
     const importedMcpServers: string[] = [];
 
-    if (sourceMcpPath) {
+    if (shouldImportMcp && sourceMcpPath) {
       const sourceMcp = normalizeMcp(
         readJsonIfExists<Record<string, unknown>>(sourceMcpPath),
       );
@@ -142,10 +252,76 @@ export async function importSource(
     }
 
     const lockfile = readLockfile(options.paths);
+    const existingEntry = findMatchingLockEntry(lockfile.entries, {
+      source: prepared.spec.source,
+      sourceType: prepared.spec.type,
+      subdir: options.subdir,
+      requestedAgents: shouldImportAgents
+        ? selection.requestedAgentsForLock
+        : options.agents,
+    });
+    const isCommandOnlyImport =
+      !shouldImportAgents && shouldImportCommands && !shouldImportMcp;
+
+    const lockImportedAgents = shouldImportAgents
+      ? importedAgents
+      : (existingEntry?.importedAgents ?? []);
+    const lockImportedCommands = shouldImportCommands
+      ? isCommandOnlyImport
+        ? uniqueStrings([
+            ...(existingEntry?.importedCommands ?? []),
+            ...importedCommands,
+          ])
+        : importedCommands
+      : (existingEntry?.importedCommands ?? []);
+    const lockImportedMcpServers = shouldImportMcp
+      ? importedMcpServers
+      : (existingEntry?.importedMcpServers ?? []);
+    const selectedSubsetOfSourceCommands =
+      sourceCommands.length > 0 &&
+      selectedSourceCommandFiles.length < sourceCommands.length;
+
+    let lockSelectedSourceCommands: string[] | undefined;
+    if (shouldImportCommands) {
+      if (isCommandOnlyImport) {
+        lockSelectedSourceCommands = uniqueStrings([
+          ...(existingEntry?.selectedSourceCommands ?? []),
+          ...selectedSourceCommandFiles,
+        ]);
+      } else if (
+        hasExplicitCommandSelection ||
+        selectedSubsetOfSourceCommands
+      ) {
+        lockSelectedSourceCommands = [...selectedSourceCommandFiles];
+      } else {
+        lockSelectedSourceCommands = undefined;
+      }
+    } else {
+      lockSelectedSourceCommands = existingEntry?.selectedSourceCommands;
+    }
+    let lockCommandRenameMap: Record<string, string> | undefined;
+    if (shouldImportCommands) {
+      if (isCommandOnlyImport) {
+        lockCommandRenameMap = mergeCommandRenameMaps(
+          existingEntry?.commandRenameMap,
+          importedCommandRenameMap,
+        );
+      } else {
+        lockCommandRenameMap = normalizeCommandRenameMap(
+          importedCommandRenameMap,
+        );
+      }
+    } else {
+      lockCommandRenameMap = existingEntry?.commandRenameMap;
+    }
+
     const contentHash = hashContent(
       JSON.stringify({
-        agents: importedAgentHashes,
-        mcp: importedMcpServers,
+        agents: lockImportedAgents,
+        commands: lockImportedCommands,
+        selectedSourceCommands: lockSelectedSourceCommands ?? [],
+        commandRenameMap: lockCommandRenameMap ?? {},
+        mcp: lockImportedMcpServers,
       }),
     );
 
@@ -153,12 +329,17 @@ export async function importSource(
       source: prepared.spec.source,
       sourceType: prepared.spec.type,
       requestedRef: options.ref,
-      requestedAgents: selection.requestedAgentsForLock,
+      requestedAgents: shouldImportAgents
+        ? selection.requestedAgentsForLock
+        : existingEntry?.requestedAgents,
       resolvedCommit: prepared.resolvedCommit,
       subdir: options.subdir,
       importedAt: new Date().toISOString(),
-      importedAgents,
-      importedMcpServers,
+      importedAgents: lockImportedAgents,
+      importedCommands: lockImportedCommands,
+      selectedSourceCommands: lockSelectedSourceCommands,
+      commandRenameMap: lockCommandRenameMap,
+      importedMcpServers: lockImportedMcpServers,
       contentHash,
     };
 
@@ -169,6 +350,7 @@ export async function importSource(
       source: prepared.spec.source,
       sourceType: prepared.spec.type,
       importedAgents,
+      importedCommands,
       importedMcpServers,
       resolvedCommit: prepared.resolvedCommit,
     };
@@ -384,6 +566,100 @@ async function promptAgentSelection(
   return sourceAgents.filter((agent) => selected.has(agent.sourcePath));
 }
 
+function findMatchingLockEntry(
+  entries: LockEntry[],
+  key: Pick<LockEntry, "source" | "sourceType" | "subdir" | "requestedAgents">,
+): LockEntry | undefined {
+  return entries.find(
+    (entry) =>
+      entry.source === key.source &&
+      entry.sourceType === key.sourceType &&
+      entry.subdir === key.subdir &&
+      sameRequestedAgentsForMatch(entry.requestedAgents, key.requestedAgents),
+  );
+}
+
+function sameRequestedAgentsForMatch(
+  left: string[] | undefined,
+  right: string[] | undefined,
+): boolean {
+  const normalizedLeft = normalizeRequestedAgentsForMatch(left);
+  const normalizedRight = normalizeRequestedAgentsForMatch(right);
+  if (normalizedLeft.length !== normalizedRight.length) {
+    return false;
+  }
+
+  return normalizedLeft.every(
+    (value, index) => value === normalizedRight[index],
+  );
+}
+
+function normalizeRequestedAgentsForMatch(
+  value: string[] | undefined,
+): string[] {
+  if (!Array.isArray(value) || value.length === 0) return [];
+
+  return [
+    ...new Set(value.map((item) => item.trim().toLowerCase()).filter(Boolean)),
+  ].sort();
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
+function normalizeCommandRenameMap(
+  renameMap: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  if (!renameMap) return undefined;
+
+  const normalized = Object.fromEntries(
+    Object.entries(renameMap).filter(
+      ([sourceFileName, importedFileName]) =>
+        sourceFileName.trim().length > 0 && importedFileName.trim().length > 0,
+    ),
+  );
+
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+function mergeCommandRenameMaps(
+  existing: Record<string, string> | undefined,
+  updates: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  const merged = {
+    ...(existing ?? {}),
+    ...(updates ?? {}),
+  };
+
+  return normalizeCommandRenameMap(merged);
+}
+
+function resolveMappedTargetFileName(
+  sourceFileName: string,
+  renameMap: Record<string, string> | undefined,
+): string | undefined {
+  if (!renameMap) return undefined;
+
+  const normalizedSourceName = normalizeCommandSelector(sourceFileName);
+  for (const [sourceSelector, importedName] of Object.entries(renameMap)) {
+    if (normalizeCommandSelector(sourceSelector) !== normalizedSourceName) {
+      continue;
+    }
+
+    const importedBaseName = path.basename(importedName.trim());
+    if (!importedBaseName) return undefined;
+
+    const importedExtension = path.extname(importedBaseName);
+    if (importedExtension) return importedBaseName;
+
+    const sourceExtension = path.extname(sourceFileName) || ".md";
+    return `${slugify(importedBaseName) || "command"}${sourceExtension}`;
+  }
+
+  return undefined;
+}
+
 async function resolveAgentConflict(options: {
   targetFileName: string;
   agentContent: string;
@@ -448,6 +724,128 @@ async function resolveAgentConflict(options: {
   }
 
   return options.targetFileName;
+}
+
+async function resolveCommandConflict(options: {
+  targetFileName: string;
+  commandContent: string;
+  paths: ScopePaths;
+  yes: boolean;
+  nonInteractive: boolean;
+  promptLabel: string;
+}): Promise<string | null> {
+  const targetPath = path.join(
+    options.paths.commandsDir,
+    options.targetFileName,
+  );
+  if (!fs.existsSync(targetPath)) return options.targetFileName;
+
+  const existing = fs.readFileSync(targetPath, "utf8");
+  if (existing === options.commandContent) return options.targetFileName;
+
+  if (options.yes) {
+    return options.targetFileName;
+  }
+
+  if (options.nonInteractive) {
+    throw new NonInteractiveConflictError(
+      `Conflict for ${options.targetFileName}. Use --yes or run interactively.`,
+    );
+  }
+
+  const choice = await select({
+    message: `Command conflict for ${options.promptLabel}`,
+    options: [
+      { value: "overwrite", label: `Overwrite ${options.targetFileName}` },
+      { value: "skip", label: "Skip this command" },
+      { value: "rename", label: "Rename imported command" },
+    ],
+  });
+
+  if (isCancel(choice)) {
+    cancel("Operation cancelled.");
+    process.exit(1);
+  }
+
+  if (choice === "skip") return null;
+
+  if (choice === "rename") {
+    const entered = await promptText({
+      message: `New filename (without extension) for ${options.promptLabel}`,
+      placeholder: options.targetFileName.replace(/\.(md|mdc)$/i, ""),
+      validate(value) {
+        if (!value.trim()) return "Name is required.";
+        if (/[\\/]/.test(value)) return "Use a simple filename.";
+        return undefined;
+      },
+    });
+
+    if (isCancel(entered)) {
+      cancel("Operation cancelled.");
+      process.exit(1);
+    }
+
+    const extension = path.extname(options.targetFileName) || ".md";
+    const renamedFileName = `${slugify(String(entered)) || "command"}${extension}`;
+    return resolveCommandConflict({
+      ...options,
+      targetFileName: renamedFileName,
+    });
+  }
+
+  return options.targetFileName;
+}
+
+async function resolveCommandsToImport(options: {
+  sourceCommands: ReturnType<typeof parseCommandsDir>;
+  selectors: string[];
+  promptForCommands: boolean;
+  nonInteractive: boolean;
+}): Promise<ReturnType<typeof parseCommandsDir>> {
+  const selectors = options.selectors
+    .map((selector) => selector.trim())
+    .filter(Boolean);
+
+  if (selectors.length > 0) {
+    const { selected, unmatched } = resolveCommandSelections(
+      options.sourceCommands,
+      selectors,
+    );
+
+    if (unmatched.length > 0) {
+      throw new Error(
+        `Command(s) not found in source: ${unmatched.join(", ")}. Available: ${options.sourceCommands.map((item) => item.fileName).join(", ")}`,
+      );
+    }
+
+    return selected;
+  }
+
+  if (!options.promptForCommands || options.nonInteractive) {
+    return options.sourceCommands;
+  }
+
+  const selected = await multiselect({
+    message: "Select commands to import",
+    options: options.sourceCommands.map((item) => ({
+      value: item.fileName,
+      label: item.fileName,
+    })),
+    initialValues: options.sourceCommands.map((item) => item.fileName),
+  });
+
+  if (isCancel(selected)) {
+    cancel("Operation cancelled.");
+    process.exit(1);
+  }
+
+  const selectedNames = Array.isArray(selected)
+    ? new Set(selected.map((value) => String(value)))
+    : new Set<string>();
+
+  return options.sourceCommands.filter((item) =>
+    selectedNames.has(item.fileName),
+  );
 }
 
 function normalizeMcp(raw: Record<string, unknown> | null): CanonicalMcpFile {

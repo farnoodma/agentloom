@@ -9,9 +9,57 @@ const EMPTY_LOCK: AgentsLockFile = {
 export function readLockfile(paths: ScopePaths): AgentsLockFile {
   const lock = readJsonIfExists<AgentsLockFile>(paths.lockPath);
   if (!lock || lock.version !== 1 || !Array.isArray(lock.entries)) {
-    return { ...EMPTY_LOCK };
+    return createEmptyLockfile();
   }
-  return lock;
+
+  return {
+    version: 1,
+    entries: lock.entries.map((entry) => ({
+      ...entry,
+      importedAgents: Array.isArray(entry.importedAgents)
+        ? entry.importedAgents
+        : [],
+      importedCommands: Array.isArray(entry.importedCommands)
+        ? entry.importedCommands
+        : [],
+      selectedSourceCommands: Array.isArray(entry.selectedSourceCommands)
+        ? entry.selectedSourceCommands
+        : undefined,
+      commandRenameMap: normalizeCommandRenameMap(entry.commandRenameMap),
+      importedMcpServers: Array.isArray(entry.importedMcpServers)
+        ? entry.importedMcpServers
+        : [],
+    })),
+  };
+}
+
+function createEmptyLockfile(): AgentsLockFile {
+  return {
+    version: EMPTY_LOCK.version,
+    entries: [],
+  };
+}
+
+function normalizeCommandRenameMap(
+  value: unknown,
+): Record<string, string> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const normalized: Record<string, string> = {};
+  for (const [sourceName, importedName] of Object.entries(value)) {
+    if (
+      typeof sourceName === "string" &&
+      sourceName.trim() &&
+      typeof importedName === "string" &&
+      importedName.trim()
+    ) {
+      normalized[sourceName] = importedName;
+    }
+  }
+
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
 export function writeLockfile(

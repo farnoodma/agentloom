@@ -46,6 +46,7 @@ function createScopePaths(root = "/tmp/agentloom"): ScopePaths {
     homeDir: root,
     agentsRoot: `${root}/.agents`,
     agentsDir: `${root}/.agents/agents`,
+    commandsDir: `${root}/.agents/commands`,
     mcpPath: `${root}/.agents/mcp.json`,
     lockPath: `${root}/.agents/agents.lock.json`,
     settingsPath: `${root}/.agents/settings.local.json`,
@@ -66,6 +67,7 @@ function createLockfile(): AgentsLockFile {
         subdir: "packages/agents",
         importedAt: "2026-01-01T00:00:00.000Z",
         importedAgents: ["agents/issue-creator.md"],
+        importedCommands: [],
         importedMcpServers: [],
         contentHash: "hash",
       },
@@ -103,6 +105,7 @@ describe("runUpdateCommand", () => {
       source: "farnoodma/agents",
       sourceType: "github" as const,
       importedAgents: ["agents/issue-creator.md"],
+      importedCommands: [],
       importedMcpServers: [],
       resolvedCommit: "new-commit",
     });
@@ -130,6 +133,12 @@ describe("runUpdateCommand", () => {
       yes: false,
       nonInteractive,
       paths,
+      importAgents: true,
+      importCommands: true,
+      requireCommands: false,
+      importMcp: true,
+      commandSelectors: undefined,
+      commandRenameMap: undefined,
     });
     expect(cleanup).toHaveBeenCalledTimes(1);
 

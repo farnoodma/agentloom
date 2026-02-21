@@ -1,5 +1,6 @@
 import { parseArgs } from "./core/argv.js";
 import { runAddCommand } from "./commands/add.js";
+import { runCommandCommand } from "./commands/command.js";
 import { runMcpCommand } from "./commands/mcp.js";
 import { runSkillsPassthrough } from "./commands/skills.js";
 import { runSyncCommand } from "./commands/sync.js";
@@ -51,6 +52,9 @@ export async function runCli(argv: string[]): Promise<void> {
       return;
     case "sync":
       await runSyncCommand(parsed, cwd);
+      return;
+    case "command":
+      await runCommandCommand(parsed, cwd);
       return;
     case "mcp":
       await runMcpCommand(parsed, cwd);

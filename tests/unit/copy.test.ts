@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  getCommandAddHelpText,
+  getCommandHelpText,
   formatUnknownCommandError,
   formatUsageError,
   getAddHelpText,
@@ -12,6 +14,7 @@ describe("copy helpers", () => {
   it("renders root help with command list and common flags", () => {
     const help = getRootHelpText();
     expect(help).toContain("agentloom <command> [options]");
+    expect(help).toContain("command <add|list|delete>");
     expect(help).toContain("mcp <add|list|delete>");
     expect(help).toContain("--no-sync");
     expect(help).toContain("--providers <csv>");
@@ -38,6 +41,13 @@ describe("copy helpers", () => {
   });
 
   it("exposes mcp help topics", () => {
+    expect(getCommandHelpText()).toContain(
+      "agentloom command <command> [options]",
+    );
+    expect(getCommandAddHelpText()).toContain(
+      "agentloom command add <source> [options]",
+    );
+    expect(getCommandAddHelpText()).toContain("--command <name>");
     expect(getMcpHelpText()).toContain("agentloom mcp <command> [options]");
     expect(getMcpAddHelpText()).toContain(
       "agentloom mcp add <name> (--url <url> | --command <cmd>)",
