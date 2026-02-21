@@ -1,7 +1,7 @@
 import type { ParsedArgs } from "minimist";
 import { getStringArrayFlag, parseProvidersFlag } from "../core/argv.js";
 import { resolveScope } from "../core/scope.js";
-import { updateLastScope } from "../core/settings.js";
+import { getGlobalSettingsPath, updateLastScope } from "../core/settings.js";
 import { formatSyncSummary, syncFromCanonical } from "../sync/index.js";
 import type { EntityType, ScopePaths } from "../types.js";
 
@@ -18,12 +18,14 @@ export async function resolvePathsForCommand(
   argv: ParsedArgs,
   cwd: string,
 ): Promise<ScopePaths> {
-  return resolveScope({
+  const paths = await resolveScope({
     cwd,
     global: Boolean(argv.global),
     local: Boolean(argv.local),
     interactive: !getNonInteractiveMode(argv),
   });
+  updateLastScope(getGlobalSettingsPath(paths.homeDir), paths.scope);
+  return paths;
 }
 
 export function getEntitySelectors(
@@ -61,6 +63,8 @@ export async function runPostMutationSync(options: {
   paths: ScopePaths;
   target: EntityType | "all";
 }): Promise<void> {
+  markScopeAsUsed(options.paths);
+
   if (options.argv["no-sync"]) return;
 
   const summary = await syncFromCanonical({
@@ -78,4 +82,5 @@ export async function runPostMutationSync(options: {
 
 export function markScopeAsUsed(paths: ScopePaths): void {
   updateLastScope(paths.settingsPath, paths.scope);
+  updateLastScope(getGlobalSettingsPath(paths.homeDir), paths.scope);
 }
