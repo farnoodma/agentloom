@@ -3,7 +3,7 @@ import minimist from "minimist";
 import type { Provider } from "../types.js";
 
 export function parseArgs(argv: string[]): ParsedArgs {
-  return minimist(argv, {
+  const parsed = minimist(argv, {
     boolean: ["global", "local", "yes", "no-sync", "dry-run", "json", "help"],
     string: ["ref", "subdir", "providers", "rename", "agent", "command", "url"],
     alias: {
@@ -14,6 +14,18 @@ export function parseArgs(argv: string[]): ParsedArgs {
     },
     "--": true,
   });
+
+  const syncFlag = (parsed as Record<string, unknown>).sync;
+  if (
+    syncFlag === false ||
+    syncFlag === "false" ||
+    syncFlag === 0 ||
+    syncFlag === "0"
+  ) {
+    (parsed as Record<string, unknown>)["no-sync"] = true;
+  }
+
+  return parsed;
 }
 
 export function parseProvidersFlag(input: unknown): Provider[] | undefined {

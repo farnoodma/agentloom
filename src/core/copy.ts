@@ -14,9 +14,10 @@ Usage:
 
 Commands:
   skills ...                 Pass through to "npx skills ..." (vercel-labs/skills)
-  add <source>               Import agents and MCP from a repo source
+  add <source>               Import agents, commands, and MCP from a repo source
   update                     Refresh lockfile-managed imports
   sync                       Generate provider-specific outputs
+  command <add|list|delete>  Manage canonical command files
   mcp <add|list|delete>      Manage canonical MCP servers
   help                       Show this help text
 
@@ -34,13 +35,14 @@ Examples:
   agentloom add /repo --subdir packages/agents
   agentloom update --local
   agentloom sync --providers codex,claude,cursor
+  agentloom command add ./command-pack
   agentloom mcp add browser-tools --command npx --arg browser-tools-mcp
   agentloom skills add vercel-labs/skills
 `;
 }
 
 export function getAddHelpText(): string {
-  return `Import canonical agents and MCP from a source repository.
+  return `Import canonical agents, commands, and MCP from a source repository.
 
 Usage:
   agentloom add <source> [options]
@@ -93,6 +95,84 @@ Options:
 
 Example:
   agentloom sync --local --providers codex,claude,cursor --dry-run
+`;
+}
+
+export function getCommandHelpText(): string {
+  return `Manage canonical command files in .agents/commands.
+
+Usage:
+  agentloom command <command> [options]
+
+Commands:
+  add <source>               Import commands from a repo source
+  list                       List canonical command files
+  delete <name>              Delete a canonical command file
+
+Shared options:
+  --local | --global         Choose canonical scope
+  --no-sync                  Skip post-change sync (add/delete only)
+  --providers <csv>          Providers for post-change sync (${PROVIDERS_CSV})
+
+Examples:
+  agentloom command add ./command-pack
+  agentloom command list
+  agentloom command delete review
+`;
+}
+
+export function getCommandAddHelpText(): string {
+  return `Import canonical command files from a source repository.
+
+Usage:
+  agentloom command add <source> [options]
+
+Options:
+  --command <name>           Repeatable command selector (name or filename)
+  --ref <ref>                Git ref (branch/tag/commit) for remote sources
+  --subdir <path>            Subdirectory inside source repo
+  --rename <name>            Rename imported command (single-command import only)
+  --local | --global         Choose destination scope
+  --yes                      Skip conflict prompts (overwrite defaults)
+  --no-sync                  Do not run sync after import
+  --providers <csv>          Providers for post-import sync (${PROVIDERS_CSV})
+  --dry-run                  Show sync plan without writing provider files
+
+Behavior:
+  Without --command, interactive sessions open a multi-select list (all selected by default).
+
+Example:
+  agentloom command add farnoodma/agents --command review
+`;
+}
+
+export function getCommandListHelpText(): string {
+  return `List canonical command files.
+
+Usage:
+  agentloom command list [options]
+
+Options:
+  --json                     Print raw JSON
+  --local | --global         Choose canonical scope
+
+Example:
+  agentloom command list --json
+`;
+}
+
+export function getCommandDeleteHelpText(): string {
+  return `Delete a command file from canonical .agents/commands.
+
+Usage:
+  agentloom command delete <name> [options]
+
+Options:
+  --local | --global         Choose canonical scope
+  --no-sync                  Skip post-change sync
+
+Example:
+  agentloom command delete review
 `;
 }
 

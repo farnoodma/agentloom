@@ -12,9 +12,12 @@ export interface ScopeResolutionOptions {
   interactive?: boolean;
 }
 
-export function buildScopePaths(cwd: string, scope: Scope): ScopePaths {
+export function buildScopePaths(
+  cwd: string,
+  scope: Scope,
+  homeDir = os.homedir(),
+): ScopePaths {
   const workspaceRoot = cwd;
-  const homeDir = os.homedir();
   const agentsRoot =
     scope === "local"
       ? path.join(workspaceRoot, ".agents")
@@ -26,6 +29,7 @@ export function buildScopePaths(cwd: string, scope: Scope): ScopePaths {
     homeDir,
     agentsRoot,
     agentsDir: path.join(agentsRoot, "agents"),
+    commandsDir: path.join(agentsRoot, "commands"),
     mcpPath: path.join(agentsRoot, "mcp.json"),
     lockPath: path.join(agentsRoot, "agents.lock.json"),
     settingsPath: path.join(agentsRoot, "settings.local.json"),

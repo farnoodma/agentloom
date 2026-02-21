@@ -132,4 +132,33 @@ describe("codex sync", () => {
       ),
     ).toBe(false);
   });
+
+  it("writes codex commands to global prompts even in local scope", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-sync-"));
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-home-"));
+    tempDirs.push(root, home);
+
+    const commandsDir = path.join(root, ".agents", "commands");
+    ensureDir(commandsDir);
+    writeTextAtomic(
+      path.join(commandsDir, "triage.md"),
+      `# /triage\n\nTriage the current issue with minimal steps.\n`,
+    );
+
+    const paths = buildScopePaths(root, "local", home);
+
+    await syncFromCanonical({
+      paths,
+      providers: ["codex"],
+      yes: true,
+      nonInteractive: true,
+    });
+
+    expect(
+      fs.existsSync(path.join(home, ".codex", "prompts", "triage.md")),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(root, ".codex", "prompts", "triage.md")),
+    ).toBe(false);
+  });
 });

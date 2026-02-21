@@ -16,6 +16,7 @@ import {
   isProviderEnabled,
   parseAgentsDir,
 } from "../core/agents.js";
+import { parseCommandsDir } from "../core/commands.js";
 import {
   ensureDir,
   isObject,
@@ -53,6 +54,7 @@ export async function syncFromCanonical(
   options: SyncOptions,
 ): Promise<SyncSummary> {
   const agents = parseAgentsDir(options.paths.agentsDir);
+  const commands = parseCommandsDir(options.paths.commandsDir);
   const mcp = readCanonicalMcp(options.paths);
   const manifest = readManifest(options.paths);
   const settings = readSettings(options.paths.settingsPath);
@@ -75,6 +77,13 @@ export async function syncFromCanonical(
       provider,
       paths: options.paths,
       agents,
+      generated,
+      dryRun: !!options.dryRun,
+    });
+    syncProviderCommands({
+      provider,
+      paths: options.paths,
+      commands,
       generated,
       dryRun: !!options.dryRun,
     });
@@ -233,6 +242,92 @@ function getProviderAgentsDir(paths: ScopePaths, provider: Provider): string {
         : path.join(home, ".vscode", "chatmodes");
     default:
       return path.join(workspaceRoot, ".agents", "unknown");
+  }
+}
+
+function syncProviderCommands(options: {
+  provider: Provider;
+  paths: ScopePaths;
+  commands: ReturnType<typeof parseCommandsDir>;
+  generated: Set<string>;
+  dryRun: boolean;
+}): void {
+  const providerDir = getProviderCommandsDir(options.paths, options.provider);
+
+  for (const command of options.commands) {
+    const fileName = mapProviderCommandFileName(
+      options.provider,
+      command.fileName,
+    );
+    const outputPath = path.join(providerDir, fileName);
+
+    if (!options.dryRun) {
+      ensureDir(path.dirname(outputPath));
+      writeTextAtomic(outputPath, command.content);
+    }
+
+    options.generated.add(outputPath);
+  }
+}
+
+function mapProviderCommandFileName(
+  provider: Provider,
+  fileName: string,
+): string {
+  const lower = fileName.toLowerCase();
+
+  if (provider === "copilot") {
+    if (lower.endsWith(".prompt.md")) return fileName;
+    if (lower.endsWith(".md")) {
+      return `${fileName.slice(0, -3)}.prompt.md`;
+    }
+    if (lower.endsWith(".mdc")) {
+      return `${fileName.slice(0, -4)}.prompt.md`;
+    }
+
+    const ext = path.extname(fileName);
+    if (ext) {
+      return `${fileName.slice(0, -ext.length)}.prompt.md`;
+    }
+    return `${fileName}.prompt.md`;
+  }
+
+  if (lower.endsWith(".mdc")) {
+    return `${fileName.slice(0, -4)}.md`;
+  }
+
+  return fileName;
+}
+
+function getProviderCommandsDir(paths: ScopePaths, provider: Provider): string {
+  const workspaceRoot = paths.workspaceRoot;
+  const home = paths.homeDir;
+
+  switch (provider) {
+    case "cursor":
+      return paths.scope === "local"
+        ? path.join(workspaceRoot, ".cursor", "commands")
+        : path.join(home, ".cursor", "commands");
+    case "claude":
+      return paths.scope === "local"
+        ? path.join(workspaceRoot, ".claude", "commands")
+        : path.join(home, ".claude", "commands");
+    case "codex":
+      return path.join(home, ".codex", "prompts");
+    case "opencode":
+      return paths.scope === "local"
+        ? path.join(workspaceRoot, ".opencode", "commands")
+        : path.join(home, ".config", "opencode", "commands");
+    case "gemini":
+      return paths.scope === "local"
+        ? path.join(workspaceRoot, ".gemini", "commands")
+        : path.join(home, ".gemini", "commands");
+    case "copilot":
+      return paths.scope === "local"
+        ? path.join(workspaceRoot, ".github", "prompts")
+        : path.join(home, ".github", "prompts");
+    default:
+      return path.join(workspaceRoot, ".agents", "unknown", "commands");
   }
 }
 
