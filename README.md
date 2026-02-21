@@ -28,6 +28,9 @@ Project scope:
   agents/
     reviewer.md
     debugger.md
+  commands/
+    review.md
+    ship.md
   mcp.json
   agents.lock.json
   settings.local.json
@@ -38,11 +41,13 @@ Global scope uses `~/.agents` with the same file layout.
 ## Commands
 
 ### `agentloom skills ...`
+
 Pass-through wrapper to `npx skills ...` from
 [`vercel-labs/skills`](https://github.com/vercel-labs/skills).
 
 ### `agentloom add <source>`
-Import canonical agents/MCP from:
+
+Import canonical agents/commands/MCP from:
 
 - local repo path
 - GitHub slug (`owner/repo`)
@@ -70,6 +75,7 @@ agentloom add farnoodma/agents --agent issue-creator
 Interactive mode (TTY) prompts with a selectable agent list when `--agent` is not provided.
 
 ### `agentloom update`
+
 Refresh lockfile sources (`agents.lock.json`) and re-import changed revisions.
 
 Options:
@@ -81,6 +87,7 @@ Options:
 - `--dry-run`: show sync changes without writing provider files
 
 ### `agentloom sync`
+
 Generate provider-specific outputs from canonical `.agents` data.
 
 Options:
@@ -97,6 +104,7 @@ agentloom sync --providers codex,claude,cursor
 ```
 
 ### `agentloom mcp add|list|delete`
+
 Manage canonical MCP servers in `.agents/mcp.json`.
 
 `mcp add` options:
@@ -126,6 +134,53 @@ agentloom mcp list
 agentloom mcp delete browser-tools
 ```
 
+### `agentloom command add|list|delete`
+
+Manage canonical command files in `.agents/commands`.
+
+`command add` imports command files from a source repository using the same
+source parsing as `agentloom add`:
+
+- local repo path
+- GitHub slug (`owner/repo`)
+- generic git URL
+
+`command add` options:
+
+- `--command <name>`: repeatable command selector (name or filename)
+- `--ref <ref>`: git ref (branch/tag/commit) for remote sources
+- `--subdir <path>`: subdirectory inside source repo
+- `--rename <name>`: rename imported command for single-command imports
+- `--local | --global`: choose canonical scope
+- `--yes`: skip conflict prompts
+- `--no-sync`: skip post-import sync
+- `--providers <csv>`: limit post-import sync providers
+- `--dry-run`: show sync changes without writing provider files
+
+Behavior:
+
+- without `--command`, interactive sessions show all source commands in a multi-select prompt
+- all commands are selected by default in that prompt
+- in non-interactive mode without `--command`, all commands are imported
+
+`command list` options:
+
+- `--json`: print raw canonical JSON
+- `--local | --global`: choose canonical scope
+
+`command delete` options:
+
+- `--local | --global`: choose canonical scope
+- `--no-sync`: skip post-change sync
+
+Examples:
+
+```bash
+agentloom command add farnoodma/agents --command review
+agentloom command list
+agentloom command delete review
+```
+
 ### Top-level help
 
 ```bash
@@ -133,6 +188,8 @@ agentloom --help
 agentloom add --help
 agentloom update --help
 agentloom sync --help
+agentloom command --help
+agentloom command add --help
 agentloom mcp --help
 agentloom mcp add --help
 ```
@@ -210,6 +267,10 @@ For Codex, `agentloom sync` writes role-based multi-agent config:
 - `.codex/agents/<role>.instructions.md`
 
 This follows official Codex multi-agent guidance.
+
+For canonical commands (`.agents/commands`), Codex output is always written to
+global prompts under `~/.codex/prompts` (Codex prompts are global-only), even
+when syncing local scope.
 
 ## Development
 

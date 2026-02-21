@@ -117,6 +117,20 @@ export function discoverSourceMcpPath(importRoot: string): string | null {
   return null;
 }
 
+export function discoverSourceCommandsDir(importRoot: string): string | null {
+  const nested = path.join(importRoot, ".agents", "commands");
+  if (fs.existsSync(nested) && fs.statSync(nested).isDirectory()) {
+    return nested;
+  }
+
+  const direct = path.join(importRoot, "commands");
+  if (fs.existsSync(direct) && fs.statSync(direct).isDirectory()) {
+    return direct;
+  }
+
+  return null;
+}
+
 function resolveImportRoot(rootPath: string, subdir?: string): string {
   if (!subdir) return rootPath;
   const importRoot = path.resolve(rootPath, subdir);

@@ -52,6 +52,7 @@ export async function runAddCommand(
     console.log(`Source type: ${summary.sourceType}`);
     console.log(`Resolved commit: ${summary.resolvedCommit}`);
     console.log(`Imported agents: ${summary.importedAgents.length}`);
+    console.log(`Imported commands: ${summary.importedCommands.length}`);
     console.log(`Imported MCP servers: ${summary.importedMcpServers.length}`);
 
     updateLastScope(paths.settingsPath, paths.scope);

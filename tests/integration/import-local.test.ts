@@ -31,9 +31,14 @@ describe("importSource local", () => {
     tempDirs.push(sourceRoot, workspaceRoot);
 
     ensureDir(path.join(sourceRoot, "agents"));
+    ensureDir(path.join(sourceRoot, "commands"));
     writeTextAtomic(
       path.join(sourceRoot, "agents", "reviewer.md"),
       `---\nname: reviewer\ndescription: Review specialist\n---\n\nReview code changes.\n`,
+    );
+    writeTextAtomic(
+      path.join(sourceRoot, "commands", "ship.md"),
+      `# /ship\n\nRun release checks and ship changes.\n`,
     );
 
     writeJsonAtomic(path.join(sourceRoot, "mcp.json"), {
@@ -58,12 +63,16 @@ describe("importSource local", () => {
     });
 
     expect(summary.importedAgents).toHaveLength(1);
+    expect(summary.importedCommands).toHaveLength(1);
     expect(summary.importedMcpServers).toContain("browser");
 
     expect(
       fs.existsSync(
         path.join(workspaceRoot, ".agents", "agents", "reviewer.md"),
       ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(workspaceRoot, ".agents", "commands", "ship.md")),
     ).toBe(true);
     expect(fs.existsSync(path.join(workspaceRoot, ".agents", "mcp.json"))).toBe(
       true,
@@ -74,6 +83,50 @@ describe("importSource local", () => {
     );
     expect(lock?.entries).toHaveLength(1);
     expect(lock?.entries[0]?.sourceType).toBe("local");
+    expect(lock?.entries[0]?.importedCommands).toEqual(["commands/ship.md"]);
+  });
+
+  it("applies --rename for single-agent imports even when commands are present", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "agents"));
+    ensureDir(path.join(sourceRoot, "commands"));
+    writeTextAtomic(
+      path.join(sourceRoot, "agents", "reviewer.md"),
+      `---\nname: reviewer\ndescription: Review specialist\n---\n\nReview code changes.\n`,
+    );
+    writeTextAtomic(
+      path.join(sourceRoot, "commands", "ship.md"),
+      `# /ship\n\nRun release checks and ship changes.\n`,
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+
+    const summary = await importSource({
+      source: sourceRoot,
+      paths,
+      rename: "quality-gate",
+      yes: true,
+      nonInteractive: true,
+    });
+
+    expect(summary.importedAgents).toEqual(["agents/quality-gate.md"]);
+    expect(
+      fs.existsSync(
+        path.join(workspaceRoot, ".agents", "agents", "quality-gate.md"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(workspaceRoot, ".agents", "agents", "reviewer.md"),
+      ),
+    ).toBe(false);
   });
 
   it("imports only selected agents when --agent is provided", async () => {

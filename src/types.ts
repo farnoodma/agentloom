@@ -41,6 +41,9 @@ export interface LockEntry {
   subdir?: string;
   importedAt: string;
   importedAgents: string[];
+  importedCommands: string[];
+  selectedSourceCommands?: string[];
+  commandRenameMap?: Record<string, string>;
   importedMcpServers: string[];
   contentHash: string;
 }
@@ -67,6 +70,7 @@ export interface ScopePaths {
   homeDir: string;
   agentsRoot: string;
   agentsDir: string;
+  commandsDir: string;
   mcpPath: string;
   lockPath: string;
   settingsPath: string;
