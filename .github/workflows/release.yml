@@ -11,11 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
     env:
       TAG_NAME: ${{ github.event.release.tag_name }}
-      VERCEL_ORG_ID: team_WAYWP5YVRx1V3qB1k7z0lPy7
-      VERCEL_PROJECT_ID: prj_vMaa5JzeMwege71RDHp0MGJM54bw
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -61,24 +58,3 @@ jobs:
         run: |
           cd packages/cli
           npm publish --provenance --access public --no-git-checks
-
-      - name: Authenticate with Vercel (OIDC)
-        id: vercel-auth
-        uses: vercel/actions/cli@v1
-        with:
-          oidc: true
-
-      - name: Install Vercel CLI
-        run: npm install --global vercel@latest
-
-      - name: Prepare Vercel project link
-        run: |
-          mkdir -p .vercel
-          cat > .vercel/project.json <<EOF
-          {"projectId":"${VERCEL_PROJECT_ID}","orgId":"${VERCEL_ORG_ID}","projectName":"agentloom"}
-          EOF
-
-      - name: Deploy web production release
-        env:
-          VERCEL_TOKEN: ${{ steps.vercel-auth.outputs.token }}
-        run: vercel deploy --prod --yes --scope farnoodmas-projects --token "${VERCEL_TOKEN}"
