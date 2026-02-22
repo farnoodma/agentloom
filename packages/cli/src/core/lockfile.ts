@@ -25,7 +25,7 @@ export function readLockfile(paths: ScopePaths): AgentsLockFile {
       selectedSourceCommands: Array.isArray(entry.selectedSourceCommands)
         ? entry.selectedSourceCommands
         : undefined,
-      commandRenameMap: normalizeCommandRenameMap(entry.commandRenameMap),
+      commandRenameMap: normalizeRenameMap(entry.commandRenameMap),
       importedMcpServers: Array.isArray(entry.importedMcpServers)
         ? entry.importedMcpServers
         : [],
@@ -38,9 +38,10 @@ export function readLockfile(paths: ScopePaths): AgentsLockFile {
       selectedSourceSkills: Array.isArray(entry.selectedSourceSkills)
         ? entry.selectedSourceSkills
         : undefined,
-      skillsAgentTargets: Array.isArray(entry.skillsAgentTargets)
-        ? entry.skillsAgentTargets
+      skillsProviders: Array.isArray(entry.skillsProviders)
+        ? entry.skillsProviders
         : undefined,
+      skillRenameMap: normalizeRenameMap(entry.skillRenameMap),
       trackedEntities: Array.isArray(entry.trackedEntities)
         ? entry.trackedEntities
         : undefined,
@@ -55,7 +56,7 @@ function createEmptyLockfile(): AgentsLockFile {
   };
 }
 
-function normalizeCommandRenameMap(
+function normalizeRenameMap(
   value: unknown,
 ): Record<string, string> | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -103,7 +104,7 @@ export function upsertLockEntry(
         entry.selectedSourceMcpServers,
       ) &&
       sameSelection(item.selectedSourceSkills, entry.selectedSourceSkills) &&
-      sameSelection(item.skillsAgentTargets, entry.skillsAgentTargets),
+      sameSelection(item.skillsProviders, entry.skillsProviders),
   );
 
   if (index >= 0) {
