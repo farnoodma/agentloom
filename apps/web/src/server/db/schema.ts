@@ -1,5 +1,6 @@
 import {
   date,
+  index,
   integer,
   jsonb,
   pgTable,
@@ -37,6 +38,31 @@ export const catalogItems = pgTable(
       table.owner,
       table.repo,
       table.itemSlug,
+    ),
+    leaderboardRank: index("catalog_items_leaderboard_rank").on(
+      table.totalInstalls,
+      table.firstSeenAt,
+    ),
+    entityLeaderboardRank: index("catalog_items_entity_leaderboard_rank").on(
+      table.entityType,
+      table.totalInstalls,
+      table.firstSeenAt,
+    ),
+    displayNameSearch: index("catalog_items_display_name_trgm").using(
+      "gin",
+      table.displayName.op("gin_trgm_ops"),
+    ),
+    itemSlugSearch: index("catalog_items_item_slug_trgm").using(
+      "gin",
+      table.itemSlug.op("gin_trgm_ops"),
+    ),
+    ownerSearch: index("catalog_items_owner_trgm").using(
+      "gin",
+      table.owner.op("gin_trgm_ops"),
+    ),
+    repoSearch: index("catalog_items_repo_trgm").using(
+      "gin",
+      table.repo.op("gin_trgm_ops"),
     ),
   }),
 );
