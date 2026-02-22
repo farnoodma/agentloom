@@ -1,4 +1,6 @@
+import type { ParsedArgs } from "minimist";
 import { parseArgs } from "./core/argv.js";
+import { parseProvidersFlag } from "./core/argv.js";
 import { runAgentCommand } from "./commands/agent.js";
 import { runAddCommand } from "./commands/add.js";
 import { runCommandCommand } from "./commands/command.js";
@@ -11,11 +13,18 @@ import { runUpdateCommand } from "./commands/update.js";
 import { formatUnknownCommandError, getRootHelpText } from "./core/copy.js";
 import { maybePromptManageAgentsBootstrap } from "./core/manage-agents-bootstrap.js";
 import { parseCommandRoute } from "./core/router.js";
+import { buildScopePaths } from "./core/scope.js";
+import { getGlobalSettingsPath, readSettings } from "./core/settings.js";
 import { maybeNotifyVersionUpdate } from "./core/version-notifier.js";
 import { getCliVersion } from "./core/version.js";
+import type { Provider, Scope } from "./types.js";
+import { ALL_PROVIDERS } from "./types.js";
+
+const MANAGE_AGENTS_SOURCE = "farnoodma/agentloom";
+const MANAGE_AGENTS_SELECTOR = "manage-agents";
 
 export async function runCli(argv: string[]): Promise<void> {
-  const command = argv[0];
+  const command = argv[0] ?? "";
   const version = getCliVersion();
 
   if (
@@ -42,9 +51,6 @@ export async function runCli(argv: string[]): Promise<void> {
     yes: Boolean(parsed.yes),
     cwd,
   });
-  if (shouldBootstrapManageAgents) {
-    await runAddCommand(parseArgs(["add", "farnoodma/agentloom"]), cwd);
-  }
 
   const route = parseCommandRoute(argv);
 
@@ -55,6 +61,28 @@ export async function runCli(argv: string[]): Promise<void> {
     });
   }
 
+  if (!route) {
+    throw new Error(formatUnknownCommandError(command));
+  }
+
+  await runRoutedCommand(route, parsed, cwd, command);
+
+  if (shouldBootstrapManageAgents) {
+    const bootstrapArgs = buildManageAgentsBootstrapArgs(parsed, cwd);
+    await runAddCommand(parseArgs(bootstrapArgs), cwd);
+  }
+}
+
+function printHelp(): void {
+  console.log(getRootHelpText());
+}
+
+async function runRoutedCommand(
+  route: ReturnType<typeof parseCommandRoute>,
+  parsed: ParsedArgs,
+  cwd: string,
+  command: string,
+): Promise<void> {
   if (!route) {
     throw new Error(formatUnknownCommandError(command));
   }
@@ -104,8 +132,85 @@ export async function runCli(argv: string[]): Promise<void> {
   }
 }
 
-function printHelp(): void {
-  console.log(getRootHelpText());
+function buildManageAgentsBootstrapArgs(
+  parsed: ParsedArgs,
+  cwd: string,
+): string[] {
+  const scope = resolveBootstrapScope(parsed);
+  const providers = resolveBootstrapProviders(parsed, cwd, scope);
+
+  const args: string[] = [
+    "skill",
+    "add",
+    MANAGE_AGENTS_SOURCE,
+    "--skills",
+    MANAGE_AGENTS_SELECTOR,
+  ];
+
+  if (scope === "local") args.push("--local");
+  if (scope === "global") args.push("--global");
+
+  if (
+    typeof parsed["selection-mode"] === "string" &&
+    parsed["selection-mode"].trim().length > 0
+  ) {
+    args.push("--selection-mode", parsed["selection-mode"].trim());
+  }
+
+  if (parsed["no-sync"]) args.push("--no-sync");
+  if (parsed["dry-run"]) args.push("--dry-run");
+
+  if (providers && providers.length > 0) {
+    args.push("--providers", providers.join(","));
+  }
+
+  return args;
+}
+
+function resolveBootstrapScope(parsed: ParsedArgs): Scope | undefined {
+  if (parsed.local) return "local";
+  if (parsed.global) return "global";
+
+  const globalSettings = readSettings(getGlobalSettingsPath());
+  if (
+    globalSettings.lastScope === "local" ||
+    globalSettings.lastScope === "global"
+  ) {
+    return globalSettings.lastScope;
+  }
+
+  return undefined;
+}
+
+function resolveBootstrapProviders(
+  parsed: ParsedArgs,
+  cwd: string,
+  scope: Scope | undefined,
+): Provider[] | undefined {
+  const explicitProviders = parseProvidersFlag(parsed.providers);
+  if (explicitProviders && explicitProviders.length > 0) {
+    return explicitProviders;
+  }
+
+  if (!scope) return undefined;
+  const settingsPath = buildScopePaths(cwd, scope).settingsPath;
+  const scopeSettings = readSettings(settingsPath);
+  return normalizeProviders(scopeSettings.defaultProviders);
+}
+
+function normalizeProviders(
+  providers: readonly string[] | undefined,
+): Provider[] {
+  const selected = new Set<Provider>();
+
+  for (const provider of providers ?? []) {
+    const normalized = provider.trim().toLowerCase() as Provider;
+    if (ALL_PROVIDERS.includes(normalized)) {
+      selected.add(normalized);
+    }
+  }
+
+  return [...selected];
 }
 
 function colorRed(text: string): string {

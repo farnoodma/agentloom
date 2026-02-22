@@ -150,7 +150,7 @@ In interactive sessions, `agentloom` checks for:
 
 If missing in both locations, it offers to bootstrap `manage-agents` because that skill helps agents reliably manage Agentloom resources (find/create/import/update/sync/delete).
 
-This runs before the requested command.
+The install runs after the requested command completes so scope/provider selections from that command can be reused.
 
 - disable this prompt via `AGENTLOOM_DISABLE_MANAGE_AGENTS_PROMPT=1`
 
