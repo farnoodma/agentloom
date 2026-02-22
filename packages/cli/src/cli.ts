@@ -9,6 +9,7 @@ import { runSkillCommand } from "./commands/skills.js";
 import { runSyncCommand } from "./commands/sync.js";
 import { runUpdateCommand } from "./commands/update.js";
 import { formatUnknownCommandError, getRootHelpText } from "./core/copy.js";
+import { maybePromptManageAgentsBootstrap } from "./core/manage-agents-bootstrap.js";
 import { parseCommandRoute } from "./core/router.js";
 import { maybeNotifyVersionUpdate } from "./core/version-notifier.js";
 import { getCliVersion } from "./core/version.js";
@@ -34,6 +35,16 @@ export async function runCli(argv: string[]): Promise<void> {
 
   const parsed = parseArgs(argv);
   const cwd = process.cwd();
+
+  const shouldBootstrapManageAgents = await maybePromptManageAgentsBootstrap({
+    command,
+    help: Boolean(parsed.help),
+    yes: Boolean(parsed.yes),
+  });
+  if (shouldBootstrapManageAgents) {
+    await runAddCommand(parseArgs(["add", "farnoodma/agentloom"]), cwd);
+  }
+
   const route = parseCommandRoute(argv);
 
   if (!parsed.help) {
