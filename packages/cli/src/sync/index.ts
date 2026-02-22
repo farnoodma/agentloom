@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { cancel, confirm, isCancel, multiselect } from "@clack/prompts";
+import { cancel, isCancel, multiselect } from "@clack/prompts";
 import TOML from "@iarna/toml";
 import YAML from "yaml";
 import { ALL_PROVIDERS } from "../types.js";
@@ -869,38 +869,37 @@ async function removeStaleGeneratedFiles(options: {
 }): Promise<string[]> {
   const oldSet = new Set(options.oldManifest.generatedFiles);
   const newSet = new Set(options.newManifest.generatedFiles);
-  const stale = [...oldSet].filter((filePath) => !newSet.has(filePath));
+  const stale = [...oldSet]
+    .filter((filePath) => !newSet.has(filePath))
+    .filter((filePath) => fs.existsSync(filePath));
 
-  const removed: string[] = [];
+  if (stale.length === 0) return [];
 
-  for (const filePath of stale) {
-    if (!fs.existsSync(filePath)) continue;
+  if (options.dryRun) return stale;
 
-    if (options.dryRun) {
-      removed.push(filePath);
-      continue;
+  if (!options.yes && !options.nonInteractive) {
+    const selected = await multiselect({
+      message: withMultiselectHelp("Remove stale generated files?"),
+      options: stale.map((filePath) => ({
+        value: filePath,
+        label: toPosixPath(filePath),
+      })),
+      initialValues: stale,
+    });
+
+    if (isCancel(selected)) return [];
+
+    const toRemove = Array.isArray(selected) ? (selected as string[]) : [];
+    for (const filePath of toRemove) {
+      removeFileIfExists(filePath);
     }
-
-    if (!options.yes && !options.nonInteractive) {
-      const shouldDelete = await confirm({
-        message: `Remove stale generated file ${toPosixPath(filePath)}?`,
-        initialValue: true,
-      });
-
-      if (isCancel(shouldDelete)) {
-        continue;
-      }
-
-      if (!shouldDelete) {
-        continue;
-      }
-    }
-
-    removeFileIfExists(filePath);
-    removed.push(filePath);
+    return toRemove;
   }
 
-  return removed;
+  for (const filePath of stale) {
+    removeFileIfExists(filePath);
+  }
+  return stale;
 }
 
 function getVsCodeSettingsPath(homeDir: string): string {
