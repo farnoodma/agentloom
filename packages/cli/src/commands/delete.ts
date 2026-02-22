@@ -8,7 +8,7 @@ import { formatUsageError } from "../core/copy.js";
 import { readLockfile, writeLockfile } from "../core/lockfile.js";
 import { readCanonicalMcp, writeCanonicalMcp } from "../core/mcp.js";
 import { parseSourceSpec } from "../core/sources.js";
-import { parseSkillsDir, runSkillsCommand } from "../core/skills.js";
+import { parseSkillsDir } from "../core/skills.js";
 import type { AgentsLockFile, EntityType, LockEntry } from "../types.js";
 import {
   getNonInteractiveMode,
@@ -104,7 +104,6 @@ async function runEntityAwareDelete(options: {
       lockfile,
       lockEntries: sourceMatches,
       entities,
-      nonInteractive,
     });
   } else {
     await deleteByName({
@@ -209,14 +208,12 @@ async function deleteBySource(options: {
   lockfile: AgentsLockFile;
   lockEntries: LockEntry[];
   entities: EntityType[];
-  nonInteractive: boolean;
 }): Promise<void> {
   if (options.lockEntries.length === 0) {
     throw new Error("No matching lock entries found for the provided source.");
   }
 
   const mcp = readCanonicalMcp(options.paths);
-  const skillsToDelete = new Set<string>();
 
   for (const entry of options.lockEntries) {
     if (options.entities.includes("agent")) {
@@ -239,25 +236,13 @@ async function deleteBySource(options: {
 
     if (options.entities.includes("skill")) {
       for (const skill of entry.importedSkills) {
-        skillsToDelete.add(skill);
+        removeIfExists(path.join(options.paths.skillsDir, skill));
       }
     }
   }
 
   if (options.entities.includes("mcp")) {
     writeCanonicalMcp(options.paths, mcp);
-  }
-
-  if (options.entities.includes("skill") && skillsToDelete.size > 0) {
-    const args = ["remove", ...[...skillsToDelete], "--yes"];
-    if (options.paths.scope === "global") {
-      args.push("--global");
-    }
-    runSkillsCommand({
-      args,
-      cwd: options.paths.workspaceRoot,
-      inheritStdio: !options.nonInteractive,
-    });
   }
 
   options.lockfile.entries = options.lockfile.entries
@@ -331,15 +316,7 @@ async function deleteByName(options: {
       }
       delete mcp.mcpServers[existing];
     } else if (entity === "skill") {
-      const args = ["remove", options.candidate, "--yes"];
-      if (options.paths.scope === "global") {
-        args.push("--global");
-      }
-      runSkillsCommand({
-        args,
-        cwd: options.paths.workspaceRoot,
-        inheritStdio: !options.nonInteractive,
-      });
+      deleteSkillByName(options.paths, options.candidate);
     }
   }
 
@@ -390,10 +367,25 @@ function deleteCommandByName(
   removeIfExists(target.sourcePath);
 }
 
-function removeIfExists(filePath: string): void {
-  if (fs.existsSync(filePath)) {
-    fs.unlinkSync(filePath);
+function deleteSkillByName(
+  paths: Awaited<ReturnType<typeof resolvePathsForCommand>>,
+  name: string,
+): void {
+  const skills = parseSkillsDir(paths.skillsDir);
+  const target = skills.find(
+    (skill) =>
+      normalizeName(skill.name) === normalizeName(name) ||
+      normalizeName(path.basename(skill.sourcePath)) === normalizeName(name),
+  );
+  if (!target) {
+    throw new Error(`Skill "${name}" was not found in canonical skills.`);
   }
+  removeIfExists(target.sourcePath);
+}
+
+function removeIfExists(filePath: string): void {
+  if (!fs.existsSync(filePath)) return;
+  fs.rmSync(filePath, { recursive: true, force: true });
 }
 
 function normalizeName(value: string): string {
@@ -472,7 +464,8 @@ function removeEntityDataFromEntry(
       ...next,
       importedSkills: [],
       selectedSourceSkills: undefined,
-      skillsAgentTargets: undefined,
+      skillsProviders: undefined,
+      skillRenameMap: undefined,
     };
   }
 
@@ -539,12 +532,43 @@ function removeNameFromEntry(
   }
 
   if (entities.includes("skill")) {
+    const renameEntriesBeforeRemoval = Object.entries(
+      next.skillRenameMap ?? {},
+    );
+    const removedSkillTargets = next.importedSkills.filter(
+      (name) => normalizeName(name) === normalized,
+    );
     next.importedSkills = next.importedSkills.filter(
       (name) => normalizeName(name) !== normalized,
     );
+
+    if (next.skillRenameMap) {
+      const remainingImportedSkills = new Set(
+        next.importedSkills.map((skillName) => normalizeName(skillName)),
+      );
+      const filteredRenameEntries = Object.entries(next.skillRenameMap).filter(
+        ([, importedName]) =>
+          remainingImportedSkills.has(normalizeName(importedName)),
+      );
+      next.skillRenameMap =
+        filteredRenameEntries.length > 0
+          ? Object.fromEntries(filteredRenameEntries)
+          : undefined;
+    }
+
+    const removedSourceSelectors = new Set<string>();
+    for (const removedTarget of removedSkillTargets) {
+      for (const [sourceSelector, importedName] of renameEntriesBeforeRemoval) {
+        if (normalizeName(importedName) === normalizeName(removedTarget)) {
+          removedSourceSelectors.add(normalizeName(sourceSelector));
+        }
+      }
+      removedSourceSelectors.add(normalizeName(removedTarget));
+    }
+
     if (next.selectedSourceSkills) {
       next.selectedSourceSkills = next.selectedSourceSkills.filter(
-        (name) => normalizeName(name) !== normalized,
+        (name) => !removedSourceSelectors.has(normalizeName(name)),
       );
     }
   }
@@ -561,6 +585,10 @@ function finalizeEntry(entry: LockEntry): LockEntry | null {
   if (entry.importedCommands.length === 0) {
     entry.commandRenameMap = undefined;
     entry.selectedSourceCommands = hasOtherEntities ? [] : undefined;
+  }
+  if (entry.importedSkills.length === 0) {
+    entry.skillRenameMap = undefined;
+    entry.skillsProviders = undefined;
   }
 
   const trackedEntities = (entry.trackedEntities ?? []).filter((entity) => {
@@ -583,7 +611,8 @@ function finalizeEntry(entry: LockEntry): LockEntry | null {
     return (
       entry.importedSkills.length > 0 ||
       Boolean(entry.selectedSourceSkills) ||
-      Boolean(entry.skillsAgentTargets)
+      Boolean(entry.skillsProviders) ||
+      Boolean(entry.skillRenameMap)
     );
   });
 

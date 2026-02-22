@@ -433,7 +433,7 @@ describe("importSource command-only local", () => {
     ).toBe(false);
   });
 
-  it("preserves existing skills agent targets on command-only imports", async () => {
+  it("preserves existing skills providers on command-only imports", async () => {
     const sourceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "agentloom-source-"),
     );
@@ -464,7 +464,8 @@ describe("importSource command-only local", () => {
           importedMcpServers: [],
           importedSkills: ["code-review"],
           selectedSourceSkills: ["code-review"],
-          skillsAgentTargets: ["codex"],
+          skillsProviders: ["codex"],
+          skillRenameMap: { "code-review": "code-review" },
           trackedEntities: ["skill"],
           contentHash: "seed-hash",
         },
@@ -491,7 +492,10 @@ describe("importSource command-only local", () => {
     expect(lock?.entries).toHaveLength(1);
     expect(lock?.entries[0]?.importedSkills).toEqual(["code-review"]);
     expect(lock?.entries[0]?.selectedSourceSkills).toEqual(["code-review"]);
-    expect(lock?.entries[0]?.skillsAgentTargets).toEqual(["codex"]);
+    expect(lock?.entries[0]?.skillsProviders).toEqual(["codex"]);
+    expect(lock?.entries[0]?.skillRenameMap).toEqual({
+      "code-review": "code-review",
+    });
   });
 
   it("command delete updates lock tracking so update does not re-import deleted commands", async () => {

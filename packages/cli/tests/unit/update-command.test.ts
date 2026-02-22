@@ -220,4 +220,78 @@ describe("runUpdateCommand", () => {
     expect(output).toContain("Updated entries: 1");
     expect(output).toContain("Unchanged entries: 0");
   });
+
+  it("replays stored skill rename map and providers on skill updates", async () => {
+    const nonInteractive = !(process.stdin.isTTY && process.stdout.isTTY);
+    const paths = createScopePaths();
+    const cleanup = vi.fn();
+
+    commandMocks.resolveScope.mockResolvedValue(paths);
+    commandMocks.readLockfile.mockReturnValue({
+      version: 1,
+      entries: [
+        {
+          source: "farnoodma/agents",
+          sourceType: "github",
+          requestedRef: "main",
+          resolvedCommit: "old-commit",
+          importedAt: "2026-01-01T00:00:00.000Z",
+          importedAgents: [],
+          importedCommands: [],
+          importedMcpServers: [],
+          importedSkills: ["release-gate"],
+          selectedSourceSkills: ["release-check"],
+          skillsProviders: ["claude"],
+          skillRenameMap: {
+            "release-check": "release-gate",
+          },
+          trackedEntities: ["skill"],
+          contentHash: "hash",
+        },
+      ],
+    } satisfies AgentsLockFile);
+    commandMocks.prepareSource.mockReturnValue({
+      spec: { source: "farnoodma/agents", type: "github" as const },
+      rootPath: "/tmp/source",
+      importRoot: "/tmp/source",
+      resolvedCommit: "new-commit",
+      cleanup,
+    });
+    commandMocks.importSource.mockResolvedValue({
+      source: "farnoodma/agents",
+      sourceType: "github" as const,
+      importedAgents: [],
+      importedCommands: [],
+      importedMcpServers: [],
+      importedSkills: ["release-gate"],
+      resolvedCommit: "new-commit",
+    });
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await runUpdateCommand(
+      { _: ["update"], "no-sync": true } as ParsedArgs,
+      "/workspace",
+    );
+
+    expect(commandMocks.importSource).toHaveBeenCalledTimes(1);
+    expect(commandMocks.importSource).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "farnoodma/agents",
+        ref: "main",
+        importSkills: true,
+        skillSelectors: ["release-check"],
+        skillRenameMap: {
+          "release-check": "release-gate",
+        },
+        skillsProviders: ["claude"],
+        nonInteractive,
+      }),
+    );
+    expect(cleanup).toHaveBeenCalledTimes(1);
+
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(output).toContain("Updated entries: 1");
+    expect(output).toContain("Unchanged entries: 0");
+  });
 });
