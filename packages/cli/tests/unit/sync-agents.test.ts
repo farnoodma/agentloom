@@ -45,13 +45,19 @@ describe("cursor agent sync", () => {
 
     // Must write to .cursor/agents/, not .cursor/rules/
     expect(
-      fs.existsSync(path.join(workspaceRoot, ".cursor", "agents", "reviewer.md")),
+      fs.existsSync(
+        path.join(workspaceRoot, ".cursor", "agents", "reviewer.md"),
+      ),
     ).toBe(true);
     expect(
-      fs.existsSync(path.join(workspaceRoot, ".cursor", "rules", "reviewer.mdc")),
+      fs.existsSync(
+        path.join(workspaceRoot, ".cursor", "rules", "reviewer.mdc"),
+      ),
     ).toBe(false);
     expect(
-      fs.existsSync(path.join(workspaceRoot, ".cursor", "rules", "reviewer.md")),
+      fs.existsSync(
+        path.join(workspaceRoot, ".cursor", "rules", "reviewer.md"),
+      ),
     ).toBe(false);
   });
 
@@ -172,14 +178,10 @@ describe("cursor agent sync", () => {
     });
 
     expect(
-      fs.existsSync(
-        path.join(homeDir, ".cursor", "agents", "global-agent.md"),
-      ),
+      fs.existsSync(path.join(homeDir, ".cursor", "agents", "global-agent.md")),
     ).toBe(true);
     expect(
-      fs.existsSync(
-        path.join(homeDir, ".cursor", "rules", "global-agent.mdc"),
-      ),
+      fs.existsSync(path.join(homeDir, ".cursor", "rules", "global-agent.mdc")),
     ).toBe(false);
   });
 
@@ -233,11 +235,8 @@ describe("cursor agent sync", () => {
     ensureDir(path.dirname(manifestPath));
     fs.writeFileSync(
       manifestPath,
-      JSON.stringify(
-        { version: 1, generatedFiles: [legacyFile] },
-        null,
-        2,
-      ) + "\n",
+      JSON.stringify({ version: 1, generatedFiles: [legacyFile] }, null, 2) +
+        "\n",
     );
 
     // Now sync with an agent in the canonical directory
