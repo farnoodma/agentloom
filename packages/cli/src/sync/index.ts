@@ -309,9 +309,7 @@ function syncProviderAgents(options: {
     const fileName =
       options.provider === "copilot"
         ? `${slugify(agent.name) || "agent"}.agent.md`
-        : options.provider === "cursor"
-          ? `${slugify(agent.name) || "agent"}.mdc`
-          : `${slugify(agent.name) || "agent"}.md`;
+        : `${slugify(agent.name) || "agent"}.md`;
 
     const outputPath = path.join(providerDir, fileName);
     const content = buildProviderAgentContent(
@@ -334,16 +332,6 @@ function buildProviderAgentContent(
   agent: CanonicalAgent,
   providerConfig: Record<string, unknown>,
 ): string {
-  if (provider === "cursor") {
-    const frontmatter = {
-      description: agent.description,
-      alwaysApply: false,
-      ...providerConfig,
-    };
-    const fm = YAML.stringify(frontmatter).trimEnd();
-    return `---\n${fm}\n---\n\n${agent.body.trimStart()}${agent.body.endsWith("\n") ? "" : "\n"}`;
-  }
-
   const frontmatter = {
     name: agent.name,
     description: agent.description,
@@ -361,8 +349,8 @@ function getProviderAgentsDir(paths: ScopePaths, provider: Provider): string {
   switch (provider) {
     case "cursor":
       return paths.scope === "local"
-        ? path.join(workspaceRoot, ".cursor", "rules")
-        : path.join(home, ".cursor", "rules");
+        ? path.join(workspaceRoot, ".cursor", "agents")
+        : path.join(home, ".cursor", "agents");
     case "claude":
       return paths.scope === "local"
         ? path.join(workspaceRoot, ".claude", "agents")
@@ -1003,6 +991,7 @@ function isLegacyCommandOutputPath(normalizedPath: string): boolean {
 
 function isLegacyAgentOutputPath(normalizedPath: string): boolean {
   return (
+    normalizedPath.includes("/.cursor/agents/") ||
     normalizedPath.includes("/.cursor/rules/") ||
     normalizedPath.includes("/.claude/agents/") ||
     normalizedPath.includes("/.opencode/agents/") ||
