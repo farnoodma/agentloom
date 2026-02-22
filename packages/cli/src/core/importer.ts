@@ -87,6 +87,7 @@ export interface ImportOptions {
   skillSelectors?: string[];
   promptForSkills?: boolean;
   skillsProviders?: Provider[];
+  resolveSkillsProviders?: () => Promise<Provider[] | undefined>;
   skillsAgentTargets?: string[];
   selectionMode?: SelectionMode;
   commandSelectors?: string[];
@@ -124,6 +125,11 @@ interface SkillSelectionResult {
   selectionMode: SelectionMode;
 }
 
+interface SelectionModeResolution {
+  selectionMode: SelectionMode;
+  skipImport: boolean;
+}
+
 export async function importSource(
   options: ImportOptions,
 ): Promise<ImportSummary> {
@@ -147,6 +153,13 @@ export async function importSource(
     ref: options.ref,
     subdir: options.subdir,
   });
+  const normalizedSubdir = options.subdir?.replace(/^\/+|\/+$/g, "");
+  const sourceLocation =
+    prepared.spec.type === "github"
+      ? `https://github.com/${prepared.spec.source}/tree/${prepared.resolvedCommit}${normalizedSubdir ? `/${normalizedSubdir}` : ""}`
+      : options.subdir
+        ? `${options.source} (subdir: ${options.subdir})`
+        : options.source;
 
   try {
     const sourceAgentsDir = shouldImportAgents
@@ -224,7 +237,7 @@ export async function importSource(
       Object.keys(sourceMcp?.mcpServers ?? {}).length === 0
     ) {
       throw new Error(
-        `No importable entities found under ${prepared.importRoot}. Expected agents/, .agents/agents/, commands/, .agents/commands/, prompts/, mcp.json/.agents/mcp.json, skills/, .agents/skills/, or root SKILL.md.`,
+        `No importable entities found in source "${sourceLocation}".\nExpected agents/, .agents/agents/, commands/, .agents/commands/, prompts/, mcp.json/.agents/mcp.json, skills/, .agents/skills/, or root SKILL.md.`,
       );
     }
 
@@ -244,6 +257,59 @@ export async function importSource(
           selectionMode: options.selectionMode,
         })
       : { selectedAgents: [] };
+
+    let selectedSourceCommands: ReturnType<typeof parseCommandsDir> = [];
+    let selectedSourceCommandFiles: string[] = [];
+    let commandSelectionMode: SelectionMode = "all";
+    if (shouldImportCommands && sourceCommandsDir) {
+      const commandSelection = await resolveCommandsToImport({
+        sourceCommands,
+        selectors: options.commandSelectors ?? [],
+        promptForCommands: Boolean(options.promptForCommands),
+        nonInteractive: Boolean(options.nonInteractive),
+        selectionMode: options.selectionMode,
+      });
+      selectedSourceCommands = commandSelection.selectedCommands;
+      commandSelectionMode = commandSelection.selectionMode;
+      selectedSourceCommandFiles = selectedSourceCommands.map(
+        (command) => command.fileName,
+      );
+    }
+
+    let selectedSourceMcpServers: string[] = [];
+    let sourceMcpServerNames: string[] = sourceMcp
+      ? Object.keys(sourceMcp.mcpServers).sort()
+      : [];
+    let mcpSelectionMode: SelectionMode = "all";
+
+    if (shouldImportMcp && sourceMcp) {
+      const mcpSelection = await resolveMcpServersToImport({
+        sourceMcp,
+        selectors: options.mcpSelectors ?? [],
+        promptForMcp: options.promptForMcp ?? true,
+        nonInteractive: Boolean(options.nonInteractive),
+        selectionMode: options.selectionMode,
+      });
+      selectedSourceMcpServers = mcpSelection.selectedServerNames;
+      mcpSelectionMode = mcpSelection.selectionMode;
+    }
+
+    let selectedSkills: CanonicalSkill[] = [];
+    let selectedSourceSkills: string[] = [];
+    let skillSelectionMode: SelectionMode = "all";
+
+    if (shouldImportSkills && sourceSkillsDir) {
+      const skillSelection = await resolveSkillsToImport({
+        sourceSkills,
+        selectors: options.skillSelectors ?? [],
+        promptForSkills: options.promptForSkills ?? true,
+        nonInteractive: Boolean(options.nonInteractive),
+        selectionMode: options.selectionMode,
+      });
+      selectedSkills = skillSelection.selectedSkills;
+      skillSelectionMode = skillSelection.selectionMode;
+      selectedSourceSkills = selectedSkills.map((skill) => skill.name);
+    }
 
     const importedAgents: string[] = [];
     if (shouldImportAgents && selection.selectedAgents.length > 0) {
@@ -282,23 +348,10 @@ export async function importSource(
 
     const importedCommands: string[] = [];
     const importedCommandRenameMap: Record<string, string> = {};
-    let selectedSourceCommandFiles: string[] = [];
-    let commandSelectionMode: SelectionMode = "all";
     if (shouldImportCommands && sourceCommandsDir) {
-      const commandSelection = await resolveCommandsToImport({
-        sourceCommands,
-        selectors: options.commandSelectors ?? [],
-        promptForCommands: Boolean(options.promptForCommands),
-        nonInteractive: Boolean(options.nonInteractive),
-        selectionMode: options.selectionMode,
-      });
-      const selectedSourceCommands = commandSelection.selectedCommands;
-      commandSelectionMode = commandSelection.selectionMode;
-      selectedSourceCommandFiles = selectedSourceCommands.map(
-        (command) => command.fileName,
-      );
-
-      ensureDir(options.paths.commandsDir);
+      if (selectedSourceCommands.length > 0) {
+        ensureDir(options.paths.commandsDir);
+      }
 
       for (const [index, command] of selectedSourceCommands.entries()) {
         let targetFileName = command.fileName;
@@ -341,23 +394,7 @@ export async function importSource(
     }
 
     const importedMcpServers: string[] = [];
-    let selectedSourceMcpServers: string[] = [];
-    let sourceMcpServerNames: string[] = sourceMcp
-      ? Object.keys(sourceMcp.mcpServers).sort()
-      : [];
-    let mcpSelectionMode: SelectionMode = "all";
-
     if (shouldImportMcp && sourceMcp) {
-      const mcpSelection = await resolveMcpServersToImport({
-        sourceMcp,
-        selectors: options.mcpSelectors ?? [],
-        promptForMcp: options.promptForMcp ?? true,
-        nonInteractive: Boolean(options.nonInteractive),
-        selectionMode: options.selectionMode,
-      });
-      selectedSourceMcpServers = mcpSelection.selectedServerNames;
-      mcpSelectionMode = mcpSelection.selectionMode;
-
       const selectedSourceMcp: CanonicalMcpFile = {
         version: 1,
         mcpServers: Object.fromEntries(
@@ -385,23 +422,8 @@ export async function importSource(
     }
 
     const importedSkills: string[] = [];
-    let selectedSourceSkills: string[] = [];
     let skillsAgentTargetsForLock: string[] | undefined;
-    let skillSelectionMode: SelectionMode = "all";
-
     if (shouldImportSkills && sourceSkillsDir) {
-      const skillSelection = await resolveSkillsToImport({
-        sourceSkills,
-        selectors: options.skillSelectors ?? [],
-        promptForSkills: options.promptForSkills ?? true,
-        nonInteractive: Boolean(options.nonInteractive),
-        selectionMode: options.selectionMode,
-      });
-      const selectedSkills = skillSelection.selectedSkills;
-      skillSelectionMode = skillSelection.selectionMode;
-
-      selectedSourceSkills = selectedSkills.map((skill) => skill.name);
-
       if (selectedSkills.length > 0) {
         const args = ["add", prepared.importRoot, "--yes"];
 
@@ -426,17 +448,21 @@ export async function importSource(
             args.push("--agent", target);
           }
           skillsAgentTargetsForLock = [...new Set(options.skillsAgentTargets)];
-        } else if (
-          options.skillsProviders &&
-          options.skillsProviders.length > 0
-        ) {
-          const mappedTargets = mapProvidersToSkillsAgents(
-            options.skillsProviders,
-          );
-          for (const target of mappedTargets) {
-            args.push("--agent", target);
+        } else {
+          const resolvedSkillsProviders =
+            options.skillsProviders && options.skillsProviders.length > 0
+              ? options.skillsProviders
+              : await options.resolveSkillsProviders?.();
+
+          if (resolvedSkillsProviders && resolvedSkillsProviders.length > 0) {
+            const mappedTargets = mapProvidersToSkillsAgents(
+              resolvedSkillsProviders,
+            );
+            for (const target of mappedTargets) {
+              args.push("--agent", target);
+            }
+            skillsAgentTargetsForLock = mappedTargets;
           }
-          skillsAgentTargetsForLock = mappedTargets;
         }
 
         runSkillsCommand({
@@ -1262,12 +1288,19 @@ async function resolveCommandsToImport(options: {
     };
   }
 
-  const selectionMode = await resolveSelectionMode({
+  const selectionResolution = await resolveSelectionModeWithSkip({
     entityLabel: "commands",
     selectionMode: options.selectionMode,
     promptForSelection: options.promptForCommands,
     nonInteractive: options.nonInteractive,
   });
+  const selectionMode = selectionResolution.selectionMode;
+  if (selectionResolution.skipImport) {
+    return {
+      selectedCommands: [],
+      selectionMode: "custom",
+    };
+  }
 
   if (
     selectionMode === "all" ||
@@ -1347,12 +1380,19 @@ async function resolveMcpServersToImport(options: {
     };
   }
 
-  const selectionMode = await resolveSelectionMode({
+  const selectionResolution = await resolveSelectionModeWithSkip({
     entityLabel: "MCP servers",
     selectionMode: options.selectionMode,
     promptForSelection: options.promptForMcp,
     nonInteractive: options.nonInteractive,
   });
+  const selectionMode = selectionResolution.selectionMode;
+  if (selectionResolution.skipImport) {
+    return {
+      selectedServerNames: [],
+      selectionMode: "custom",
+    };
+  }
 
   if (
     selectionMode === "all" ||
@@ -1419,12 +1459,19 @@ async function resolveSkillsToImport(options: {
     };
   }
 
-  const selectionMode = await resolveSelectionMode({
+  const selectionResolution = await resolveSelectionModeWithSkip({
     entityLabel: "skills",
     selectionMode: options.selectionMode,
     promptForSelection: options.promptForSkills,
     nonInteractive: options.nonInteractive,
   });
+  const selectionMode = selectionResolution.selectionMode;
+  if (selectionResolution.skipImport) {
+    return {
+      selectedSkills: [],
+      selectionMode: "custom",
+    };
+  }
 
   if (
     selectionMode === "all" ||
@@ -1500,6 +1547,66 @@ async function resolveSelectionMode(options: {
   }
 
   return choice === "custom" ? "custom" : "all";
+}
+
+async function resolveSelectionModeWithSkip(options: {
+  entityLabel: string;
+  selectionMode?: SelectionMode;
+  promptForSelection: boolean;
+  nonInteractive: boolean;
+}): Promise<SelectionModeResolution> {
+  if (options.selectionMode) {
+    return {
+      selectionMode: options.selectionMode,
+      skipImport: false,
+    };
+  }
+
+  if (!options.promptForSelection || options.nonInteractive) {
+    return {
+      selectionMode: "all",
+      skipImport: false,
+    };
+  }
+
+  const choice = await select({
+    message: `How should ${options.entityLabel} be tracked for future updates?`,
+    options: [
+      {
+        value: "all",
+        label: "Sync everything from source",
+        hint: "Include new items on update",
+      },
+      {
+        value: "custom",
+        label: "Use custom selection",
+        hint: "Update only currently selected items",
+      },
+      {
+        value: "skip",
+        label: `Skip importing ${options.entityLabel}`,
+        hint: "Track none from this source",
+      },
+    ],
+    initialValue: "all",
+  });
+
+  if (isCancel(choice)) {
+    cancel("Operation cancelled.");
+    process.exit(1);
+  }
+
+  if (choice === "skip") {
+    return {
+      selectionMode: "custom",
+      skipImport: true,
+    };
+  }
+
+  return {
+    selectionMode: choice === "custom" ? "custom" : "all",
+    skipImport: false,
+  };
 }
 
 function normalizeMcp(raw: Record<string, unknown> | null): CanonicalMcpFile {
