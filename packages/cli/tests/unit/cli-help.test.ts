@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { runCli } from "../../src/cli.js";
+import { formatCliErrorMessage, runCli } from "../../src/cli.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -63,5 +63,21 @@ describe("cli help routing", () => {
 
   it("throws actionable unknown command message", async () => {
     await expect(runCli(["unknown"])).rejects.toThrow("agentloom --help");
+  });
+});
+
+describe("formatCliErrorMessage", () => {
+  it("prefixes errors with a leading newline and subtle icon", () => {
+    const output = formatCliErrorMessage("No importable entities found.");
+    expect(output).toBe("\n✖ No importable entities found.");
+  });
+
+  it("keeps multiline content on separate lines", () => {
+    const output = formatCliErrorMessage(
+      'No importable entities found in source "https://github.com/acme/repo/tree/abc123".\nExpected agents/, commands/, or skills/.',
+    );
+    expect(output).toBe(
+      '\n✖ No importable entities found in source "https://github.com/acme/repo/tree/abc123".\nExpected agents/, commands/, or skills/.',
+    );
   });
 });

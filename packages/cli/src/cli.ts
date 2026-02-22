@@ -40,6 +40,7 @@ export async function runCli(argv: string[]): Promise<void> {
     command,
     help: Boolean(parsed.help),
     yes: Boolean(parsed.yes),
+    cwd,
   });
   if (shouldBootstrapManageAgents) {
     await runAddCommand(parseArgs(["add", "farnoodma/agentloom"]), cwd);
@@ -107,9 +108,32 @@ function printHelp(): void {
   console.log(getRootHelpText());
 }
 
+function colorRed(text: string): string {
+  return process.stderr.isTTY ? `\u001b[31m${text}\u001b[0m` : text;
+}
+
+export function formatCliErrorMessage(message: string): string {
+  const trimmed = message.trim();
+  if (trimmed.length === 0) {
+    return `\n${colorRed("✖")} Error`;
+  }
+
+  const lines = trimmed.split("\n");
+  const firstLine = lines.shift();
+  if (!firstLine) {
+    return `\n${colorRed("✖")} Error`;
+  }
+
+  const formatted = `${colorRed("✖")} ${firstLine}`;
+  return lines.length > 0
+    ? `\n${formatted}\n${lines.join("\n")}`
+    : `\n${formatted}`;
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
   runCli(process.argv.slice(2)).catch((err) => {
-    console.error(err instanceof Error ? err.message : String(err));
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(formatCliErrorMessage(message));
     process.exit(1);
   });
 }

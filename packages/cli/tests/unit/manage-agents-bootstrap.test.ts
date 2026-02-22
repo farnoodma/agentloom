@@ -15,10 +15,18 @@ vi.mock("@clack/prompts", () => ({
 
 import {
   getGlobalManageAgentsSkillPath,
+  getLocalManageAgentsSkillPath,
   maybePromptManageAgentsBootstrap,
 } from "../../src/core/manage-agents-bootstrap.js";
 
 const tempDirs: string[] = [];
+
+function createIsolatedPaths(): { homeDir: string; cwd: string } {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-home-"));
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-cwd-"));
+  tempDirs.push(homeDir, cwd);
+  return { homeDir, cwd };
+}
 
 beforeEach(() => {
   promptMocks.confirm.mockReset();
@@ -36,15 +44,15 @@ afterEach(() => {
 });
 
 describe("maybePromptManageAgentsBootstrap", () => {
-  it("prompts when global manage-agents skill is missing", async () => {
-    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-home-"));
-    tempDirs.push(homeDir);
+  it("prompts when manage-agents skill is missing in local and global scopes", async () => {
+    const { homeDir, cwd } = createIsolatedPaths();
 
     const accepted = await maybePromptManageAgentsBootstrap({
       command: "find",
       help: false,
       yes: false,
       homeDir,
+      cwd,
       interactive: true,
     });
 
@@ -53,8 +61,7 @@ describe("maybePromptManageAgentsBootstrap", () => {
   });
 
   it("returns false when user declines", async () => {
-    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-home-"));
-    tempDirs.push(homeDir);
+    const { homeDir, cwd } = createIsolatedPaths();
     promptMocks.confirm.mockResolvedValueOnce(false);
 
     const accepted = await maybePromptManageAgentsBootstrap({
@@ -62,6 +69,7 @@ describe("maybePromptManageAgentsBootstrap", () => {
       help: false,
       yes: false,
       homeDir,
+      cwd,
       interactive: true,
     });
 
@@ -69,8 +77,7 @@ describe("maybePromptManageAgentsBootstrap", () => {
   });
 
   it("does not prompt when skill already exists", async () => {
-    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-home-"));
-    tempDirs.push(homeDir);
+    const { homeDir, cwd } = createIsolatedPaths();
     const skillPath = getGlobalManageAgentsSkillPath(homeDir);
     fs.mkdirSync(path.dirname(skillPath), { recursive: true });
     fs.writeFileSync(skillPath, "# existing\n", "utf8");
@@ -80,6 +87,26 @@ describe("maybePromptManageAgentsBootstrap", () => {
       help: false,
       yes: false,
       homeDir,
+      cwd,
+      interactive: true,
+    });
+
+    expect(accepted).toBe(false);
+    expect(promptMocks.confirm).not.toHaveBeenCalled();
+  });
+
+  it("does not prompt when local skill already exists", async () => {
+    const { homeDir, cwd } = createIsolatedPaths();
+    const skillPath = getLocalManageAgentsSkillPath(cwd);
+    fs.mkdirSync(path.dirname(skillPath), { recursive: true });
+    fs.writeFileSync(skillPath, "# existing\n", "utf8");
+
+    const accepted = await maybePromptManageAgentsBootstrap({
+      command: "sync",
+      help: false,
+      yes: false,
+      homeDir,
+      cwd,
       interactive: true,
     });
 
@@ -88,14 +115,14 @@ describe("maybePromptManageAgentsBootstrap", () => {
   });
 
   it("skips prompt in non-interactive mode", async () => {
-    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-home-"));
-    tempDirs.push(homeDir);
+    const { homeDir, cwd } = createIsolatedPaths();
 
     const accepted = await maybePromptManageAgentsBootstrap({
       command: "find",
       help: false,
       yes: false,
       homeDir,
+      cwd,
       interactive: false,
     });
 
@@ -104,14 +131,14 @@ describe("maybePromptManageAgentsBootstrap", () => {
   });
 
   it("skips prompt for help and version commands", async () => {
-    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-home-"));
-    tempDirs.push(homeDir);
+    const { homeDir, cwd } = createIsolatedPaths();
 
     const versionAccepted = await maybePromptManageAgentsBootstrap({
       command: "--version",
       help: false,
       yes: false,
       homeDir,
+      cwd,
       interactive: true,
     });
     const helpAccepted = await maybePromptManageAgentsBootstrap({
@@ -119,6 +146,7 @@ describe("maybePromptManageAgentsBootstrap", () => {
       help: true,
       yes: false,
       homeDir,
+      cwd,
       interactive: true,
     });
 
@@ -128,14 +156,14 @@ describe("maybePromptManageAgentsBootstrap", () => {
   });
 
   it("skips prompt when --yes mode is enabled", async () => {
-    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-home-"));
-    tempDirs.push(homeDir);
+    const { homeDir, cwd } = createIsolatedPaths();
 
     const accepted = await maybePromptManageAgentsBootstrap({
       command: "delete",
       help: false,
       yes: true,
       homeDir,
+      cwd,
       interactive: true,
     });
 
@@ -144,8 +172,7 @@ describe("maybePromptManageAgentsBootstrap", () => {
   });
 
   it("supports env opt-out", async () => {
-    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-home-"));
-    tempDirs.push(homeDir);
+    const { homeDir, cwd } = createIsolatedPaths();
     process.env.AGENTLOOM_DISABLE_MANAGE_AGENTS_PROMPT = "1";
 
     const accepted = await maybePromptManageAgentsBootstrap({
@@ -153,6 +180,7 @@ describe("maybePromptManageAgentsBootstrap", () => {
       help: false,
       yes: false,
       homeDir,
+      cwd,
       interactive: true,
     });
 

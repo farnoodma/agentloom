@@ -7,7 +7,7 @@ import {
   updateLastScopeBestEffort,
 } from "../core/settings.js";
 import { formatSyncSummary, syncFromCanonical } from "../sync/index.js";
-import type { EntityType, ScopePaths } from "../types.js";
+import type { EntityType, Provider, ScopePaths } from "../types.js";
 
 export function isInteractiveSession(): boolean {
   return Boolean(process.stdin.isTTY && process.stdout.isTTY);
@@ -67,6 +67,7 @@ export async function runPostMutationSync(options: {
   argv: ParsedArgs;
   paths: ScopePaths;
   target: EntityType | "all";
+  providers?: Provider[];
 }): Promise<void> {
   markScopeAsUsed(options.paths);
 
@@ -74,7 +75,7 @@ export async function runPostMutationSync(options: {
 
   const summary = await syncFromCanonical({
     paths: options.paths,
-    providers: parseProvidersFlag(options.argv.providers),
+    providers: options.providers ?? parseProvidersFlag(options.argv.providers),
     yes: Boolean(options.argv.yes),
     nonInteractive: getNonInteractiveMode(options.argv),
     dryRun: Boolean(options.argv["dry-run"]),
