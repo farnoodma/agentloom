@@ -27,10 +27,12 @@ import {
   resolveCommandSelections,
 } from "./commands.js";
 import {
-  mapProvidersToSkillsAgents,
+  applySkillProviderSideEffects,
+  copySkillArtifacts,
+  normalizeSkillSelector,
   parseSkillsDir,
   resolveSkillSelections,
-  runSkillsCommand,
+  skillContentMatchesTarget,
   type CanonicalSkill,
 } from "./skills.js";
 import {
@@ -41,6 +43,7 @@ import {
   slugify,
   writeTextAtomic,
 } from "./fs.js";
+import { ALL_PROVIDERS } from "../types.js";
 import { readLockfile, upsertLockEntry, writeLockfile } from "./lockfile.js";
 import { readCanonicalMcp, writeCanonicalMcp } from "./mcp.js";
 import {
@@ -88,7 +91,7 @@ export interface ImportOptions {
   promptForSkills?: boolean;
   skillsProviders?: Provider[];
   resolveSkillsProviders?: () => Promise<Provider[] | undefined>;
-  skillsAgentTargets?: string[];
+  skillRenameMap?: Record<string, string>;
   selectionMode?: SelectionMode;
   commandSelectors?: string[];
   commandRenameMap?: Record<string, string>;
@@ -102,6 +105,7 @@ export interface ImportSummary {
   importedCommands: string[];
   importedMcpServers: string[];
   importedSkills: string[];
+  telemetrySkills?: Array<{ name: string; filePath: string }>;
   resolvedCommit: string;
 }
 
@@ -422,57 +426,79 @@ export async function importSource(
     }
 
     const importedSkills: string[] = [];
-    let skillsAgentTargetsForLock: string[] | undefined;
+    const telemetrySkills: Array<{ name: string; filePath: string }> = [];
+    const importedSkillRenameMap: Record<string, string> = {};
+    let skillsProvidersForLock: Provider[] | undefined;
     if (shouldImportSkills && sourceSkillsDir) {
       if (selectedSkills.length > 0) {
-        const args = ["add", prepared.importRoot, "--yes"];
-
-        if (
-          skillSelectionMode === "custom" ||
-          selectedSkills.length < sourceSkills.length
-        ) {
-          for (const skill of selectedSkills) {
-            args.push("--skill", skill.name);
-          }
-        }
-
-        if (options.paths.scope === "global") {
-          args.push("--global");
-        }
-
-        if (
-          options.skillsAgentTargets &&
-          options.skillsAgentTargets.length > 0
-        ) {
-          for (const target of options.skillsAgentTargets) {
-            args.push("--agent", target);
-          }
-          skillsAgentTargetsForLock = [...new Set(options.skillsAgentTargets)];
-        } else {
-          const resolvedSkillsProviders =
-            options.skillsProviders && options.skillsProviders.length > 0
-              ? options.skillsProviders
-              : await options.resolveSkillsProviders?.();
-
-          if (resolvedSkillsProviders && resolvedSkillsProviders.length > 0) {
-            const mappedTargets = mapProvidersToSkillsAgents(
-              resolvedSkillsProviders,
-            );
-            for (const target of mappedTargets) {
-              args.push("--agent", target);
-            }
-            skillsAgentTargetsForLock = mappedTargets;
-          }
-        }
-
-        runSkillsCommand({
-          args,
-          cwd: options.paths.workspaceRoot,
-          inheritStdio: !options.nonInteractive,
-        });
+        ensureDir(options.paths.skillsDir);
       }
 
-      importedSkills.push(...selectedSourceSkills);
+      for (const [index, sourceSkill] of selectedSkills.entries()) {
+        let targetSkillDirName = slugify(sourceSkill.name) || "skill";
+
+        const mappedTargetSkillDirName = resolveMappedTargetSkillName(
+          sourceSkill.name,
+          options.skillRenameMap,
+        );
+        if (mappedTargetSkillDirName) {
+          targetSkillDirName = mappedTargetSkillDirName;
+        } else if (
+          options.rename &&
+          selectedSkills.length === 1 &&
+          importedAgents.length === 0 &&
+          importedCommands.length === 0 &&
+          importedMcpServers.length === 0
+        ) {
+          targetSkillDirName = slugify(options.rename) || "skill";
+        }
+
+        const resolvedSkillDirName = await resolveSkillConflict({
+          sourceSkill,
+          targetSkillDirName,
+          paths: options.paths,
+          yes: !!options.yes,
+          nonInteractive: !!options.nonInteractive,
+          promptLabel: `${sourceSkill.name} (${index + 1}/${selectedSkills.length})`,
+        });
+
+        if (!resolvedSkillDirName) continue;
+
+        const targetSkillDir = path.join(
+          options.paths.skillsDir,
+          resolvedSkillDirName,
+        );
+        if (!skillContentMatchesTarget(sourceSkill, targetSkillDir)) {
+          fs.rmSync(targetSkillDir, { recursive: true, force: true });
+          copySkillArtifacts(sourceSkill, targetSkillDir);
+        }
+
+        importedSkills.push(resolvedSkillDirName);
+        telemetrySkills.push({
+          name: sourceSkill.name,
+          filePath: relativePosix(prepared.rootPath, sourceSkill.skillPath),
+        });
+        importedSkillRenameMap[sourceSkill.name] = resolvedSkillDirName;
+      }
+
+      if (importedSkills.length > 0) {
+        const resolvedSkillsProviders = normalizeSkillsProviders(
+          options.skillsProviders && options.skillsProviders.length > 0
+            ? options.skillsProviders
+            : await options.resolveSkillsProviders?.(),
+        );
+
+        if (resolvedSkillsProviders && resolvedSkillsProviders.length > 0) {
+          applySkillProviderSideEffects({
+            paths: options.paths,
+            providers: resolvedSkillsProviders,
+            warn(message) {
+              console.warn(`Warning: ${message}`);
+            },
+          });
+          skillsProvidersForLock = resolvedSkillsProviders;
+        }
+      }
     }
 
     const selectedSubsetOfSourceCommands =
@@ -527,7 +553,7 @@ export async function importSource(
           selectedSourceCommands: selectedSourceCommandsForLock,
           selectedSourceMcpServers: selectedSourceMcpServersForLock,
           selectedSourceSkills: selectedSourceSkillsForLock,
-          skillsAgentTargets: skillsAgentTargetsForLock,
+          skillsProviders: skillsProvidersForLock,
         });
     const shouldMergeCommandOnlyEntry =
       isCommandOnlyImport &&
@@ -588,9 +614,12 @@ export async function importSource(
         ? [...selectedSourceSkills]
         : undefined
       : existingEntry?.selectedSourceSkills;
-    const lockSkillsAgentTargets = shouldImportSkills
-      ? (skillsAgentTargetsForLock ?? existingEntry?.skillsAgentTargets)
-      : existingEntry?.skillsAgentTargets;
+    const lockSkillsProviders = shouldImportSkills
+      ? (skillsProvidersForLock ?? existingEntry?.skillsProviders)
+      : existingEntry?.skillsProviders;
+    const lockSkillRenameMap = shouldImportSkills
+      ? normalizeSkillRenameMap(importedSkillRenameMap)
+      : existingEntry?.skillRenameMap;
     let lockCommandRenameMap: Record<string, string> | undefined;
     if (shouldImportCommands) {
       if (shouldMergeCommandOnlyEntry) {
@@ -620,7 +649,8 @@ export async function importSource(
       selectedSourceMcpServers: lockSelectedSourceMcpServers,
       importedSkills: lockImportedSkills,
       selectedSourceSkills: lockSelectedSourceSkills,
-      skillsAgentTargets: lockSkillsAgentTargets,
+      skillsProviders: lockSkillsProviders,
+      skillRenameMap: lockSkillRenameMap,
     });
 
     const contentHash = hashContent(
@@ -633,7 +663,8 @@ export async function importSource(
         selectedSourceMcpServers: lockSelectedSourceMcpServers ?? [],
         skills: lockImportedSkills,
         selectedSourceSkills: lockSelectedSourceSkills ?? [],
-        skillsAgentTargets: lockSkillsAgentTargets ?? [],
+        skillsProviders: lockSkillsProviders ?? [],
+        skillRenameMap: lockSkillRenameMap ?? {},
         trackedEntities: trackedEntities ?? [],
       }),
     );
@@ -654,7 +685,8 @@ export async function importSource(
       selectedSourceMcpServers: lockSelectedSourceMcpServers,
       importedSkills: lockImportedSkills,
       selectedSourceSkills: lockSelectedSourceSkills,
-      skillsAgentTargets: lockSkillsAgentTargets,
+      skillsProviders: lockSkillsProviders,
+      skillRenameMap: lockSkillRenameMap,
       trackedEntities,
       contentHash,
     };
@@ -678,6 +710,7 @@ export async function importSource(
       importedCommands,
       importedMcpServers,
       importedSkills,
+      telemetrySkills: telemetrySkills.length > 0 ? telemetrySkills : undefined,
       resolvedCommit: prepared.resolvedCommit,
     };
   } finally {
@@ -918,7 +951,7 @@ function findMatchingLockEntry(
     | "selectedSourceCommands"
     | "selectedSourceMcpServers"
     | "selectedSourceSkills"
-    | "skillsAgentTargets"
+    | "skillsProviders"
   >,
 ): LockEntry | undefined {
   return entries.find(
@@ -940,13 +973,9 @@ function findMatchingLockEntry(
         key.selectedSourceSkills,
         { wildcardWhenRightIsUndefined: true },
       ) &&
-      sameStringSelectionForMatch(
-        entry.skillsAgentTargets,
-        key.skillsAgentTargets,
-        {
-          wildcardWhenRightIsUndefined: true,
-        },
-      ),
+      sameStringSelectionForMatch(entry.skillsProviders, key.skillsProviders, {
+        wildcardWhenRightIsUndefined: true,
+      }),
   );
 }
 
@@ -1034,7 +1063,8 @@ function computeTrackedEntitiesForLock(options: {
   selectedSourceMcpServers?: string[];
   importedSkills: string[];
   selectedSourceSkills?: string[];
-  skillsAgentTargets?: string[];
+  skillsProviders?: Provider[];
+  skillRenameMap?: Record<string, string>;
 }): EntityType[] | undefined {
   const tracked: EntityType[] = [];
 
@@ -1063,7 +1093,8 @@ function computeTrackedEntitiesForLock(options: {
   if (
     options.importedSkills.length > 0 ||
     (options.selectedSourceSkills?.length ?? 0) > 0 ||
-    (options.skillsAgentTargets?.length ?? 0) > 0
+    (options.skillsProviders?.length ?? 0) > 0 ||
+    Object.keys(options.skillRenameMap ?? {}).length > 0
   ) {
     tracked.push("skill");
   }
@@ -1121,6 +1152,146 @@ function resolveMappedTargetFileName(
   }
 
   return undefined;
+}
+
+function normalizeSkillRenameMap(
+  renameMap: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  if (!renameMap) return undefined;
+
+  const normalizedEntries = Object.entries(renameMap)
+    .map(([sourceSelector, importedName]) => {
+      const normalizedSourceSelector = normalizeSkillSelector(sourceSelector);
+      const normalizedImportedName = slugify(
+        path.basename(importedName.trim()),
+      );
+      if (!normalizedSourceSelector || !normalizedImportedName) {
+        return null;
+      }
+      return [normalizedSourceSelector, normalizedImportedName] as const;
+    })
+    .filter(
+      (
+        entry,
+      ): entry is readonly [
+        normalizedSourceSelector: string,
+        importedName: string,
+      ] => entry !== null,
+    );
+
+  if (normalizedEntries.length === 0) return undefined;
+  return Object.fromEntries(normalizedEntries);
+}
+
+function resolveMappedTargetSkillName(
+  sourceSkillName: string,
+  renameMap: Record<string, string> | undefined,
+): string | undefined {
+  if (!renameMap) return undefined;
+
+  const normalizedSourceName = normalizeSkillSelector(sourceSkillName);
+  if (!normalizedSourceName) return undefined;
+
+  for (const [sourceSelector, importedName] of Object.entries(renameMap)) {
+    if (normalizeSkillSelector(sourceSelector) !== normalizedSourceName) {
+      continue;
+    }
+    return slugify(path.basename(importedName.trim())) || "skill";
+  }
+
+  return undefined;
+}
+
+function normalizeSkillsProviders(
+  providers: Provider[] | undefined,
+): Provider[] | undefined {
+  if (!providers || providers.length === 0) return undefined;
+
+  const selected = new Set<Provider>();
+  for (const provider of providers) {
+    const normalized = provider.trim().toLowerCase() as Provider;
+    if (ALL_PROVIDERS.includes(normalized)) {
+      selected.add(normalized);
+    }
+  }
+
+  return selected.size > 0 ? [...selected] : undefined;
+}
+
+async function resolveSkillConflict(options: {
+  sourceSkill: CanonicalSkill;
+  targetSkillDirName: string;
+  paths: ScopePaths;
+  yes: boolean;
+  nonInteractive: boolean;
+  promptLabel: string;
+}): Promise<string | null> {
+  const targetPath = path.join(
+    options.paths.skillsDir,
+    options.targetSkillDirName,
+  );
+  if (!fs.existsSync(targetPath)) return options.targetSkillDirName;
+
+  if (!fs.statSync(targetPath).isDirectory()) {
+    throw new Error(
+      `Cannot import skill ${options.promptLabel}: ${targetPath} exists and is not a directory.`,
+    );
+  }
+
+  if (skillContentMatchesTarget(options.sourceSkill, targetPath)) {
+    return options.targetSkillDirName;
+  }
+
+  if (options.yes) {
+    return options.targetSkillDirName;
+  }
+
+  if (options.nonInteractive) {
+    throw new NonInteractiveConflictError(
+      `Conflict for skill "${options.targetSkillDirName}". Use --yes or run interactively.`,
+    );
+  }
+
+  const choice = await select({
+    message: `Skill conflict for ${options.promptLabel}`,
+    options: [
+      { value: "overwrite", label: `Overwrite ${options.targetSkillDirName}` },
+      { value: "skip", label: "Skip this skill" },
+      { value: "rename", label: "Rename imported skill" },
+    ],
+  });
+
+  if (isCancel(choice)) {
+    cancel("Operation cancelled.");
+    process.exit(1);
+  }
+
+  if (choice === "skip") return null;
+
+  if (choice === "rename") {
+    const entered = await promptText({
+      message: `New directory name for ${options.promptLabel}`,
+      placeholder: options.targetSkillDirName,
+      validate(value) {
+        if (!value.trim()) return "Name is required.";
+        if (/[\\/]/.test(value)) return "Use a simple directory name.";
+        return undefined;
+      },
+    });
+
+    if (isCancel(entered)) {
+      cancel("Operation cancelled.");
+      process.exit(1);
+    }
+
+    const renamed = slugify(String(entered)) || "skill";
+    return resolveSkillConflict({
+      ...options,
+      targetSkillDirName: renamed,
+    });
+  }
+
+  return options.targetSkillDirName;
 }
 
 async function resolveAgentConflict(options: {

@@ -1,9 +1,13 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ensureDir, writeTextAtomic } from "../../src/core/fs.js";
-import { parseSkillsDir } from "../../src/core/skills.js";
+import { buildScopePaths } from "../../src/core/scope.js";
+import {
+  applySkillProviderSideEffects,
+  parseSkillsDir,
+} from "../../src/core/skills.js";
 
 const tempDirs: string[] = [];
 
@@ -34,6 +38,7 @@ Root skill body.
         name: "visual-explainer",
         sourcePath: root,
         skillPath: path.join(root, "SKILL.md"),
+        layout: "root",
       },
     ]);
   });
@@ -57,6 +62,7 @@ Root skill body.
         name: path.basename(root),
         sourcePath: root,
         skillPath: path.join(root, "SKILL.md"),
+        layout: "root",
       },
     ]);
   });
@@ -73,6 +79,7 @@ Root skill body.
         name: "reviewing",
         sourcePath: path.join(root, "reviewing"),
         skillPath: path.join(root, "reviewing", "SKILL.md"),
+        layout: "nested",
       },
     ]);
   });
@@ -90,7 +97,97 @@ Root skill body.
         name: "reviewing",
         sourcePath: path.join(root, "reviewing"),
         skillPath: path.join(root, "reviewing", "SKILL.md"),
+        layout: "nested",
       },
     ]);
+  });
+});
+
+describe("applySkillProviderSideEffects", () => {
+  it("creates .claude/skills symlink for claude providers", () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-skills-sideeffects-"),
+    );
+    tempDirs.push(workspaceRoot);
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    ensureDir(paths.skillsDir);
+
+    applySkillProviderSideEffects({
+      paths,
+      providers: ["claude"],
+    });
+
+    const claudeSkillsDir = path.join(workspaceRoot, ".claude", "skills");
+    expect(fs.lstatSync(claudeSkillsDir).isSymbolicLink()).toBe(true);
+    expect(fs.realpathSync(claudeSkillsDir)).toBe(
+      fs.realpathSync(paths.skillsDir),
+    );
+  });
+
+  it("migrates provider skills into canonical path before replacing with symlink", () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-skills-sideeffects-"),
+    );
+    tempDirs.push(workspaceRoot);
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    ensureDir(paths.skillsDir);
+
+    const cursorSkillsDir = path.join(workspaceRoot, ".cursor", "skills");
+    ensureDir(path.join(cursorSkillsDir, "release-check"));
+    writeTextAtomic(
+      path.join(cursorSkillsDir, "release-check", "SKILL.md"),
+      "# release-check\n",
+    );
+
+    applySkillProviderSideEffects({
+      paths,
+      providers: ["cursor"],
+    });
+
+    expect(
+      fs.existsSync(path.join(paths.skillsDir, "release-check", "SKILL.md")),
+    ).toBe(true);
+    expect(fs.lstatSync(cursorSkillsDir).isSymbolicLink()).toBe(true);
+    expect(fs.realpathSync(cursorSkillsDir)).toBe(
+      fs.realpathSync(paths.skillsDir),
+    );
+  });
+
+  it("warns and keeps canonical skill when provider migration conflicts", () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-skills-sideeffects-"),
+    );
+    tempDirs.push(workspaceRoot);
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    ensureDir(path.join(paths.skillsDir, "release-check"));
+    writeTextAtomic(
+      path.join(paths.skillsDir, "release-check", "SKILL.md"),
+      "# canonical\n",
+    );
+
+    const cursorSkillsDir = path.join(workspaceRoot, ".cursor", "skills");
+    ensureDir(path.join(cursorSkillsDir, "release-check"));
+    writeTextAtomic(
+      path.join(cursorSkillsDir, "release-check", "SKILL.md"),
+      "# provider\n",
+    );
+
+    const warn = vi.fn();
+    applySkillProviderSideEffects({
+      paths,
+      providers: ["cursor"],
+      warn,
+    });
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(
+      fs.readFileSync(
+        path.join(paths.skillsDir, "release-check", "SKILL.md"),
+        "utf8",
+      ),
+    ).toContain("canonical");
   });
 });
