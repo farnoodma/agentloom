@@ -18,10 +18,6 @@ const promptMocks = vi.hoisted(() => ({
   text: vi.fn(),
 }));
 
-const skillMocks = vi.hoisted(() => ({
-  runSkillsCommand: vi.fn(() => ({ status: 0 })),
-}));
-
 vi.mock("@clack/prompts", () => ({
   cancel: promptMocks.cancel,
   isCancel: promptMocks.isCancel,
@@ -29,17 +25,6 @@ vi.mock("@clack/prompts", () => ({
   select: promptMocks.select,
   text: promptMocks.text,
 }));
-
-vi.mock("../../src/core/skills.js", async () => {
-  const actual = await vi.importActual<
-    typeof import("../../src/core/skills.js")
-  >("../../src/core/skills.js");
-
-  return {
-    ...actual,
-    runSkillsCommand: skillMocks.runSkillsCommand,
-  };
-});
 
 import { importSource } from "../../src/core/importer.js";
 
@@ -75,8 +60,6 @@ beforeEach(() => {
   promptMocks.multiselect.mockReset();
   promptMocks.select.mockReset();
   promptMocks.text.mockReset();
-  skillMocks.runSkillsCommand.mockReset();
-  skillMocks.runSkillsCommand.mockReturnValue({ status: 0 });
 });
 
 afterEach(() => {
@@ -309,7 +292,9 @@ Skill body.
 
     expect(summary.importedCommands).toEqual(["commands/review.md"]);
     expect(summary.importedSkills).toEqual(["release-check"]);
-    expect(skillMocks.runSkillsCommand).toHaveBeenCalledTimes(1);
+    expect(
+      fs.existsSync(path.join(paths.skillsDir, "release-check", "SKILL.md")),
+    ).toBe(true);
   });
 
   it("allows skipping skills during interactive import while importing other entities", async () => {
@@ -371,7 +356,6 @@ Skill body.
     );
     expect(summary.importedCommands).toEqual(["commands/review.md"]);
     expect(summary.importedSkills).toEqual([]);
-    expect(skillMocks.runSkillsCommand).not.toHaveBeenCalled();
 
     const lock = readJsonIfExists<AgentsLockFile>(
       path.join(workspaceRoot, ".agents", "agents.lock.json"),
@@ -472,7 +456,7 @@ Skill body.
     ).rejects.toThrow(`source "${sourceRoot} (subdir: ${subdir})"`);
   });
 
-  it("recognizes root SKILL.md sources and forwards selected skills to the skills command", async () => {
+  it("recognizes root SKILL.md sources and imports selected skills natively", async () => {
     const sourceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "agentloom-source-"),
     );
@@ -507,15 +491,93 @@ Skill body.
     });
 
     expect(summary.importedSkills).toEqual(["visual-explainer"]);
-    expect(skillMocks.runSkillsCommand).toHaveBeenCalledWith(
-      expect.objectContaining({
-        args: ["add", sourceRoot, "--yes", "--skill", "visual-explainer"],
-        cwd: workspaceRoot,
-      }),
-    );
+    expect(
+      fs.existsSync(path.join(paths.skillsDir, "visual-explainer", "SKILL.md")),
+    ).toBe(true);
   });
 
-  it("resolves skills providers before installation and forwards mapped agents", async () => {
+  it("supports single-skill --rename and replays the persisted rename map", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "skills", "release-check"));
+    writeTextAtomic(
+      path.join(sourceRoot, "skills", "release-check", "SKILL.md"),
+      "# release-check v1\n",
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    const summary = await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: false,
+      importCommands: false,
+      importMcp: false,
+      importSkills: true,
+      requireSkills: true,
+      rename: "release-gate",
+    });
+
+    expect(summary.importedSkills).toEqual(["release-gate"]);
+    expect(summary.telemetrySkills).toEqual([
+      {
+        name: "release-check",
+        filePath: "skills/release-check/SKILL.md",
+      },
+    ]);
+    expect(
+      fs.existsSync(path.join(paths.skillsDir, "release-gate", "SKILL.md")),
+    ).toBe(true);
+
+    const lockAfterFirstImport = readJsonIfExists<AgentsLockFile>(
+      path.join(workspaceRoot, ".agents", "agents.lock.json"),
+    );
+    expect(lockAfterFirstImport?.entries[0]?.skillRenameMap).toEqual({
+      "release-check": "release-gate",
+    });
+
+    writeTextAtomic(
+      path.join(sourceRoot, "skills", "release-check", "SKILL.md"),
+      "# release-check v2\n",
+    );
+
+    const replaySummary = await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: false,
+      importCommands: false,
+      importMcp: false,
+      importSkills: true,
+      requireSkills: true,
+      skillSelectors: ["release-check"],
+      skillRenameMap: lockAfterFirstImport?.entries[0]?.skillRenameMap,
+    });
+
+    expect(replaySummary.importedSkills).toEqual(["release-gate"]);
+    expect(replaySummary.telemetrySkills).toEqual([
+      {
+        name: "release-check",
+        filePath: "skills/release-check/SKILL.md",
+      },
+    ]);
+    expect(
+      fs.readFileSync(
+        path.join(paths.skillsDir, "release-gate", "SKILL.md"),
+        "utf8",
+      ),
+    ).toContain("v2");
+  });
+
+  it("resolves skills providers and stores provider side-effect metadata", async () => {
     const sourceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "agentloom-source-"),
     );
@@ -553,27 +615,18 @@ Skill body.
 
     expect(summary.importedSkills).toEqual(["release-check"]);
     expect(resolveSkillsProviders).toHaveBeenCalledTimes(1);
-    expect(skillMocks.runSkillsCommand).toHaveBeenCalledWith(
-      expect.objectContaining({
-        args: [
-          "add",
-          sourceRoot,
-          "--yes",
-          "--agent",
-          "codex",
-          "--agent",
-          "claude-code",
-        ],
-        cwd: workspaceRoot,
-      }),
-    );
+    expect(
+      fs
+        .lstatSync(path.join(workspaceRoot, ".claude", "skills"))
+        .isSymbolicLink(),
+    ).toBe(true);
 
     const lock = readJsonIfExists<AgentsLockFile>(
       path.join(workspaceRoot, ".agents", "agents.lock.json"),
     );
-    expect(lock?.entries[0]?.skillsAgentTargets).toEqual([
-      "codex",
-      "claude-code",
-    ]);
+    expect(lock?.entries[0]?.skillsProviders).toEqual(["codex", "claude"]);
+    expect(lock?.entries[0]?.skillRenameMap).toEqual({
+      "release-check": "release-check",
+    });
   });
 });
