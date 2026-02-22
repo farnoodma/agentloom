@@ -24,3 +24,4 @@ apps/web/.vercel/
 
 # Local/private operator notes
 .private/
+.tmp-home/
