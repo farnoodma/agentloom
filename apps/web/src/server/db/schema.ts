@@ -42,11 +42,13 @@ export const catalogItems = pgTable(
     leaderboardRank: index("catalog_items_leaderboard_rank").on(
       table.totalInstalls,
       table.firstSeenAt,
+      table.id,
     ),
     entityLeaderboardRank: index("catalog_items_entity_leaderboard_rank").on(
       table.entityType,
       table.totalInstalls,
       table.firstSeenAt,
+      table.id,
     ),
     displayNameSearch: index("catalog_items_display_name_trgm").using(
       "gin",
