@@ -1,5 +1,6 @@
 import path from "node:path";
 import type { ParsedArgs } from "minimist";
+import { parseProvidersFlag } from "../core/argv.js";
 import { importSource, NonInteractiveConflictError } from "../core/importer.js";
 import {
   normalizeCommandSelector,
@@ -8,7 +9,8 @@ import {
 import { readLockfile } from "../core/lockfile.js";
 import { prepareSource, parseSourceSpec } from "../core/sources.js";
 import { getUpdateHelpText } from "../core/copy.js";
-import type { EntityType, LockEntry } from "../types.js";
+import { resolveProvidersForSync } from "../sync/index.js";
+import type { EntityType, LockEntry, Provider } from "../types.js";
 import {
   getNonInteractiveMode,
   resolvePathsForCommand,
@@ -54,6 +56,25 @@ async function runEntityAwareUpdate(options: {
 }): Promise<void> {
   const nonInteractive = getNonInteractiveMode(options.argv);
   const paths = await resolvePathsForCommand(options.argv, options.cwd);
+  const explicitProviders = parseProvidersFlag(options.argv.providers);
+  let resolvedSkillProviders: Provider[] | undefined;
+
+  const resolveProvidersForSkills = async (): Promise<
+    Provider[] | undefined
+  > => {
+    if (explicitProviders && explicitProviders.length > 0) {
+      return explicitProviders;
+    }
+    if (resolvedSkillProviders && resolvedSkillProviders.length > 0) {
+      return resolvedSkillProviders;
+    }
+    resolvedSkillProviders = await resolveProvidersForSync({
+      paths,
+      explicitProviders,
+      nonInteractive,
+    });
+    return resolvedSkillProviders;
+  };
 
   const lockfile = readLockfile(paths);
   if (lockfile.entries.length === 0) {
@@ -126,6 +147,13 @@ async function runEntityAwareUpdate(options: {
 
       if (updatePlan.importSkills) {
         importOptions.importSkills = true;
+        if (explicitProviders && explicitProviders.length > 0) {
+          importOptions.skillsProviders = explicitProviders;
+        } else if (updatePlan.skillsAgentTargets) {
+          importOptions.skillsAgentTargets = updatePlan.skillsAgentTargets;
+        } else {
+          importOptions.resolveSkillsProviders = resolveProvidersForSkills;
+        }
       }
 
       if (updatePlan.commandSelectors) {
@@ -139,10 +167,6 @@ async function runEntityAwareUpdate(options: {
 
       if (updatePlan.skillSelectors) {
         importOptions.skillSelectors = updatePlan.skillSelectors;
-      }
-
-      if (updatePlan.skillsAgentTargets) {
-        importOptions.skillsAgentTargets = updatePlan.skillsAgentTargets;
       }
 
       await importSource(importOptions);
@@ -164,6 +188,7 @@ async function runEntityAwareUpdate(options: {
       argv: options.argv,
       paths,
       target: options.target,
+      providers: explicitProviders ?? resolvedSkillProviders,
     });
   }
 }
@@ -191,18 +216,20 @@ function buildEntryUpdatePlan(
   const includeSkills = shouldUpdateEntity(entry, "skill", target);
 
   const commandOptions = getUpdateCommandOptions(entry, includeCommands);
+  const mcpOptions = getUpdateMcpOptions(entry, includeMcp);
+  const skillOptions = getUpdateSkillOptions(entry, includeSkills);
 
   return {
     importAgents: includeAgents,
     importCommands: commandOptions.importCommands,
-    importMcp: includeMcp,
-    importSkills: includeSkills,
+    importMcp: mcpOptions.importMcp,
+    importSkills: skillOptions.importSkills,
     requestedAgents: includeAgents ? entry.requestedAgents : undefined,
     commandSelectors: commandOptions.commandSelectors,
     commandRenameMap: commandOptions.commandRenameMap,
-    mcpSelectors: includeMcp ? entry.selectedSourceMcpServers : undefined,
-    skillSelectors: includeSkills ? entry.selectedSourceSkills : undefined,
-    skillsAgentTargets: includeSkills ? entry.skillsAgentTargets : undefined,
+    mcpSelectors: mcpOptions.mcpSelectors,
+    skillSelectors: skillOptions.skillSelectors,
+    skillsAgentTargets: skillOptions.skillsAgentTargets,
   };
 }
 
@@ -327,6 +354,60 @@ function getUpdateCommandOptions(
     importCommands: true,
     commandSelectors,
     commandRenameMap: getUpdateCommandRenameMap(entry, commandSelectors),
+  };
+}
+
+interface UpdateMcpOptions {
+  importMcp: boolean;
+  mcpSelectors?: string[];
+}
+
+function getUpdateMcpOptions(
+  entry: LockEntry,
+  includeMcp: boolean,
+): UpdateMcpOptions {
+  if (!includeMcp) {
+    return { importMcp: false };
+  }
+
+  if (
+    Array.isArray(entry.selectedSourceMcpServers) &&
+    entry.selectedSourceMcpServers.length === 0
+  ) {
+    return { importMcp: false };
+  }
+
+  return {
+    importMcp: true,
+    mcpSelectors: entry.selectedSourceMcpServers,
+  };
+}
+
+interface UpdateSkillOptions {
+  importSkills: boolean;
+  skillSelectors?: string[];
+  skillsAgentTargets?: string[];
+}
+
+function getUpdateSkillOptions(
+  entry: LockEntry,
+  includeSkills: boolean,
+): UpdateSkillOptions {
+  if (!includeSkills) {
+    return { importSkills: false };
+  }
+
+  if (
+    Array.isArray(entry.selectedSourceSkills) &&
+    entry.selectedSourceSkills.length === 0
+  ) {
+    return { importSkills: false };
+  }
+
+  return {
+    importSkills: true,
+    skillSelectors: entry.selectedSourceSkills,
+    skillsAgentTargets: entry.skillsAgentTargets,
   };
 }
 

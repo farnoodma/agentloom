@@ -45,6 +45,29 @@ import { importSource } from "../../src/core/importer.js";
 
 const tempDirs: string[] = [];
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+async function waitForCondition(
+  predicate: () => boolean,
+  timeoutMs = 1000,
+): Promise<void> {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start >= timeoutMs) {
+      throw new Error("Timed out waiting for condition.");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+}
+
 beforeEach(() => {
   promptMocks.cancel.mockReset();
   promptMocks.isCancel.mockReset();
@@ -225,6 +248,138 @@ describe("import source conflict handling", () => {
     ).toContain("Keep this content.");
   });
 
+  it("resolves all interactive selections before writing imported commands", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "commands"));
+    ensureDir(path.join(sourceRoot, "skills", "release-check"));
+    writeTextAtomic(
+      path.join(sourceRoot, "commands", "review.md"),
+      "# /review\n\nReview changes.\n",
+    );
+    writeTextAtomic(
+      path.join(sourceRoot, "skills", "release-check", "SKILL.md"),
+      `---
+name: release-check
+description: Validate release readiness
+---
+
+Skill body.
+`,
+    );
+
+    const skillsSelection = deferred<string[]>();
+    let skillsPromptOpened = false;
+    promptMocks.multiselect
+      .mockResolvedValueOnce(["review.md"])
+      .mockImplementationOnce(async () => {
+        skillsPromptOpened = true;
+        return skillsSelection.promise;
+      });
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    const importPromise = importSource({
+      source: sourceRoot,
+      paths,
+      yes: false,
+      nonInteractive: false,
+      selectionMode: "custom",
+      importAgents: false,
+      importCommands: true,
+      importMcp: false,
+      importSkills: true,
+      requireSkills: true,
+      promptForCommands: true,
+      promptForSkills: true,
+    });
+
+    await waitForCondition(() => skillsPromptOpened);
+    expect(fs.existsSync(path.join(paths.commandsDir, "review.md"))).toBe(
+      false,
+    );
+
+    skillsSelection.resolve(["release-check"]);
+    const summary = await importPromise;
+
+    expect(summary.importedCommands).toEqual(["commands/review.md"]);
+    expect(summary.importedSkills).toEqual(["release-check"]);
+    expect(skillMocks.runSkillsCommand).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows skipping skills during interactive import while importing other entities", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "commands"));
+    ensureDir(path.join(sourceRoot, "skills", "release-check"));
+    writeTextAtomic(
+      path.join(sourceRoot, "commands", "review.md"),
+      "# /review\n\nReview changes.\n",
+    );
+    writeTextAtomic(
+      path.join(sourceRoot, "skills", "release-check", "SKILL.md"),
+      `---
+name: release-check
+description: Validate release readiness
+---
+
+Skill body.
+`,
+    );
+
+    promptMocks.select
+      .mockResolvedValueOnce("custom")
+      .mockResolvedValueOnce("skip");
+    promptMocks.multiselect.mockResolvedValueOnce(["review.md"]);
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    const summary = await importSource({
+      source: sourceRoot,
+      paths,
+      yes: false,
+      nonInteractive: false,
+      importAgents: false,
+      importCommands: true,
+      importMcp: false,
+      importSkills: true,
+      requireSkills: true,
+      promptForCommands: true,
+      promptForSkills: true,
+    });
+
+    expect(promptMocks.select).toHaveBeenCalledTimes(2);
+    expect(promptMocks.select).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.arrayContaining([
+          expect.objectContaining({
+            value: "skip",
+            label: expect.stringContaining("Skip importing"),
+          }),
+        ]),
+      }),
+    );
+    expect(summary.importedCommands).toEqual(["commands/review.md"]);
+    expect(summary.importedSkills).toEqual([]);
+    expect(skillMocks.runSkillsCommand).not.toHaveBeenCalled();
+
+    const lock = readJsonIfExists<AgentsLockFile>(
+      path.join(workspaceRoot, ".agents", "agents.lock.json"),
+    );
+    expect(lock?.entries[0]?.selectedSourceCommands).toEqual(["review.md"]);
+    expect(lock?.entries[0]?.selectedSourceSkills).toEqual([]);
+  });
+
   it("imports prompts without requiring agents for aggregate-compatible imports", async () => {
     const sourceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "agentloom-source-"),
@@ -288,6 +443,35 @@ describe("import source conflict handling", () => {
     ).rejects.toThrow("No importable entities found");
   });
 
+  it("includes the original source input in aggregate no-entities errors", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    const subdir = "empty-subdir";
+    ensureDir(path.join(sourceRoot, subdir));
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    await expect(
+      importSource({
+        source: sourceRoot,
+        subdir,
+        paths,
+        yes: true,
+        nonInteractive: true,
+        importAgents: true,
+        requireAgents: false,
+        importCommands: true,
+        importMcp: true,
+        importSkills: true,
+      }),
+    ).rejects.toThrow(`source "${sourceRoot} (subdir: ${subdir})"`);
+  });
+
   it("recognizes root SKILL.md sources and forwards selected skills to the skills command", async () => {
     const sourceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "agentloom-source-"),
@@ -329,5 +513,67 @@ Skill body.
         cwd: workspaceRoot,
       }),
     );
+  });
+
+  it("resolves skills providers before installation and forwards mapped agents", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "skills", "release-check"));
+    writeTextAtomic(
+      path.join(sourceRoot, "skills", "release-check", "SKILL.md"),
+      `---
+name: release-check
+description: Validate release readiness
+---
+
+Skill body.
+`,
+    );
+
+    const resolveSkillsProviders = vi.fn(async () => ["codex", "claude"]);
+    const paths = buildScopePaths(workspaceRoot, "local");
+    const summary = await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: false,
+      importCommands: false,
+      importMcp: false,
+      importSkills: true,
+      requireSkills: true,
+      resolveSkillsProviders,
+    });
+
+    expect(summary.importedSkills).toEqual(["release-check"]);
+    expect(resolveSkillsProviders).toHaveBeenCalledTimes(1);
+    expect(skillMocks.runSkillsCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        args: [
+          "add",
+          sourceRoot,
+          "--yes",
+          "--agent",
+          "codex",
+          "--agent",
+          "claude-code",
+        ],
+        cwd: workspaceRoot,
+      }),
+    );
+
+    const lock = readJsonIfExists<AgentsLockFile>(
+      path.join(workspaceRoot, ".agents", "agents.lock.json"),
+    );
+    expect(lock?.entries[0]?.skillsAgentTargets).toEqual([
+      "codex",
+      "claude-code",
+    ]);
   });
 });
