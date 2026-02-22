@@ -149,8 +149,8 @@ async function runEntityAwareUpdate(options: {
         importOptions.importSkills = true;
         if (explicitProviders && explicitProviders.length > 0) {
           importOptions.skillsProviders = explicitProviders;
-        } else if (updatePlan.skillsAgentTargets) {
-          importOptions.skillsAgentTargets = updatePlan.skillsAgentTargets;
+        } else if (updatePlan.skillsProviders) {
+          importOptions.skillsProviders = updatePlan.skillsProviders;
         } else {
           importOptions.resolveSkillsProviders = resolveProvidersForSkills;
         }
@@ -167,6 +167,10 @@ async function runEntityAwareUpdate(options: {
 
       if (updatePlan.skillSelectors) {
         importOptions.skillSelectors = updatePlan.skillSelectors;
+      }
+
+      if (updatePlan.skillRenameMap) {
+        importOptions.skillRenameMap = updatePlan.skillRenameMap;
       }
 
       await importSource(importOptions);
@@ -203,7 +207,8 @@ interface EntryUpdatePlan {
   commandRenameMap?: Record<string, string>;
   mcpSelectors?: string[];
   skillSelectors?: string[];
-  skillsAgentTargets?: string[];
+  skillsProviders?: Provider[];
+  skillRenameMap?: Record<string, string>;
 }
 
 function buildEntryUpdatePlan(
@@ -229,7 +234,8 @@ function buildEntryUpdatePlan(
     commandRenameMap: commandOptions.commandRenameMap,
     mcpSelectors: mcpOptions.mcpSelectors,
     skillSelectors: skillOptions.skillSelectors,
-    skillsAgentTargets: skillOptions.skillsAgentTargets,
+    skillsProviders: skillOptions.skillsProviders,
+    skillRenameMap: skillOptions.skillRenameMap,
   };
 }
 
@@ -323,7 +329,8 @@ function tracksEntity(entry: LockEntry, entity: EntityType): boolean {
   return (
     importedSkills.length > 0 ||
     Boolean(entry.selectedSourceSkills) ||
-    Boolean(entry.skillsAgentTargets)
+    Boolean(entry.skillsProviders) ||
+    Boolean(entry.skillRenameMap)
   );
 }
 
@@ -386,7 +393,8 @@ function getUpdateMcpOptions(
 interface UpdateSkillOptions {
   importSkills: boolean;
   skillSelectors?: string[];
-  skillsAgentTargets?: string[];
+  skillsProviders?: Provider[];
+  skillRenameMap?: Record<string, string>;
 }
 
 function getUpdateSkillOptions(
@@ -407,7 +415,8 @@ function getUpdateSkillOptions(
   return {
     importSkills: true,
     skillSelectors: entry.selectedSourceSkills,
-    skillsAgentTargets: entry.skillsAgentTargets,
+    skillsProviders: entry.skillsProviders,
+    skillRenameMap: entry.skillRenameMap,
   };
 }
 
