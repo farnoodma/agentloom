@@ -50,7 +50,8 @@ export interface LockEntry {
   selectedSourceMcpServers?: string[];
   importedSkills: string[];
   selectedSourceSkills?: string[];
-  skillsAgentTargets?: string[];
+  skillsProviders?: Provider[];
+  skillRenameMap?: Record<string, string>;
   trackedEntities?: EntityType[];
   contentHash: string;
 }
