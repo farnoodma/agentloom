@@ -32,6 +32,7 @@ export interface ItemDetail extends LeaderboardRow {
 }
 
 export interface LeaderboardCursor {
+  entitySort: number;
   installs: number;
   totalInstalls: number;
   firstSeenAt: string;
@@ -44,11 +45,20 @@ export interface LeaderboardPage {
 }
 
 interface CursorPayload {
+  e?: number;
   i: number;
   t: number;
   f: string;
   id: string;
 }
+
+const ENTITY_SORT_ORDER = sql<number>`CASE
+  WHEN ${catalogItems.entityType} = 'agent' THEN 4
+  WHEN ${catalogItems.entityType} = 'skill' THEN 3
+  WHEN ${catalogItems.entityType} = 'command' THEN 2
+  WHEN ${catalogItems.entityType} = 'mcp' THEN 1
+  ELSE 0
+END`;
 
 function buildFilter(entity: CatalogEntityType | "all", q?: string): SQL<unknown> | undefined {
   const filters: SQL<unknown>[] = [];
@@ -99,6 +109,7 @@ function isValidCursorPayload(value: unknown): value is CursorPayload {
   const payload = value as Partial<CursorPayload>;
 
   return (
+    (payload.e === undefined || Number.isInteger(payload.e)) &&
     Number.isInteger(payload.i) &&
     Number.isInteger(payload.t) &&
     typeof payload.f === "string" &&
@@ -118,6 +129,7 @@ function normalizeCursorDate(value: string): string | null {
 
 function toCursor(row: LeaderboardRow): LeaderboardCursor {
   return {
+    entitySort: getEntitySortValue(row.entityType),
     installs: row.installs,
     totalInstalls: row.totalInstalls,
     firstSeenAt: row.firstSeenAt.toISOString(),
@@ -127,6 +139,7 @@ function toCursor(row: LeaderboardRow): LeaderboardCursor {
 
 export function encodeLeaderboardCursor(cursor: LeaderboardCursor): string {
   const payload: CursorPayload = {
+    e: cursor.entitySort,
     i: cursor.installs,
     t: cursor.totalInstalls,
     f: cursor.firstSeenAt,
@@ -151,6 +164,10 @@ export function decodeLeaderboardCursor(encoded: string): LeaderboardCursor | nu
     }
 
     return {
+      entitySort:
+        typeof payload.e === "number" && Number.isInteger(payload.e)
+          ? payload.e
+          : getEntitySortValue("agent"),
       installs: payload.i,
       totalInstalls: payload.t,
       firstSeenAt,
@@ -176,10 +193,13 @@ export async function getLeaderboardPage(input: {
   const limit = clampLeaderboardPageSize(input.limit);
   const rowLimit = limit + 1;
   const baseWhere = buildFilter(input.entity, input.q);
+  const useEntityGrouping = input.entity === "all";
 
   if (input.period === "all") {
     const cursorFilter = input.cursor
-      ? sql`(${catalogItems.totalInstalls}, ${catalogItems.firstSeenAt}, ${catalogItems.id}) < (${input.cursor.totalInstalls}, ${input.cursor.firstSeenAt}, ${input.cursor.id}::uuid)`
+      ? useEntityGrouping
+        ? sql`(${ENTITY_SORT_ORDER}, ${catalogItems.totalInstalls}, ${catalogItems.firstSeenAt}, ${catalogItems.id}) < (${input.cursor.entitySort}, ${input.cursor.totalInstalls}, ${input.cursor.firstSeenAt}, ${input.cursor.id}::uuid)`
+        : sql`(${catalogItems.totalInstalls}, ${catalogItems.firstSeenAt}, ${catalogItems.id}) < (${input.cursor.totalInstalls}, ${input.cursor.firstSeenAt}, ${input.cursor.id}::uuid)`
       : undefined;
 
     const rows = await db
@@ -199,7 +219,9 @@ export async function getLeaderboardPage(input: {
       .from(catalogItems)
       .where(combineFilters([baseWhere, cursorFilter]))
       .orderBy(
-        desc(catalogItems.totalInstalls),
+        ...(useEntityGrouping
+          ? [desc(ENTITY_SORT_ORDER), desc(catalogItems.totalInstalls)]
+          : [desc(catalogItems.totalInstalls)]),
         desc(catalogItems.firstSeenAt),
         desc(catalogItems.id),
       )
@@ -237,7 +259,9 @@ export async function getLeaderboardPage(input: {
       : installCountsWeekly.weekStart;
   const periodInstalls = sql<number>`COALESCE(${periodTable.installs}, 0)`;
   const cursorFilter = input.cursor
-    ? sql`(${periodInstalls}, ${catalogItems.totalInstalls}, ${catalogItems.firstSeenAt}, ${catalogItems.id}) < (${input.cursor.installs}, ${input.cursor.totalInstalls}, ${input.cursor.firstSeenAt}, ${input.cursor.id}::uuid)`
+    ? useEntityGrouping
+      ? sql`(${ENTITY_SORT_ORDER}, ${periodInstalls}, ${catalogItems.totalInstalls}, ${catalogItems.firstSeenAt}, ${catalogItems.id}) < (${input.cursor.entitySort}, ${input.cursor.installs}, ${input.cursor.totalInstalls}, ${input.cursor.firstSeenAt}, ${input.cursor.id}::uuid)`
+      : sql`(${periodInstalls}, ${catalogItems.totalInstalls}, ${catalogItems.firstSeenAt}, ${catalogItems.id}) < (${input.cursor.installs}, ${input.cursor.totalInstalls}, ${input.cursor.firstSeenAt}, ${input.cursor.id}::uuid)`
     : undefined;
 
   const rows = await db
@@ -261,6 +285,7 @@ export async function getLeaderboardPage(input: {
     )
     .where(combineFilters([baseWhere, cursorFilter]))
     .orderBy(
+      ...(useEntityGrouping ? [desc(ENTITY_SORT_ORDER)] : []),
       desc(periodInstalls),
       desc(catalogItems.totalInstalls),
       desc(catalogItems.firstSeenAt),
@@ -354,4 +379,12 @@ export async function getItemDetail(input: {
   }
 
   return rows[0] as ItemDetail;
+}
+
+function getEntitySortValue(entityType: CatalogEntityType): number {
+  if (entityType === "agent") return 4;
+  if (entityType === "skill") return 3;
+  if (entityType === "command") return 2;
+  if (entityType === "mcp") return 1;
+  return 0;
 }
