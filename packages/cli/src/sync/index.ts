@@ -54,6 +54,19 @@ export interface SyncSummary {
   removedFiles: string[];
 }
 
+export async function resolveProvidersForSync(options: {
+  paths: ScopePaths;
+  explicitProviders?: Provider[];
+  nonInteractive?: boolean;
+}): Promise<Provider[]> {
+  const settings = readSettings(options.paths.settingsPath);
+  return resolveProviders({
+    explicitProviders: options.explicitProviders,
+    settings,
+    nonInteractive: options.nonInteractive,
+  });
+}
+
 export async function syncFromCanonical(
   options: SyncOptions,
 ): Promise<SyncSummary> {
@@ -65,11 +78,10 @@ export async function syncFromCanonical(
     ...manifest,
     generatedByEntity: normalizeGeneratedByEntity(manifest),
   };
-  const settings = readSettings(options.paths.settingsPath);
 
-  const providers = await resolveProviders({
+  const providers = await resolveProvidersForSync({
+    paths: options.paths,
     explicitProviders: options.providers,
-    settings,
     nonInteractive: options.nonInteractive,
   });
   const target = options.target ?? "all";

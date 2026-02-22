@@ -146,8 +146,9 @@ AGENTLOOM_DISABLE_UPDATE_NOTIFIER=1
 In interactive sessions, `agentloom` checks for:
 
 - `~/.agents/skills/manage-agents/SKILL.md`
+- `.agents/skills/manage-agents/SKILL.md` (in the current workspace)
 
-If missing, it offers to bootstrap `manage-agents` because that skill helps agents reliably manage Agentloom resources (find/create/import/update/sync/delete).
+If missing in both locations, it offers to bootstrap `manage-agents` because that skill helps agents reliably manage Agentloom resources (find/create/import/update/sync/delete).
 
 This runs before the requested command.
 

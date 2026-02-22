@@ -16,11 +16,16 @@ export function getGlobalManageAgentsSkillPath(homeDir = os.homedir()): string {
   return path.join(homeDir, ".agents", "skills", "manage-agents", "SKILL.md");
 }
 
+export function getLocalManageAgentsSkillPath(cwd = process.cwd()): string {
+  return path.join(cwd, ".agents", "skills", "manage-agents", "SKILL.md");
+}
+
 export async function maybePromptManageAgentsBootstrap(options: {
   command: string;
   help: boolean;
   yes: boolean;
   homeDir?: string;
+  cwd?: string;
   interactive?: boolean;
 }): Promise<boolean> {
   if (process.env.AGENTLOOM_DISABLE_MANAGE_AGENTS_PROMPT === "1") return false;
@@ -33,7 +38,10 @@ export async function maybePromptManageAgentsBootstrap(options: {
   if (SKIP_COMMANDS.has(loweredCommand)) return false;
 
   const globalSkillPath = getGlobalManageAgentsSkillPath(options.homeDir);
-  if (fs.existsSync(globalSkillPath)) return false;
+  const localSkillPath = getLocalManageAgentsSkillPath(options.cwd);
+  if (fs.existsSync(globalSkillPath) || fs.existsSync(localSkillPath)) {
+    return false;
+  }
 
   const accepted = await confirm({
     message:
