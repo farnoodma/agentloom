@@ -1,4 +1,4 @@
-export const ENTITY_TYPES = ["agent", "command", "mcp"] as const;
+export const ENTITY_TYPES = ["agent", "skill", "command", "mcp"] as const;
 export type CatalogEntityType = (typeof ENTITY_TYPES)[number];
 
 export const PERIODS = ["all", "daily", "monthly", "weekly"] as const;

@@ -41,7 +41,13 @@ describe("POST /api/v1/installs", () => {
           occurredAt: "2026-02-21T14:00:00.000Z",
           cliVersion: "0.1.0",
           source: { owner: "farnoodma", repo: "agents" },
-          items: [{ entityType: "agent", name: "reviewer", filePath: "agents/reviewer.md" }],
+          items: [
+            {
+              entityType: "skill",
+              name: "release-check",
+              filePath: "skills/release-check/SKILL.md",
+            },
+          ],
         }),
       }),
     );

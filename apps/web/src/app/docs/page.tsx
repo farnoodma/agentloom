@@ -27,7 +27,7 @@ export default function DocsPage() {
         <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-ink/80 dark:text-white/80">
           <li>Only GitHub sources are tracked.</li>
           <li>Local path imports are not tracked.</li>
-          <li>Skill installs are redirected to skills.sh and not tracked here.</li>
+          <li>Tracked entities include agents, skills, commands, and MCP servers.</li>
           <li>You can opt out by setting <code className="font-mono">AGENTLOOM_DISABLE_TELEMETRY=1</code>.</li>
         </ul>
       </section>

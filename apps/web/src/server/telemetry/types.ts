@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const entityTypeSchema = z.enum(["agent", "command", "mcp"]);
+const entityTypeSchema = z.enum(["agent", "skill", "command", "mcp"]);
 
 const sourceSchema = z.object({
   owner: z.string().min(1).max(128),
