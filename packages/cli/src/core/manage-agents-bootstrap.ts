@@ -45,7 +45,7 @@ export async function maybePromptManageAgentsBootstrap(options: {
 
   const accepted = await confirm({
     message:
-      'Global skill "manage-agents" is missing. It helps agents reliably manage Agentloom resources (find/create/import/update/sync/delete). Install it now?',
+      'Global skill "manage-agents" is missing. It helps agents reliably manage Agentloom resources (find/create/import/update/sync/delete). Install it after this command completes?',
     initialValue: true,
   });
 
