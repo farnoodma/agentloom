@@ -14,7 +14,13 @@ const summary: ImportSummary = {
   importedAgents: ["agents/reviewer.md"],
   importedCommands: ["commands/release.md"],
   importedMcpServers: ["browser"],
-  importedSkills: ["ignored-skill"],
+  importedSkills: ["release-gate"],
+  telemetrySkills: [
+    {
+      name: "release-check",
+      filePath: "skills/release-check/SKILL.md",
+    },
+  ],
 };
 
 describe("parseGitHubSource", () => {
@@ -47,7 +53,7 @@ describe("parseGitHubSource", () => {
 });
 
 describe("buildTelemetryItems", () => {
-  it("includes agents, commands, and mcp only", () => {
+  it("includes agents, skills, commands, and mcp", () => {
     expect(buildTelemetryItems(summary)).toEqual([
       { entityType: "agent", name: "reviewer", filePath: "agents/reviewer.md" },
       {
@@ -56,7 +62,26 @@ describe("buildTelemetryItems", () => {
         filePath: "commands/release.md",
       },
       { entityType: "mcp", name: "browser", filePath: "mcp.json" },
+      {
+        entityType: "skill",
+        name: "release-check",
+        filePath: "skills/release-check/SKILL.md",
+      },
     ]);
+  });
+
+  it("falls back to canonical target paths when skill telemetry metadata is absent", () => {
+    expect(
+      buildTelemetryItems({
+        ...summary,
+        telemetrySkills: undefined,
+        importedSkills: ["release-gate"],
+      }),
+    ).toContainEqual({
+      entityType: "skill",
+      name: "release-gate",
+      filePath: "skills/release-gate/SKILL.md",
+    });
   });
 
   it("builds payload metadata", () => {
@@ -66,7 +91,7 @@ describe("buildTelemetryItems", () => {
     });
 
     expect(payload.source).toEqual({ owner: "farnoodma", repo: "agents" });
-    expect(payload.items).toHaveLength(3);
+    expect(payload.items).toHaveLength(4);
     expect(payload.eventId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
     );

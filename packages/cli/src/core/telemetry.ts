@@ -13,7 +13,7 @@ export type TelemetrySource = {
 };
 
 export type TelemetryItem = {
-  entityType: "agent" | "command" | "mcp";
+  entityType: "agent" | "skill" | "command" | "mcp";
   name: string;
   filePath: string;
 };
@@ -86,6 +86,24 @@ export function buildTelemetryItems(summary: ImportSummary): TelemetryItem[] {
 
   for (const serverName of summary.importedMcpServers) {
     items.push({ entityType: "mcp", name: serverName, filePath: "mcp.json" });
+  }
+
+  if (summary.telemetrySkills && summary.telemetrySkills.length > 0) {
+    for (const skill of summary.telemetrySkills) {
+      items.push({
+        entityType: "skill",
+        name: skill.name,
+        filePath: skill.filePath.replace(/^\/+/, ""),
+      });
+    }
+  } else {
+    for (const skillName of summary.importedSkills) {
+      items.push({
+        entityType: "skill",
+        name: skillName,
+        filePath: `skills/${skillName}/SKILL.md`,
+      });
+    }
   }
 
   return items;
