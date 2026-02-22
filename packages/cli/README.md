@@ -141,6 +141,18 @@ agentloom mcp server --help
 AGENTLOOM_DISABLE_UPDATE_NOTIFIER=1
 ```
 
+### Manage-agents bootstrap prompt
+
+In interactive sessions, `agentloom` checks for:
+
+- `~/.agents/skills/manage-agents/SKILL.md`
+
+If missing, it offers to bootstrap `manage-agents` because that skill helps agents reliably manage Agentloom resources (find/create/import/update/sync/delete).
+
+This runs before the requested command.
+
+- disable this prompt via `AGENTLOOM_DISABLE_MANAGE_AGENTS_PROMPT=1`
+
 ### Telemetry
 
 Successful GitHub-based `agentloom add` imports can send anonymous telemetry
