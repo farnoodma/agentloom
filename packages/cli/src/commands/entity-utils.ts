@@ -1,7 +1,11 @@
 import type { ParsedArgs } from "minimist";
 import { getStringArrayFlag, parseProvidersFlag } from "../core/argv.js";
 import { resolveScope } from "../core/scope.js";
-import { getGlobalSettingsPath, updateLastScope } from "../core/settings.js";
+import {
+  getGlobalSettingsPath,
+  updateLastScope,
+  updateLastScopeBestEffort,
+} from "../core/settings.js";
 import { formatSyncSummary, syncFromCanonical } from "../sync/index.js";
 import type { EntityType, ScopePaths } from "../types.js";
 
@@ -24,7 +28,8 @@ export async function resolvePathsForCommand(
     local: Boolean(argv.local),
     interactive: !getNonInteractiveMode(argv),
   });
-  updateLastScope(getGlobalSettingsPath(paths.homeDir), paths.scope);
+  const globalSettingsPath = getGlobalSettingsPath(paths.homeDir);
+  updateLastScopeBestEffort(globalSettingsPath, paths.scope);
   return paths;
 }
 
@@ -82,5 +87,8 @@ export async function runPostMutationSync(options: {
 
 export function markScopeAsUsed(paths: ScopePaths): void {
   updateLastScope(paths.settingsPath, paths.scope);
-  updateLastScope(getGlobalSettingsPath(paths.homeDir), paths.scope);
+  const globalSettingsPath = getGlobalSettingsPath(paths.homeDir);
+  if (paths.settingsPath !== globalSettingsPath) {
+    updateLastScopeBestEffort(globalSettingsPath, paths.scope);
+  }
 }

@@ -50,13 +50,13 @@ export async function resolveScope(
   if (options.global) return buildScopePaths(cwd, "global");
   if (options.local) return buildScopePaths(cwd, "local");
 
+  const hasLocalAgents = fs.existsSync(path.join(cwd, ".agents"));
+
   const interactive =
     options.interactive ?? (process.stdin.isTTY && process.stdout.isTTY);
   if (!interactive) {
-    return buildScopePaths(cwd, "global");
+    return buildScopePaths(cwd, hasLocalAgents ? "local" : "global");
   }
-
-  const hasLocalAgents = fs.existsSync(path.join(cwd, ".agents"));
 
   const globalSettings = readSettings(getGlobalSettingsPath());
   const defaultScope =
