@@ -36,6 +36,7 @@ import {
   getGlobalSettingsPath,
   readSettings,
   updateLastScope,
+  updateLastScopeBestEffort,
 } from "../core/settings.js";
 
 export interface SyncOptions {
@@ -181,11 +182,14 @@ export async function syncFromCanonical(
   if (!options.dryRun) {
     writeManifest(options.paths, nextManifest);
     updateLastScope(options.paths.settingsPath, options.paths.scope, providers);
-    updateLastScope(
-      getGlobalSettingsPath(options.paths.homeDir),
-      options.paths.scope,
-      providers,
-    );
+    const globalSettingsPath = getGlobalSettingsPath(options.paths.homeDir);
+    if (options.paths.settingsPath !== globalSettingsPath) {
+      updateLastScopeBestEffort(
+        globalSettingsPath,
+        options.paths.scope,
+        providers,
+      );
+    }
   }
 
   return {

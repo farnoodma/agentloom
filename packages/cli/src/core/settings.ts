@@ -62,6 +62,18 @@ export function updateLastScope(
   writeSettings(settingsPath, next);
 }
 
+export function updateLastScopeBestEffort(
+  settingsPath: string,
+  scope: Scope,
+  providers?: Provider[],
+): void {
+  try {
+    updateLastScope(settingsPath, scope, providers);
+  } catch {
+    // Global preference persistence should not block command execution.
+  }
+}
+
 export function settingsPathForScope(paths: ScopePaths): string {
   return paths.settingsPath;
 }
