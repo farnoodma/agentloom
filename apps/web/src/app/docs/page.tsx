@@ -17,7 +17,7 @@ export default function DocsPage() {
         <h2 className="text-xl font-semibold">Quickstart</h2>
         <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-ink/80 dark:text-white/80">
           <li>Install or run the CLI: <code className="font-mono">npx agentloom --help</code></li>
-          <li>Add a GitHub source: <code className="font-mono">npx agentloom add owner/repo</code></li>
+          <li>Add a GitHub source: <code className="font-mono">npx agentloom add &lt;owner/repo&gt;</code></li>
           <li>Browse discovered entities from the directory leaderboard.</li>
         </ol>
       </section>

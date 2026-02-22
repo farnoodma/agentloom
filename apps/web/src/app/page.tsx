@@ -8,7 +8,6 @@ import {
   type CatalogEntityType,
   type LeaderboardPeriod,
 } from "@/lib/catalog";
-import { buildInstallCommand } from "@/lib/install";
 import { formatHumanDate } from "@/lib/time";
 import { getLeaderboard } from "@/server/db/queries";
 
@@ -64,6 +63,28 @@ const ENTITY_LABELS: Record<CatalogEntityType | "all", string> = {
   mcp: "MCP",
 };
 
+function buildHeroCommand(input: {
+  entity: CatalogEntityType | "all";
+  owner?: string;
+  repo?: string;
+}): string {
+  const source = input.owner && input.repo ? `${input.owner}/${input.repo}` : "<owner/repo>";
+
+  if (input.entity === "all") {
+    return `npx agentloom add ${source}`;
+  }
+
+  if (input.entity === "agent") {
+    return `npx agentloom agent add ${source}`;
+  }
+
+  if (input.entity === "command") {
+    return `npx agentloom command add ${source}`;
+  }
+
+  return `npx agentloom mcp add ${source}`;
+}
+
 export default async function HomePage({ searchParams }: HomePageProps) {
   const resolvedSearchParams = (await searchParams) ?? {};
   const q = getValue(resolvedSearchParams, "q") ?? "";
@@ -81,15 +102,11 @@ export default async function HomePage({ searchParams }: HomePageProps) {
     limit: 150,
   });
 
-  const heroCommand =
-    rows.length > 0
-      ? buildInstallCommand({
-          entityType: rows[0].entityType,
-          owner: rows[0].owner,
-          repo: rows[0].repo,
-          displayName: rows[0].displayName,
-        })
-      : "npx agentloom add owner/repo";
+  const heroCommand = buildHeroCommand({
+    entity,
+    owner: rows[0]?.owner,
+    repo: rows[0]?.repo,
+  });
 
   return (
     <main className="space-y-10">
@@ -98,11 +115,11 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           <div className="space-y-4">
             <p className="font-mono text-xs uppercase tracking-[0.2em] text-ink/60 dark:text-white/60">Agentloom Directory</p>
             <h1 className="max-w-2xl text-3xl font-semibold leading-tight md:text-5xl">
-              Discover the public ecosystem of Agentloom installs.
+              Agentloom is a CLI for importing agents, commands, and MCP servers.
             </h1>
             <p className="max-w-2xl text-sm text-ink/70 md:text-base dark:text-white/70">
-              Search what teams are importing with <code className="font-mono">agentloom add</code> across
-              agents, commands, and MCP servers.
+              Add a GitHub source in one command, sync it to your coding tools, and browse what teams are
+              installing across the public ecosystem.
             </p>
           </div>
           <Link
