@@ -1,7 +1,9 @@
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import https from "node:https";
 import os from "node:os";
 import path from "node:path";
+import { confirm, isCancel } from "@clack/prompts";
 import { ensureDir, writeJsonAtomic } from "./fs.js";
 
 const UPDATE_CACHE_PATH = path.join(
@@ -50,7 +52,7 @@ export async function maybeNotifyVersionUpdate(
     isNewerVersion(cache.latestVersion, options.currentVersion) &&
     cache.lastNotifiedVersion !== cache.latestVersion
   ) {
-    printNotice(options.currentVersion, cache.latestVersion);
+    await promptAndUpdate(options.currentVersion, cache.latestVersion);
     cache.lastNotifiedVersion = cache.latestVersion;
     writeVersionCache(cache);
   }
@@ -75,7 +77,7 @@ export async function maybeNotifyVersionUpdate(
     isNewerVersion(latest, options.currentVersion) &&
     cache.lastNotifiedVersion !== latest
   ) {
-    printNotice(options.currentVersion, latest);
+    await promptAndUpdate(options.currentVersion, latest);
     cache.lastNotifiedVersion = latest;
   }
 
@@ -154,10 +156,32 @@ function fetchLatestVersion(packageName: string): Promise<string | null> {
   });
 }
 
-function printNotice(current: string, latest: string): void {
+export async function promptAndUpdate(
+  current: string,
+  latest: string,
+): Promise<"updated" | "declined" | "failed"> {
+  const accepted = await confirm({
+    message: `Update available: ${current} → ${latest}. Update now?`,
+    initialValue: true,
+  });
+
+  if (isCancel(accepted) || !accepted) return "declined";
+
+  console.log(`\nUpdating agentloom to ${latest}...\n`);
+  const result = spawnSync("npm", ["i", "-g", "agentloom"], {
+    stdio: "inherit",
+  });
+
+  if (result.status === 0) {
+    console.log(`\nUpdated to ${latest}. Please re-run your command.\n`);
+    process.exit(0);
+    return "updated"; // unreachable, but satisfies type checker
+  }
+
   console.error(
-    `\nUpdate available for agentloom: ${current} -> ${latest}\nRun: npm i -g agentloom\n`,
+    `\nUpdate failed. You can update manually: npm i -g agentloom\n`,
   );
+  return "failed";
 }
 
 function readVersionCache(): VersionCache {
