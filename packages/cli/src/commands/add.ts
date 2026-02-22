@@ -3,7 +3,8 @@ import { parseProvidersFlag, parseSelectionModeFlag } from "../core/argv.js";
 import { formatUsageError, getAddHelpText } from "../core/copy.js";
 import { importSource, NonInteractiveConflictError } from "../core/importer.js";
 import { sendAddTelemetryEvent } from "../core/telemetry.js";
-import type { EntityType } from "../types.js";
+import { resolveProvidersForSync } from "../sync/index.js";
+import type { EntityType, Provider } from "../types.js";
 import {
   getEntitySelectors,
   getNonInteractiveMode,
@@ -62,7 +63,7 @@ async function runEntityAwareAdd(options: {
   const nonInteractive = getNonInteractiveMode(options.argv);
   const paths = await resolvePathsForCommand(options.argv, options.cwd);
 
-  const providers = parseProvidersFlag(options.argv.providers);
+  const explicitProviders = parseProvidersFlag(options.argv.providers);
   const selectionMode = parseSelectionModeFlag(
     (options.argv as Record<string, unknown>)["selection-mode"],
   );
@@ -76,6 +77,24 @@ async function runEntityAwareAdd(options: {
   const commandSelectors = getEntitySelectors(options.argv, "command");
   const mcpSelectors = getEntitySelectors(options.argv, "mcp");
   const skillSelectors = getEntitySelectors(options.argv, "skill");
+  let resolvedSkillProviders: Provider[] | undefined;
+
+  const resolveProvidersForSkills = async (): Promise<
+    Provider[] | undefined
+  > => {
+    if (explicitProviders && explicitProviders.length > 0) {
+      return explicitProviders;
+    }
+    if (resolvedSkillProviders && resolvedSkillProviders.length > 0) {
+      return resolvedSkillProviders;
+    }
+    resolvedSkillProviders = await resolveProvidersForSync({
+      paths,
+      explicitProviders,
+      nonInteractive,
+    });
+    return resolvedSkillProviders;
+  };
 
   try {
     const summary = await importSource({
@@ -105,7 +124,11 @@ async function runEntityAwareAdd(options: {
       requireSkills: options.target === "skill",
       skillSelectors,
       promptForSkills: skillSelectors.length === 0,
-      skillsProviders: providers,
+      skillsProviders: explicitProviders,
+      resolveSkillsProviders:
+        importSkills && !explicitProviders
+          ? resolveProvidersForSkills
+          : undefined,
       commandSelectors,
       promptForCommands: commandSelectors.length === 0,
       promptForAgentSelection: agentSelectors.length === 0,
@@ -129,6 +152,7 @@ async function runEntityAwareAdd(options: {
       argv: options.argv,
       paths,
       target: options.target,
+      providers: explicitProviders ?? resolvedSkillProviders,
     });
   } catch (err) {
     if (err instanceof NonInteractiveConflictError) {
