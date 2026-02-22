@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { CopyCommand } from "@/components/copy-command";
+import { LeaderboardList } from "@/components/leaderboard-list";
 import {
   ENTITY_TYPES,
   PERIODS,
@@ -8,8 +9,11 @@ import {
   type CatalogEntityType,
   type LeaderboardPeriod,
 } from "@/lib/catalog";
-import { formatHumanDate } from "@/lib/time";
-import { getLeaderboard } from "@/server/db/queries";
+import {
+  DEFAULT_LEADERBOARD_PAGE_SIZE,
+  serializeLeaderboardRow,
+} from "@/lib/leaderboard";
+import { getLeaderboardPage } from "@/server/db/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -43,10 +47,6 @@ function withQuery(input: {
 
   const serialized = query.toString();
   return serialized === "" ? "/" : `/?${serialized}`;
-}
-
-function formatInstallCount(value: number): string {
-  return Intl.NumberFormat("en-US", { notation: "compact" }).format(value);
 }
 
 const PERIOD_LABELS: Record<LeaderboardPeriod, string> = {
@@ -95,12 +95,13 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   const entity: CatalogEntityType | "all" =
     entityParam === "all" || isCatalogEntityType(entityParam) ? entityParam : "all";
 
-  const rows = await getLeaderboard({
+  const page = await getLeaderboardPage({
     period,
     entity,
     q,
-    limit: 150,
+    limit: DEFAULT_LEADERBOARD_PAGE_SIZE,
   });
+  const rows = page.rows;
 
   const heroCommand = buildHeroCommand({
     entity,
@@ -193,42 +194,14 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           })}
         </div>
 
-        <div className="overflow-hidden rounded-xl border border-ink/10 dark:border-white/10">
-          <div className="grid grid-cols-[70px_1fr_120px] bg-chalk px-4 py-2 text-xs uppercase tracking-wide text-ink/60 dark:bg-white/10 dark:text-white/70">
-            <span>Rank</span>
-            <span>Item</span>
-            <span className="text-right">{PERIOD_LABELS[period]}</span>
-          </div>
-
-          {rows.length === 0 ? (
-            <p className="px-4 py-8 text-sm text-ink/70 dark:text-white/70">No records yet. Run agentloom add on GitHub sources to populate the directory.</p>
-          ) : (
-            <ul>
-              {rows.map((row, index) => (
-                <li key={row.id}>
-                  <Link
-                    href={`/${row.owner}/${row.repo}/${row.entityType}/${row.itemSlug}`}
-                    className="grid grid-cols-[70px_1fr_120px] items-center gap-3 border-t border-ink/10 px-4 py-3 transition hover:bg-chalk/60 dark:border-white/10 dark:hover:bg-white/5"
-                  >
-                    <span className="font-mono text-sm text-ink/60 dark:text-white/60">{index + 1}</span>
-                    <span>
-                      <span className="inline-flex items-center gap-2">
-                        <span className="text-sm font-semibold">{row.displayName}</span>
-                        <span className="rounded-full border border-ink/15 bg-white px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide text-ink/60 dark:border-white/15 dark:bg-white/10 dark:text-white/70">
-                          {row.entityType}
-                        </span>
-                      </span>
-                      <span className="mt-1 block text-xs text-ink/60 dark:text-white/60">
-                        {row.owner}/{row.repo} • First seen {formatHumanDate(row.firstSeenAt)}
-                      </span>
-                    </span>
-                    <span className="text-right font-mono text-sm text-ink dark:text-white">{formatInstallCount(row.installs)}</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        <LeaderboardList
+          period={period}
+          entity={entity}
+          q={q}
+          periodLabel={PERIOD_LABELS[period]}
+          initialRows={rows.map(serializeLeaderboardRow)}
+          initialNextCursor={page.nextCursor}
+        />
       </section>
     </main>
   );

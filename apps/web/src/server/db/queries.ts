@@ -1,6 +1,7 @@
-import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, or, sql, type SQL } from "drizzle-orm";
 import { getUtcDayStart, getUtcMonthStart, getUtcWeekStart } from "@/lib/time";
 import { type CatalogEntityType, type LeaderboardPeriod } from "@/lib/catalog";
+import { clampLeaderboardPageSize } from "@/lib/leaderboard";
 import { getDb } from "@/server/db/client";
 import {
   catalogItems,
@@ -30,8 +31,27 @@ export interface ItemDetail extends LeaderboardRow {
   lastSeenAt: Date;
 }
 
-function buildFilter(entity: CatalogEntityType | "all", q?: string) {
-  const filters = [];
+export interface LeaderboardCursor {
+  installs: number;
+  totalInstalls: number;
+  firstSeenAt: string;
+  id: string;
+}
+
+export interface LeaderboardPage {
+  rows: LeaderboardRow[];
+  nextCursor: string | null;
+}
+
+interface CursorPayload {
+  i: number;
+  t: number;
+  f: string;
+  id: string;
+}
+
+function buildFilter(entity: CatalogEntityType | "all", q?: string): SQL<unknown> | undefined {
+  const filters: SQL<unknown>[] = [];
 
   if (entity !== "all") {
     filters.push(eq(catalogItems.entityType, entity));
@@ -39,14 +59,15 @@ function buildFilter(entity: CatalogEntityType | "all", q?: string) {
 
   if (q && q.trim() !== "") {
     const term = `%${q.trim()}%`;
-    filters.push(
-      or(
-        ilike(catalogItems.displayName, term),
-        ilike(catalogItems.itemSlug, term),
-        ilike(catalogItems.owner, term),
-        ilike(catalogItems.repo, term),
-      ),
+    const searchFilter = or(
+      ilike(catalogItems.displayName, term),
+      ilike(catalogItems.itemSlug, term),
+      ilike(catalogItems.owner, term),
+      ilike(catalogItems.repo, term),
     );
+    if (searchFilter) {
+      filters.push(searchFilter);
+    }
   }
 
   if (filters.length === 0) {
@@ -56,21 +77,111 @@ function buildFilter(entity: CatalogEntityType | "all", q?: string) {
   return and(...filters);
 }
 
-export async function getLeaderboard(input: {
+function combineFilters(filters: Array<SQL<unknown> | undefined>): SQL<unknown> | undefined {
+  const activeFilters = filters.filter((filter): filter is SQL<unknown> => filter !== undefined);
+
+  if (activeFilters.length === 0) {
+    return undefined;
+  }
+
+  if (activeFilters.length === 1) {
+    return activeFilters[0];
+  }
+
+  return and(...activeFilters);
+}
+
+function isValidCursorPayload(value: unknown): value is CursorPayload {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const payload = value as Partial<CursorPayload>;
+
+  return (
+    Number.isInteger(payload.i) &&
+    Number.isInteger(payload.t) &&
+    typeof payload.f === "string" &&
+    payload.f.trim() !== "" &&
+    typeof payload.id === "string" &&
+    payload.id.trim() !== ""
+  );
+}
+
+function normalizeCursorDate(value: string): string | null {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return date.toISOString();
+}
+
+function toCursor(row: LeaderboardRow): LeaderboardCursor {
+  return {
+    installs: row.installs,
+    totalInstalls: row.totalInstalls,
+    firstSeenAt: row.firstSeenAt.toISOString(),
+    id: row.id,
+  };
+}
+
+export function encodeLeaderboardCursor(cursor: LeaderboardCursor): string {
+  const payload: CursorPayload = {
+    i: cursor.installs,
+    t: cursor.totalInstalls,
+    f: cursor.firstSeenAt,
+    id: cursor.id,
+  };
+
+  return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+}
+
+export function decodeLeaderboardCursor(encoded: string): LeaderboardCursor | null {
+  try {
+    const decoded = Buffer.from(encoded, "base64url").toString("utf8");
+    const payload = JSON.parse(decoded);
+
+    if (!isValidCursorPayload(payload)) {
+      return null;
+    }
+
+    const firstSeenAt = normalizeCursorDate(payload.f);
+    if (!firstSeenAt) {
+      return null;
+    }
+
+    return {
+      installs: payload.i,
+      totalInstalls: payload.t,
+      firstSeenAt,
+      id: payload.id,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function getLeaderboardPage(input: {
   period: LeaderboardPeriod;
   entity: CatalogEntityType | "all";
   q?: string;
   limit?: number;
-}): Promise<LeaderboardRow[]> {
+  cursor?: LeaderboardCursor;
+}): Promise<LeaderboardPage> {
   const db = getDb();
   if (!db) {
-    return [];
+    return { rows: [], nextCursor: null };
   }
 
-  const limit = Math.max(1, Math.min(input.limit ?? 200, 500));
-  const where = buildFilter(input.entity, input.q);
+  const limit = clampLeaderboardPageSize(input.limit);
+  const rowLimit = limit + 1;
+  const baseWhere = buildFilter(input.entity, input.q);
 
   if (input.period === "all") {
+    const cursorFilter = input.cursor
+      ? sql`(${catalogItems.totalInstalls}, ${catalogItems.firstSeenAt}, ${catalogItems.id}) < (${input.cursor.totalInstalls}, ${input.cursor.firstSeenAt}, ${input.cursor.id}::uuid)`
+      : undefined;
+
     const rows = await db
       .select({
         id: catalogItems.id,
@@ -86,11 +197,24 @@ export async function getLeaderboard(input: {
         installs: catalogItems.totalInstalls,
       })
       .from(catalogItems)
-      .where(where)
-      .orderBy(desc(catalogItems.totalInstalls), desc(catalogItems.firstSeenAt))
-      .limit(limit);
+      .where(combineFilters([baseWhere, cursorFilter]))
+      .orderBy(
+        desc(catalogItems.totalInstalls),
+        desc(catalogItems.firstSeenAt),
+        desc(catalogItems.id),
+      )
+      .limit(rowLimit);
 
-    return rows as LeaderboardRow[];
+    const pageRows = rows.slice(0, limit) as LeaderboardRow[];
+    const nextCursor =
+      rows.length > limit
+        ? encodeLeaderboardCursor(toCursor(pageRows[pageRows.length - 1] as LeaderboardRow))
+        : null;
+
+    return {
+      rows: pageRows,
+      nextCursor,
+    };
   }
 
   const periodTable =
@@ -103,14 +227,18 @@ export async function getLeaderboard(input: {
     input.period === "daily"
       ? getUtcDayStart()
       : input.period === "monthly"
-        ? getUtcMonthStart()
-        : getUtcWeekStart();
+      ? getUtcMonthStart()
+      : getUtcWeekStart();
   const periodColumn =
     input.period === "daily"
       ? installCountsDaily.dayStart
       : input.period === "monthly"
-        ? installCountsMonthly.monthStart
-        : installCountsWeekly.weekStart;
+      ? installCountsMonthly.monthStart
+      : installCountsWeekly.weekStart;
+  const periodInstalls = sql<number>`COALESCE(${periodTable.installs}, 0)`;
+  const cursorFilter = input.cursor
+    ? sql`(${periodInstalls}, ${catalogItems.totalInstalls}, ${catalogItems.firstSeenAt}, ${catalogItems.id}) < (${input.cursor.installs}, ${input.cursor.totalInstalls}, ${input.cursor.firstSeenAt}, ${input.cursor.id}::uuid)`
+    : undefined;
 
   const rows = await db
     .select({
@@ -124,18 +252,42 @@ export async function getLeaderboard(input: {
       sourceUrl: catalogItems.sourceUrl,
       firstSeenAt: catalogItems.firstSeenAt,
       totalInstalls: catalogItems.totalInstalls,
-      installs: sql<number>`COALESCE(${periodTable.installs}, 0)`,
+      installs: periodInstalls,
     })
     .from(catalogItems)
     .leftJoin(
       periodTable,
       and(eq(periodTable.itemId, catalogItems.id), eq(periodColumn, periodStart)),
     )
-    .where(where)
-    .orderBy(desc(sql`COALESCE(${periodTable.installs}, 0)`), desc(catalogItems.totalInstalls))
-    .limit(limit);
+    .where(combineFilters([baseWhere, cursorFilter]))
+    .orderBy(
+      desc(periodInstalls),
+      desc(catalogItems.totalInstalls),
+      desc(catalogItems.firstSeenAt),
+      desc(catalogItems.id),
+    )
+    .limit(rowLimit);
 
-  return rows as LeaderboardRow[];
+  const pageRows = rows.slice(0, limit) as LeaderboardRow[];
+  const nextCursor =
+    rows.length > limit
+      ? encodeLeaderboardCursor(toCursor(pageRows[pageRows.length - 1] as LeaderboardRow))
+      : null;
+
+  return {
+    rows: pageRows,
+    nextCursor,
+  };
+}
+
+export async function getLeaderboard(input: {
+  period: LeaderboardPeriod;
+  entity: CatalogEntityType | "all";
+  q?: string;
+  limit?: number;
+}): Promise<LeaderboardRow[]> {
+  const page = await getLeaderboardPage(input);
+  return page.rows;
 }
 
 export async function getItemDetail(input: {
