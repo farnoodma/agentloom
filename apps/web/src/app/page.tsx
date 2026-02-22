@@ -59,6 +59,7 @@ const PERIOD_LABELS: Record<LeaderboardPeriod, string> = {
 const ENTITY_LABELS: Record<CatalogEntityType | "all", string> = {
   all: "Everything",
   agent: "Agents",
+  skill: "Skills",
   command: "Commands",
   mcp: "MCP",
 };
@@ -80,6 +81,10 @@ function buildHeroCommand(input: {
 
   if (input.entity === "command") {
     return `npx agentloom command add ${source}`;
+  }
+
+  if (input.entity === "skill") {
+    return `npx agentloom skill add ${source}`;
   }
 
   return `npx agentloom mcp add ${source}`;
@@ -116,7 +121,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           <div className="space-y-4">
             <p className="font-mono text-xs uppercase tracking-[0.2em] text-ink/60 dark:text-white/60">Agentloom Directory</p>
             <h1 className="max-w-2xl text-3xl font-semibold leading-tight md:text-5xl">
-              Agentloom is a CLI for importing agents, commands, and MCP servers.
+              Agentloom is a CLI for importing agents, skills, commands, and MCP servers.
             </h1>
             <p className="max-w-2xl text-sm text-ink/70 md:text-base dark:text-white/70">
               Add a GitHub source in one command, sync it to your coding tools, and browse what teams are

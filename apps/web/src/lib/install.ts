@@ -15,5 +15,8 @@ export function buildInstallCommand(target: InstallTarget): string {
   if (target.entityType === "command") {
     return `npx agentloom command add ${source} --commands ${target.displayName}`;
   }
+  if (target.entityType === "skill") {
+    return `npx agentloom skill add ${source} --skills ${target.displayName}`;
+  }
   return `npx agentloom mcp add ${source} --mcps ${target.displayName}`;
 }

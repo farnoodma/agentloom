@@ -50,8 +50,8 @@ Canonical local layout:
 
 Successful GitHub-based `agentloom add` imports can send anonymous install telemetry to the Agentloom directory API.
 
-- tracked: agents, commands, and MCP servers from GitHub sources
-- not tracked: local-path adds and skills
+- tracked: agents, skills, commands, and MCP servers from GitHub sources
+- not tracked: local-path adds
 - opt out: `AGENTLOOM_DISABLE_TELEMETRY=1`
 - override endpoint: `AGENTLOOM_TELEMETRY_ENDPOINT=https://...`
 
