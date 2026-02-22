@@ -63,13 +63,28 @@ afterEach(() => {
 });
 
 describe("resolveScope", () => {
-  it("defaults to global in non-interactive mode", async () => {
+  it("defaults to local in non-interactive mode when .agents exists", async () => {
     const workspaceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "agentloom-workspace-"),
     );
     tempDirs.push(workspaceRoot);
 
     fs.mkdirSync(path.join(workspaceRoot, ".agents"), { recursive: true });
+
+    const paths = await resolveScope({
+      cwd: workspaceRoot,
+      interactive: false,
+    });
+
+    expect(paths.scope).toBe("local");
+    expect(promptMocks.select).not.toHaveBeenCalled();
+  });
+
+  it("defaults to global in non-interactive mode without .agents", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(workspaceRoot);
 
     const paths = await resolveScope({
       cwd: workspaceRoot,
