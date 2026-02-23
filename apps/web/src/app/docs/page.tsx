@@ -63,8 +63,8 @@ export default function DocsPage() {
         </h1>
         <p className="mt-4 max-w-2xl text-sm text-ink/70 md:text-base dark:text-white/70">
           Agentloom is a CLI that unifies agent, skill, command, and MCP server
-          definitions across Cursor, Claude, Copilot, Codex, OpenCode, and Gemini.
-          No more copy-pasting prompts between six different config formats.
+          definitions across Cursor, Claude, Copilot, Codex, OpenCode, Gemini, and Pi.
+          No more copy-pasting prompts between seven different config formats.
         </p>
         <div className="mt-6">
           <Link
@@ -407,7 +407,7 @@ You are a strict code reviewer. Check for:
                   </tr>
                 </thead>
                 <tbody className="text-ink/80 dark:text-white/80">
-                  {["Cursor", "Claude", "Copilot", "Codex", "OpenCode", "Gemini"].map((provider) => (
+                  {["Cursor", "Claude", "Copilot", "Codex", "OpenCode", "Gemini", "Pi"].map((provider) => (
                     <tr key={provider} className="border-b border-ink/5 dark:border-white/5">
                       <td className="py-2 pr-4 font-medium">{provider}</td>
                       <td className="py-2 pr-4 text-center text-ocean">✓</td>

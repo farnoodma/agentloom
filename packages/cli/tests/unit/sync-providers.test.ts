@@ -71,6 +71,7 @@ describe("sync provider selection", () => {
           "opencode",
           "gemini",
           "copilot",
+          "pi",
         ],
       }),
     );

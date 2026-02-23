@@ -5,6 +5,7 @@ export const ALL_PROVIDERS = [
   "opencode",
   "gemini",
   "copilot",
+  "pi",
 ] as const;
 
 export type Provider = (typeof ALL_PROVIDERS)[number];
@@ -22,6 +23,7 @@ export interface AgentFrontmatter {
   opencode?: Record<string, unknown> | false;
   gemini?: Record<string, unknown> | false;
   copilot?: Record<string, unknown> | false;
+  pi?: Record<string, unknown> | false;
   [key: string]: unknown;
 }
 
