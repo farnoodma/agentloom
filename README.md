@@ -46,6 +46,7 @@ For full CLI usage, commands, schemas, and configuration details, see the [CLI d
 | Codex    |   +    |    +     |   +    |  +  |
 | OpenCode |   +    |    +     |   +    |  +  |
 | Gemini   |   +    |    +     |   +    |  +  |
+| Pi       |   +    |    +     |   +    |  +  |
 
 ## Directory
 
