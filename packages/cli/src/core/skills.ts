@@ -179,7 +179,10 @@ export function applySkillProviderSideEffects(options: {
   dryRun?: boolean;
   warn?: (message: string) => void;
 }): void {
-  const pathsToSymlink = getProviderSkillsPaths(options.paths, options.providers);
+  const pathsToSymlink = getProviderSkillsPaths(
+    options.paths,
+    options.providers,
+  );
   if (pathsToSymlink.length === 0) return;
 
   const canonicalSkillsDir = options.paths.skillsDir;

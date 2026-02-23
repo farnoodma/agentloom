@@ -2,6 +2,8 @@
 
 `agentloom` is a unified CLI for managing agent definitions and MCP configuration across multiple AI coding tools.
 
+For monorepo-level documentation and architecture context, see the [root README](../../README.md).
+
 It uses `.agents` as the canonical source of truth and syncs provider-native files for:
 
 - Cursor

@@ -8,7 +8,11 @@ import {
   initializeCanonicalLayout,
   migrateProviderStateToCanonical,
 } from "../../src/core/migration.js";
-import { ensureDir, writeJsonAtomic, writeTextAtomic } from "../../src/core/fs.js";
+import {
+  ensureDir,
+  writeJsonAtomic,
+  writeTextAtomic,
+} from "../../src/core/fs.js";
 
 const tempDirs: string[] = [];
 
@@ -74,7 +78,9 @@ describe("provider migration", () => {
       },
     });
 
-    ensureDir(path.join(paths.workspaceRoot, ".cursor", "skills", "release-check"));
+    ensureDir(
+      path.join(paths.workspaceRoot, ".cursor", "skills", "release-check"),
+    );
     writeTextAtomic(
       path.join(
         paths.workspaceRoot,
@@ -108,9 +114,7 @@ describe("provider migration", () => {
 
     expect(fs.existsSync(path.join(paths.commandsDir, "review.md"))).toBe(true);
 
-    const canonicalMcp = JSON.parse(
-      fs.readFileSync(paths.mcpPath, "utf8"),
-    ) as {
+    const canonicalMcp = JSON.parse(fs.readFileSync(paths.mcpPath, "utf8")) as {
       mcpServers?: Record<string, { base?: Record<string, unknown> }>;
     };
     expect(canonicalMcp.mcpServers?.browser?.base?.command).toBe("npx");
