@@ -1,17 +1,16 @@
 # agentloom
 
-`agentloom` is a unified CLI for managing agent definitions and MCP configuration across multiple AI coding tools.
+`agentloom` is a unified CLI for managing agent definitions and MCP configuration across multiple AI coding tools — Cursor, Claude, Copilot, Codex, OpenCode, and Gemini.
 
 For monorepo-level documentation and architecture context, see the [root README](../../README.md).
 
-It uses `.agents` as the canonical source of truth and syncs provider-native files for:
+## Getting started
 
-- Cursor
-- Claude
-- Codex
-- OpenCode
-- Gemini
-- Copilot
+```bash
+npx agentloom init
+```
+
+That's all you need. Agentloom picks up your existing provider configs, migrates them into a unified `.agents/` directory, and syncs everything back out to all your tools. From here on, manage your agents, commands, skills, and MCP servers in one place and run `agentloom sync` whenever you make changes.
 
 ## Install
 
