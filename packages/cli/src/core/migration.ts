@@ -48,6 +48,7 @@ export interface MigrationOptions {
   yes?: boolean;
   nonInteractive?: boolean;
   dryRun?: boolean;
+  materializeCanonical?: boolean;
 }
 
 export interface MigrationEntitySummary {
@@ -141,7 +142,10 @@ export function initializeCanonicalLayout(
 export async function migrateProviderStateToCanonical(
   options: MigrationOptions,
 ): Promise<MigrationSummary> {
-  const summary = createEmptyMigrationSummary(options.providers, options.target);
+  const summary = createEmptyMigrationSummary(
+    options.providers,
+    options.target,
+  );
 
   if (includesTarget(options.target, "agent")) {
     await migrateAgents(options, summary.entities.agent);
@@ -198,9 +202,10 @@ async function migrateAgents(
 
   const recordsByKey = new Map<string, ProviderAgentRecord[]>();
   for (const provider of options.providers) {
-    const records = provider === "codex"
-      ? readCodexProviderAgents(options.paths)
-      : readMarkdownProviderAgents(options.paths, provider);
+    const records =
+      provider === "codex"
+        ? readCodexProviderAgents(options.paths)
+        : readMarkdownProviderAgents(options.paths, provider);
     summary.detected += records.length;
     for (const record of records) {
       const next = recordsByKey.get(record.key) ?? [];
@@ -240,7 +245,7 @@ async function migrateAgents(
       continue;
     }
 
-    if (!options.dryRun) {
+    if (shouldWriteCanonical(options)) {
       ensureDir(options.paths.agentsDir);
       fs.writeFileSync(resolved.outputPath, resolved.markdown, "utf8");
     }
@@ -304,9 +309,7 @@ function readCodexProviderAgents(paths: ScopePaths): ProviderAgentRecord[] {
   }
 
   const raw = fs.readFileSync(configPath, "utf8");
-  const parsed = raw.trim()
-    ? (TOML.parse(raw) as Record<string, unknown>)
-    : {};
+  const parsed = raw.trim() ? (TOML.parse(raw) as Record<string, unknown>) : {};
   const codexRootDir = path.dirname(configPath);
   const agentsTable = isObject(parsed.agents)
     ? (parsed.agents as Record<string, unknown>)
@@ -358,7 +361,10 @@ function readCodexProviderAgents(paths: ScopePaths): ProviderAgentRecord[] {
     if (typeof roleToml.sandbox_mode === "string") {
       providerConfig.sandboxMode = roleToml.sandbox_mode;
     }
-    if (isObject(roleToml.tools) && typeof roleToml.tools.web_search === "boolean") {
+    if (
+      isObject(roleToml.tools) &&
+      typeof roleToml.tools.web_search === "boolean"
+    ) {
       providerConfig.webSearch = roleToml.tools.web_search;
     }
 
@@ -435,7 +441,9 @@ async function resolveAgentMerge(options: {
 
   if (!options.canonical && records.length > 1) {
     const first = records[0];
-    const different = records.some((record) => !sameAgentContent(first, record));
+    const different = records.some(
+      (record) => !sameAgentContent(first, record),
+    );
     if (different) {
       options.onConflict();
       const chosen = await chooseProviderSource({
@@ -485,7 +493,9 @@ async function resolveAgentMerge(options: {
   };
 }
 
-function dedupeAgentRecords(records: ProviderAgentRecord[]): ProviderAgentRecord[] {
+function dedupeAgentRecords(
+  records: ProviderAgentRecord[],
+): ProviderAgentRecord[] {
   const unique: ProviderAgentRecord[] = [];
   for (const record of records) {
     const match = unique.find(
@@ -543,7 +553,8 @@ async function migrateCommands(
 
     if (!canonical) {
       const allSame = records.every(
-        (record) => normalizeBody(record.content) === normalizeBody(records[0].content),
+        (record) =>
+          normalizeBody(record.content) === normalizeBody(records[0].content),
       );
       if (!allSame) {
         hadConflict = true;
@@ -580,9 +591,13 @@ async function migrateCommands(
       continue;
     }
 
-    if (!options.dryRun) {
+    if (shouldWriteCanonical(options)) {
       ensureDir(options.paths.commandsDir);
-      fs.writeFileSync(path.join(options.paths.commandsDir, fileName), content, "utf8");
+      fs.writeFileSync(
+        path.join(options.paths.commandsDir, fileName),
+        content,
+        "utf8",
+      );
     }
 
     summary.imported += 1;
@@ -636,7 +651,10 @@ async function migrateMcp(
     mcpServers: cloneRecord(canonical.mcpServers),
   };
 
-  const providerServers = collectProviderMcpServers(options.paths, options.providers);
+  const providerServers = collectProviderMcpServers(
+    options.paths,
+    options.providers,
+  );
   summary.detected = providerServers.detected;
 
   for (const [serverName, byProvider] of providerServers.servers.entries()) {
@@ -648,7 +666,9 @@ async function migrateMcp(
     let providerOverrides = cloneRecord(normalizedExisting.providers);
 
     if (!hasExisting) {
-      const firstProvider = options.providers.find((provider) => byProvider[provider]);
+      const firstProvider = options.providers.find(
+        (provider) => byProvider[provider],
+      );
       if (!firstProvider) continue;
       base = cloneRecord(byProvider[firstProvider] ?? {});
       providerOverrides = {};
@@ -691,7 +711,7 @@ async function migrateMcp(
     summary.imported += 1;
   }
 
-  if (summary.imported > 0 && !options.dryRun) {
+  if (summary.imported > 0 && shouldWriteCanonical(options)) {
     writeCanonicalMcp(options.paths, merged);
   }
 }
@@ -754,7 +774,7 @@ function readJsonMcpServers(
   if (!parsed || !isObject(parsed.mcpServers)) {
     return {};
   }
-  return cloneRecord(parsed.mcpServers);
+  return normalizeMcpServerRecord(parsed.mcpServers);
 }
 
 function readOpenCodeMcp(
@@ -806,16 +826,23 @@ function readCodexMcp(
 ): Record<string, Record<string, unknown>> {
   if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) return {};
   const raw = fs.readFileSync(filePath, "utf8");
-  const parsed = raw.trim()
-    ? (TOML.parse(raw) as Record<string, unknown>)
-    : {};
+  const parsed = raw.trim() ? (TOML.parse(raw) as Record<string, unknown>) : {};
   if (!isObject(parsed.mcp_servers)) return {};
-  return cloneRecord(parsed.mcp_servers);
+  return normalizeMcpServerRecord(parsed.mcp_servers);
 }
 
-function normalizeCanonicalServer(
-  server: CanonicalMcpServer | undefined,
-): {
+function normalizeMcpServerRecord(
+  raw: Record<string, unknown>,
+): Record<string, Record<string, unknown>> {
+  const servers: Record<string, Record<string, unknown>> = {};
+  for (const [name, config] of Object.entries(raw)) {
+    if (!isObject(config)) continue;
+    servers[name] = cloneRecord(config);
+  }
+  return servers;
+}
+
+function normalizeCanonicalServer(server: CanonicalMcpServer | undefined): {
   base: Record<string, unknown>;
   providers: Partial<Record<Provider, Record<string, unknown> | false>>;
 } {
@@ -834,12 +861,11 @@ function normalizeCanonicalServer(
     base[key] = value;
   }
 
-  const providers =
-    isObject(server.providers)
-      ? (cloneRecord(server.providers) as Partial<
-          Record<Provider, Record<string, unknown> | false>
-        >)
-      : {};
+  const providers = isObject(server.providers)
+    ? (cloneRecord(server.providers) as Partial<
+        Record<Provider, Record<string, unknown> | false>
+      >)
+    : {};
 
   return { base, providers };
 }
@@ -859,7 +885,10 @@ async function migrateSkills(
   options: MigrationOptions,
   summary: MigrationEntitySummary,
 ): Promise<void> {
-  const providerSkillDirs = getProviderSkillsPaths(options.paths, options.providers)
+  const providerSkillDirs = getProviderSkillsPaths(
+    options.paths,
+    options.providers,
+  )
     .filter((dirPath) => fs.existsSync(dirPath))
     .filter((dirPath) => {
       try {
@@ -870,7 +899,9 @@ async function migrateSkills(
     });
 
   for (const providerSkillsDir of providerSkillDirs) {
-    const providerLabel = providerSkillsDir.includes(`${path.sep}.cursor${path.sep}`)
+    const providerLabel = providerSkillsDir.includes(
+      `${path.sep}.cursor${path.sep}`,
+    )
       ? "cursor"
       : "claude";
     const skills = parseSkillsDir(providerSkillsDir);
@@ -884,7 +915,7 @@ async function migrateSkills(
       const targetDir = path.join(options.paths.skillsDir, targetName);
 
       if (!fs.existsSync(targetDir)) {
-        if (!options.dryRun) {
+        if (shouldWriteCanonical(options)) {
           ensureDir(options.paths.skillsDir);
           copySkillArtifacts(skill, targetDir);
         }
@@ -894,12 +925,23 @@ async function migrateSkills(
 
       if (!fs.statSync(targetDir).isDirectory()) {
         summary.conflicts += 1;
-        await resolveCanonicalConflict({
+        const decision = await resolveCanonicalConflict({
           conflictLabel: `skill "${targetName}" from ${providerLabel}`,
           yes: Boolean(options.yes),
           nonInteractive: Boolean(options.nonInteractive),
         });
-        summary.skipped += 1;
+        if (decision === "canonical") {
+          summary.skipped += 1;
+          continue;
+        }
+
+        if (shouldWriteCanonical(options)) {
+          fs.rmSync(targetDir, { recursive: true, force: true });
+          ensureDir(options.paths.skillsDir);
+          copySkillArtifacts(skill, targetDir);
+        }
+
+        summary.imported += 1;
         continue;
       }
 
@@ -920,7 +962,7 @@ async function migrateSkills(
         continue;
       }
 
-      if (!options.dryRun) {
+      if (shouldWriteCanonical(options)) {
         fs.rmSync(targetDir, { recursive: true, force: true });
         copySkillArtifacts(skill, targetDir);
       }
@@ -992,7 +1034,9 @@ async function resolveProviderDuplicateConflict(options: {
     process.exit(1);
   }
 
-  const selected = options.records.find((record) => record.sourcePath === choice);
+  const selected = options.records.find(
+    (record) => record.sourcePath === choice,
+  );
   if (!selected) {
     return options.records[0];
   }
@@ -1024,14 +1068,19 @@ async function chooseProviderSource(options: {
     process.exit(1);
   }
 
-  const selected = options.records.find((record) => record.sourcePath === choice);
+  const selected = options.records.find(
+    (record) => record.sourcePath === choice,
+  );
   if (!selected) {
     return options.records[0];
   }
   return selected;
 }
 
-function includesTarget(target: EntityType | "all", entity: EntityType): boolean {
+function includesTarget(
+  target: EntityType | "all",
+  entity: EntityType,
+): boolean {
   return target === "all" || target === entity;
 }
 
@@ -1051,4 +1100,8 @@ function dedupeProviders(providers: Provider[]): Provider[] {
     }
   }
   return [...seen];
+}
+
+function shouldWriteCanonical(options: MigrationOptions): boolean {
+  return !options.dryRun || Boolean(options.materializeCanonical);
 }

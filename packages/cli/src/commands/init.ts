@@ -1,11 +1,6 @@
 import type { ParsedArgs } from "minimist";
-import { parseProvidersFlag } from "../core/argv.js";
 import { getInitHelpText } from "../core/copy.js";
-import {
-  getNonInteractiveMode,
-  resolvePathsForCommand,
-} from "./entity-utils.js";
-import { formatSyncSummary, syncFromCanonical } from "../sync/index.js";
+import { runScopedSyncCommand } from "./sync.js";
 
 export async function runInitCommand(
   argv: ParsedArgs,
@@ -16,15 +11,10 @@ export async function runInitCommand(
     return;
   }
 
-  const paths = await resolvePathsForCommand(argv, cwd);
-  const summary = await syncFromCanonical({
-    paths,
-    providers: parseProvidersFlag(argv.providers),
-    yes: Boolean(argv.yes),
-    nonInteractive: getNonInteractiveMode(argv),
-    dryRun: Boolean(argv["dry-run"]),
+  await runScopedSyncCommand({
+    argv,
+    cwd,
     target: "all",
+    skipSync: Boolean(argv["no-sync"]),
   });
-
-  console.log(formatSyncSummary(summary, paths.agentsRoot));
 }

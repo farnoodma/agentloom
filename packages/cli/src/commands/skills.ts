@@ -1,23 +1,12 @@
 import path from "node:path";
 import type { ParsedArgs } from "minimist";
-import { parseProvidersFlag } from "../core/argv.js";
 import { formatUsageError } from "../core/copy.js";
-import {
-  applySkillProviderSideEffects,
-  parseSkillsDir,
-} from "../core/skills.js";
-import {
-  formatSyncSummary,
-  resolveProvidersForSync,
-  syncFromCanonical,
-} from "../sync/index.js";
+import { parseSkillsDir } from "../core/skills.js";
 import { runScopedAddCommand } from "./add.js";
 import { runScopedDeleteCommand } from "./delete.js";
-import {
-  getNonInteractiveMode,
-  resolvePathsForCommand,
-} from "./entity-utils.js";
+import { resolvePathsForCommand } from "./entity-utils.js";
 import { runScopedFindCommand } from "./find.js";
+import { runScopedSyncCommand } from "./sync.js";
 import { runScopedUpdateCommand } from "./update.js";
 
 export async function runSkillCommand(
@@ -117,32 +106,9 @@ export async function runSkillCommand(
     return;
   }
 
-  const paths = await resolvePathsForCommand(argv, cwd);
-  const nonInteractive = getNonInteractiveMode(argv);
-  const explicitProviders = parseProvidersFlag(argv.providers);
-  const providers = await resolveProvidersForSync({
-    paths,
-    explicitProviders,
-    nonInteractive,
-  });
-
-  applySkillProviderSideEffects({
-    paths,
-    providers,
-    dryRun: Boolean(argv["dry-run"]),
-    warn(message) {
-      console.warn(`Warning: ${message}`);
-    },
-  });
-
-  const summary = await syncFromCanonical({
-    paths,
-    providers,
-    yes: Boolean(argv.yes),
-    nonInteractive,
-    dryRun: Boolean(argv["dry-run"]),
+  await runScopedSyncCommand({
+    argv,
+    cwd,
     target: "skill",
   });
-
-  console.log(formatSyncSummary(summary, paths.agentsRoot));
 }
