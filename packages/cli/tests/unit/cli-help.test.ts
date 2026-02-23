@@ -14,7 +14,18 @@ describe("cli help routing", () => {
     const output = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
     expect(output).toContain("agentloom <aggregate-command> [options]");
     expect(output).toContain("Aggregate commands:");
+    expect(output).toContain("init");
     expect(output).toContain("find <query>");
+  });
+
+  it("prints init help", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await runCli(["init", "--help"]);
+
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(output).toContain("agentloom init [options]");
+    expect(output).toContain("--no-sync");
   });
 
   it("prints mcp help without requiring scope resolution", async () => {
