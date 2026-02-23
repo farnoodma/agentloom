@@ -1,6 +1,6 @@
 # agentloom
 
-`agentloom` is a unified CLI for managing agent definitions and MCP configuration across multiple AI coding tools — Cursor, Claude, Copilot, Codex, OpenCode, and Gemini.
+`agentloom` is a unified CLI for managing agent definitions and MCP configuration across multiple AI coding tools — Cursor, Claude, Copilot, Codex, OpenCode, Gemini, and Pi.
 
 For monorepo-level documentation and architecture context, see the [root README](../../README.md).
 

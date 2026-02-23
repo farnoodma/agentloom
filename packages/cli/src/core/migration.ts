@@ -17,6 +17,7 @@ import {
   getCursorMcpPath,
   getGeminiSettingsPath,
   getOpenCodeConfigPath,
+  getPiMcpPath,
   getProviderAgentsDir,
   getProviderCommandsDir,
   getProviderSkillsPaths,
@@ -764,6 +765,9 @@ function readProviderMcp(
   if (provider === "codex") {
     return readCodexMcp(getCodexConfigPath(paths));
   }
+  if (provider === "pi") {
+    return readJsonMcpServers(getPiMcpPath(paths));
+  }
   return {};
 }
 
@@ -903,7 +907,9 @@ async function migrateSkills(
       `${path.sep}.cursor${path.sep}`,
     )
       ? "cursor"
-      : "claude";
+      : providerSkillsDir.includes(`${path.sep}.pi${path.sep}`)
+        ? "pi"
+        : "claude";
     const skills = parseSkillsDir(providerSkillsDir);
     summary.detected += skills.length;
 

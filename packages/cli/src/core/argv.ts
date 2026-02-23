@@ -1,5 +1,6 @@
 import type { ParsedArgs } from "minimist";
 import minimist from "minimist";
+import { ALL_PROVIDERS } from "../types.js";
 import type { Provider, SelectionMode } from "../types.js";
 
 export function parseArgs(argv: string[]): ParsedArgs {
@@ -58,19 +59,12 @@ export function parseProvidersFlag(input: unknown): Provider[] | undefined {
 
   const validProviders: Provider[] = [];
   for (const provider of parsed) {
-    if (
-      provider === "cursor" ||
-      provider === "claude" ||
-      provider === "codex" ||
-      provider === "opencode" ||
-      provider === "gemini" ||
-      provider === "copilot"
-    ) {
-      validProviders.push(provider);
+    if ((ALL_PROVIDERS as readonly string[]).includes(provider)) {
+      validProviders.push(provider as Provider);
       continue;
     }
     throw new Error(
-      `Unknown provider: ${provider}. Expected one of: cursor, claude, codex, opencode, gemini, copilot.`,
+      `Unknown provider: ${provider}. Expected one of: ${ALL_PROVIDERS.join(", ")}.`,
     );
   }
 
