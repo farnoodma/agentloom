@@ -137,7 +137,7 @@ describe("manage-agents bootstrap in CLI", () => {
     commandMocks.runFindCommand.mockImplementation(async () => {
       order.push("find");
     });
-    commandMocks.runAddCommand.mockImplementation(async () => {
+    commandMocks.runSkillCommand.mockImplementation(async () => {
       order.push("bootstrap-install");
     });
 
@@ -151,9 +151,10 @@ describe("manage-agents bootstrap in CLI", () => {
     ]);
 
     expect(order).toEqual(["find", "bootstrap-install"]);
-    expect(commandMocks.runAddCommand).toHaveBeenCalledTimes(1);
+    expect(commandMocks.runSkillCommand).toHaveBeenCalledTimes(1);
+    expect(commandMocks.runAddCommand).not.toHaveBeenCalled();
 
-    const [bootstrapArgv] = commandMocks.runAddCommand.mock.calls[0] as [
+    const [bootstrapArgv] = commandMocks.runSkillCommand.mock.calls[0] as [
       Record<string, unknown>,
     ];
     expect(bootstrapArgv._).toEqual(["skill", "add", "farnoodma/agentloom"]);
@@ -191,9 +192,10 @@ describe("manage-agents bootstrap in CLI", () => {
     await runCli(["sync"]);
 
     expect(commandMocks.runSyncCommand).toHaveBeenCalledTimes(1);
-    expect(commandMocks.runAddCommand).toHaveBeenCalledTimes(1);
+    expect(commandMocks.runSkillCommand).toHaveBeenCalledTimes(1);
+    expect(commandMocks.runAddCommand).not.toHaveBeenCalled();
 
-    const [bootstrapArgv] = commandMocks.runAddCommand.mock.calls[0] as [
+    const [bootstrapArgv] = commandMocks.runSkillCommand.mock.calls[0] as [
       Record<string, unknown>,
     ];
     expect(bootstrapArgv._).toEqual(["skill", "add", "farnoodma/agentloom"]);

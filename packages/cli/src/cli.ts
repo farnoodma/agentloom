@@ -69,7 +69,7 @@ export async function runCli(argv: string[]): Promise<void> {
 
   if (shouldBootstrapManageAgents) {
     const bootstrapArgs = buildManageAgentsBootstrapArgs(parsed, cwd);
-    await runAddCommand(parseArgs(bootstrapArgs), cwd);
+    await runSkillCommand(parseArgs(bootstrapArgs), cwd);
   }
 }
 
