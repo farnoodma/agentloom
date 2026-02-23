@@ -158,7 +158,7 @@ export function LeaderboardList({
 
   return (
     <div className="overflow-hidden rounded-xl border border-ink/10 dark:border-white/10">
-      <div className="grid grid-cols-[70px_1fr_120px] bg-chalk px-4 py-2 text-xs uppercase tracking-wide text-ink/60 dark:bg-white/10 dark:text-white/70">
+      <div className="grid grid-cols-[56px_minmax(0,1fr)_88px] gap-2 bg-chalk px-4 py-2 text-[11px] uppercase tracking-wide text-ink/60 sm:grid-cols-[70px_minmax(0,1fr)_120px] sm:gap-3 sm:text-xs dark:bg-white/10 dark:text-white/70">
         <span>Rank</span>
         <span>Item</span>
         <span className="text-right">{periodLabel}</span>
@@ -176,26 +176,26 @@ export function LeaderboardList({
               <li key={row.id}>
                 <Link
                   href={`/${row.owner}/${row.repo}/${row.entityType}/${row.itemSlug}`}
-                  className="grid grid-cols-[70px_1fr_120px] items-center gap-3 border-t border-ink/10 px-4 py-3 transition hover:bg-chalk/60 dark:border-white/10 dark:hover:bg-white/5"
+                  className="grid grid-cols-[56px_minmax(0,1fr)_88px] items-center gap-2 border-t border-ink/10 px-4 py-3 transition hover:bg-chalk/60 sm:grid-cols-[70px_minmax(0,1fr)_120px] sm:gap-3 dark:border-white/10 dark:hover:bg-white/5"
                 >
                   <span className="font-mono text-sm text-ink/60 dark:text-white/60">
                     {index + 1}
                   </span>
-                  <span>
-                    <span className="inline-flex items-center gap-2">
-                      <span className="text-sm font-semibold">
+                  <span className="min-w-0">
+                    <span className="flex min-w-0 flex-wrap items-center gap-2 sm:flex-nowrap">
+                      <span className="truncate text-sm font-semibold">
                         {row.displayName}
                       </span>
-                      <span className="rounded-full border border-ink/15 bg-white px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide text-ink/60 dark:border-white/15 dark:bg-white/10 dark:text-white/70">
+                      <span className="shrink-0 rounded-full border border-ink/15 bg-white px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide text-ink/60 dark:border-white/15 dark:bg-white/10 dark:text-white/70">
                         {row.entityType}
                       </span>
                     </span>
-                    <span className="mt-1 block text-xs text-ink/60 dark:text-white/60">
+                    <span className="mt-1 block truncate text-xs text-ink/60 dark:text-white/60">
                       {row.owner}/{row.repo} • First seen{" "}
                       {formatHumanDate(row.firstSeenAt)}
                     </span>
                   </span>
-                  <span className="text-right font-mono text-sm text-ink dark:text-white">
+                  <span className="text-right font-mono text-xs text-ink sm:text-sm dark:text-white">
                     {formatInstallCount(row.installs)}
                   </span>
                 </Link>
