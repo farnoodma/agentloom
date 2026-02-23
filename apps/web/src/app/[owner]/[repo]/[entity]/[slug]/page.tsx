@@ -89,14 +89,14 @@ export default async function DetailPage({ params }: DetailPageProps) {
 
         <div className="mt-6 rounded-xl border border-ink/10 bg-chalk p-4 dark:border-white/10 dark:bg-white/5">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <code className="overflow-x-auto font-mono text-xs text-ink md:text-sm dark:text-white">$ {installCommand}</code>
+            <code className="min-w-0 overflow-x-auto font-mono text-xs text-ink md:text-sm dark:text-white">$ {installCommand}</code>
             <CopyCommand command={installCommand} />
           </div>
         </div>
       </section>
 
-      <section className="grid gap-6 md:grid-cols-[280px_1fr]">
-        <aside className="space-y-3 rounded-2xl border border-ink/10 bg-white p-5 shadow-card dark:border-white/10 dark:bg-black/30">
+      <section className="grid grid-cols-1 gap-6 md:grid-cols-[280px_minmax(0,1fr)]">
+        <aside className="min-w-0 space-y-3 rounded-2xl border border-ink/10 bg-white p-5 shadow-card dark:border-white/10 dark:bg-black/30">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-ink/70 dark:text-white/70">Install Stats</h2>
           <dl className="space-y-3 text-sm">
             <div className="rounded-lg border border-ink/10 bg-chalk/60 p-3 dark:border-white/10 dark:bg-white/5">
@@ -115,13 +115,13 @@ export default async function DetailPage({ params }: DetailPageProps) {
               <dt className="text-ink/60 dark:text-white/60">Weekly</dt>
               <dd className="mt-1 font-mono text-xl">{detail.weeklyInstalls.toLocaleString("en-US")}</dd>
             </div>
-            <div className="text-xs text-ink/60 dark:text-white/60">
+            <div className="break-all text-xs text-ink/60 dark:text-white/60">
               Last seen {formatHumanDate(detail.lastSeenAt)} • Path {detail.sourceFilePath}
             </div>
           </dl>
         </aside>
 
-        <article className="rounded-2xl border border-ink/10 bg-white p-5 shadow-card md:p-8 dark:border-white/10 dark:bg-black/30">
+        <article className="min-w-0 rounded-2xl border border-ink/10 bg-white p-5 shadow-card md:p-8 dark:border-white/10 dark:bg-black/30">
           <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-ink/70 dark:text-white/70">Source Preview</h2>
 
           {!source ? (
@@ -129,7 +129,7 @@ export default async function DetailPage({ params }: DetailPageProps) {
               Source could not be fetched from GitHub yet. The telemetry record exists and will still appear in ranking.
             </p>
           ) : source.resolvedPath.endsWith(".md") ? (
-            <div className="prose prose-slate max-w-none dark:prose-invert">
+            <div className="prose prose-slate max-w-none break-words prose-pre:max-w-full prose-pre:overflow-x-auto dark:prose-invert">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{source.content}</ReactMarkdown>
             </div>
           ) : (
