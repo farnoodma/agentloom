@@ -15,9 +15,10 @@ Usage:
 
 Aggregate commands:
   add <source>               Import agents/commands/mcp/skills from a source
+  init                       Bootstrap canonical files, migrate providers, then sync
   find <query>               Search remote + local entities
   update [source]            Refresh lockfile-managed imports
-  sync                       Generate provider-specific outputs
+  sync                       Migrate provider configs then generate provider outputs
   delete <source|name>       Delete imported entities by source or name
 
 Entity commands:
@@ -123,7 +124,7 @@ Example:
 }
 
 export function getSyncHelpText(): string {
-  return `Generate provider-specific files from canonical .agents data.
+  return `Migrate provider configs into canonical .agents data, then generate provider-specific outputs.
 
 Usage:
   agentloom sync [options]
@@ -134,6 +135,21 @@ Options:
   --providers <csv>          Limit providers (${PROVIDERS_CSV})
   --yes                      Auto-delete stale generated files
   --dry-run                  Show file changes without writing
+`;
+}
+
+export function getInitHelpText(): string {
+  return `Bootstrap canonical .agents files, migrate provider configs into canonical state, and sync providers.
+
+Usage:
+  agentloom init [options]
+
+Options:
+  --local | --global         Choose canonical scope (interactive prompts when omitted)
+  --providers <csv>          Limit providers (${PROVIDERS_CSV})
+  --yes                      Skip interactive conflict prompts and fail fast in non-interactive flows
+  --no-sync                  Skip sync after canonical bootstrap + migration
+  --dry-run                  Show planned migration/sync changes without writing
 `;
 }
 
