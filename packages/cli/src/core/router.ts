@@ -1,6 +1,12 @@
 import type { EntityType } from "../types.js";
 
-export type AggregateVerb = "add" | "find" | "update" | "sync" | "delete";
+export type AggregateVerb =
+  | "add"
+  | "find"
+  | "update"
+  | "sync"
+  | "delete"
+  | "init";
 export type EntityVerb = "add" | "list" | "delete" | "find" | "update" | "sync";
 export type McpServerVerb = "add" | "list" | "delete";
 
@@ -25,6 +31,7 @@ const AGGREGATE_VERBS = new Set<AggregateVerb>([
   "update",
   "sync",
   "delete",
+  "init",
 ]);
 
 const ENTITY_NOUNS = new Set<EntityType>(["agent", "command", "mcp", "skill"]);
