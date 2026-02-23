@@ -18,8 +18,9 @@ const plexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Agentloom Directory",
-  description: "A public directory for Agentloom agents, commands, and MCP servers.",
+  title: "Agentloom — One agent config. Every AI tool.",
+  description:
+    "Define your AI agents, skills, commands, and MCP servers once. Sync them to Cursor, Claude, Copilot, Codex, OpenCode, and Gemini in one command.",
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
@@ -32,11 +33,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       className={`${spaceGrotesk.variable} ${plexMono.variable} ${theme === "dark" ? "dark" : ""}`}
     >
       <body className="font-display text-ink antialiased">
-        <div className="sticky top-4 z-20 mx-auto flex w-full max-w-6xl items-center justify-end gap-2 px-4 sm:px-8">
-          <GitHubLink />
-          <ThemeToggle initialTheme={theme} />
+        <div className="mx-auto w-full max-w-6xl px-4 sm:px-8">
+          <div className="flex items-center justify-end gap-2 py-4">
+            <GitHubLink />
+            <ThemeToggle initialTheme={theme} />
+          </div>
+          <div className="pb-20">{children}</div>
         </div>
-        <div className="mx-auto w-full max-w-6xl px-4 pb-20 pt-6 sm:px-8">{children}</div>
       </body>
     </html>
   );
