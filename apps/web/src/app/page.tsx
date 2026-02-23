@@ -119,20 +119,20 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       <header className="rounded-2xl border border-ink/10 bg-white/75 p-6 shadow-card backdrop-blur md:p-10 dark:border-white/10 dark:bg-black/35">
         <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
           <div className="space-y-4">
-            <p className="font-mono text-xs uppercase tracking-[0.2em] text-ink/60 dark:text-white/60">Agentloom Directory</p>
+            <p className="font-mono text-xs uppercase tracking-[0.2em] text-ink/60 dark:text-white/60">Stop copying prompts between tools</p>
             <h1 className="max-w-2xl text-3xl font-semibold leading-tight md:text-5xl">
-              Agentloom is a CLI for importing agents, skills, commands, and MCP servers.
+              One agent config.<br />Every AI tool.
             </h1>
             <p className="max-w-2xl text-sm text-ink/70 md:text-base dark:text-white/70">
-              Add a GitHub source in one command, sync it to your coding tools, and browse what teams are
-              installing across the public ecosystem.
+              Define agents, skills, commands, and MCP servers once — sync them to Cursor, Claude, Copilot, Codex, OpenCode, and Gemini instantly.
+              Import community setups from GitHub in a single command.
             </p>
           </div>
           <Link
             href="/docs"
             className="inline-flex w-fit items-center rounded-full border border-ink/20 bg-ink px-4 py-2 text-sm font-medium text-white transition hover:bg-ink/90 dark:border-white/15 dark:bg-white/90 dark:text-black dark:hover:bg-white"
           >
-            Read Docs
+            Read the Docs →
           </Link>
         </div>
 
