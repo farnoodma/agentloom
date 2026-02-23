@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { cancel, isCancel, multiselect } from "@clack/prompts";
 import TOML from "@iarna/toml";
@@ -32,6 +31,20 @@ import {
 } from "../core/fs.js";
 import { readManifest, writeManifest } from "../core/manifest.js";
 import { readCanonicalMcp, resolveMcpForProvider } from "../core/mcp.js";
+import {
+  getClaudeMcpPath,
+  getClaudeSettingsPath,
+  getCodexAgentsDir,
+  getCodexConfigPath,
+  getCodexRootDir,
+  getCopilotMcpPath,
+  getCursorMcpPath,
+  getGeminiSettingsPath,
+  getOpenCodeConfigPath,
+  getProviderAgentsDir,
+  getProviderCommandsDir,
+  getVsCodeSettingsPath,
+} from "../core/provider-paths.js";
 import {
   getGlobalSettingsPath,
   readSettings,
@@ -342,40 +355,6 @@ function buildProviderAgentContent(
   return `---\n${fm}\n---\n\n${agent.body.trimStart()}${agent.body.endsWith("\n") ? "" : "\n"}`;
 }
 
-function getProviderAgentsDir(paths: ScopePaths, provider: Provider): string {
-  const workspaceRoot = paths.workspaceRoot;
-  const home = paths.homeDir;
-
-  switch (provider) {
-    case "cursor":
-      return paths.scope === "local"
-        ? path.join(workspaceRoot, ".cursor", "agents")
-        : path.join(home, ".cursor", "agents");
-    case "claude":
-      return paths.scope === "local"
-        ? path.join(workspaceRoot, ".claude", "agents")
-        : path.join(home, ".claude", "agents");
-    case "codex":
-      return paths.scope === "local"
-        ? path.join(workspaceRoot, ".codex", "agents")
-        : path.join(home, ".codex", "agents");
-    case "opencode":
-      return paths.scope === "local"
-        ? path.join(workspaceRoot, ".opencode", "agents")
-        : path.join(home, ".config", "opencode", "agents");
-    case "gemini":
-      return paths.scope === "local"
-        ? path.join(workspaceRoot, ".gemini", "agents")
-        : path.join(home, ".gemini", "agents");
-    case "copilot":
-      return paths.scope === "local"
-        ? path.join(workspaceRoot, ".github", "agents")
-        : path.join(home, ".vscode", "chatmodes");
-    default:
-      return path.join(workspaceRoot, ".agents", "unknown");
-  }
-}
-
 function syncProviderCommands(options: {
   provider: Provider;
   paths: ScopePaths;
@@ -430,38 +409,6 @@ function mapProviderCommandFileName(
   return fileName;
 }
 
-function getProviderCommandsDir(paths: ScopePaths, provider: Provider): string {
-  const workspaceRoot = paths.workspaceRoot;
-  const home = paths.homeDir;
-
-  switch (provider) {
-    case "cursor":
-      return paths.scope === "local"
-        ? path.join(workspaceRoot, ".cursor", "commands")
-        : path.join(home, ".cursor", "commands");
-    case "claude":
-      return paths.scope === "local"
-        ? path.join(workspaceRoot, ".claude", "commands")
-        : path.join(home, ".claude", "commands");
-    case "codex":
-      return path.join(home, ".codex", "prompts");
-    case "opencode":
-      return paths.scope === "local"
-        ? path.join(workspaceRoot, ".opencode", "commands")
-        : path.join(home, ".config", "opencode", "commands");
-    case "gemini":
-      return paths.scope === "local"
-        ? path.join(workspaceRoot, ".gemini", "commands")
-        : path.join(home, ".gemini", "commands");
-    case "copilot":
-      return paths.scope === "local"
-        ? path.join(workspaceRoot, ".github", "prompts")
-        : path.join(home, ".github", "prompts");
-    default:
-      return path.join(workspaceRoot, ".agents", "unknown", "commands");
-  }
-}
-
 function syncProviderMcp(options: {
   providers: Provider[];
   paths: ScopePaths;
@@ -474,10 +421,7 @@ function syncProviderMcp(options: {
     const resolved = resolveMcpForProvider(options.mcp, provider);
 
     if (provider === "cursor") {
-      const outputPath =
-        options.paths.scope === "local"
-          ? path.join(options.paths.workspaceRoot, ".cursor", "mcp.json")
-          : path.join(options.paths.homeDir, ".cursor", "mcp.json");
+      const outputPath = getCursorMcpPath(options.paths);
 
       const payload = {
         mcpServers: mapMcpServers(resolved, ["url", "command", "args", "env"]),
@@ -489,15 +433,8 @@ function syncProviderMcp(options: {
     }
 
     if (provider === "claude") {
-      const mcpPath =
-        options.paths.scope === "local"
-          ? path.join(options.paths.workspaceRoot, ".mcp.json")
-          : path.join(options.paths.homeDir, ".mcp.json");
-
-      const settingsPath =
-        options.paths.scope === "local"
-          ? path.join(options.paths.workspaceRoot, ".claude", "settings.json")
-          : path.join(options.paths.homeDir, ".claude.json");
+      const mcpPath = getClaudeMcpPath(options.paths);
+      const settingsPath = getClaudeSettingsPath(options.paths);
 
       const claudeServers = mapMcpServers(resolved, [
         "type",
@@ -525,15 +462,7 @@ function syncProviderMcp(options: {
     }
 
     if (provider === "opencode") {
-      const outputPath =
-        options.paths.scope === "local"
-          ? path.join(options.paths.workspaceRoot, ".opencode", "opencode.json")
-          : path.join(
-              options.paths.homeDir,
-              ".config",
-              "opencode",
-              "opencode.json",
-            );
+      const outputPath = getOpenCodeConfigPath(options.paths);
 
       const existing =
         readJsonIfExists<Record<string, unknown>>(outputPath) ?? {};
@@ -569,10 +498,7 @@ function syncProviderMcp(options: {
     }
 
     if (provider === "gemini") {
-      const outputPath =
-        options.paths.scope === "local"
-          ? path.join(options.paths.workspaceRoot, ".gemini", "settings.json")
-          : path.join(options.paths.homeDir, ".gemini", "settings.json");
+      const outputPath = getGeminiSettingsPath(options.paths);
 
       const existing =
         readJsonIfExists<Record<string, unknown>>(outputPath) ?? {};
@@ -603,10 +529,7 @@ function syncProviderMcp(options: {
     }
 
     if (provider === "copilot") {
-      const profileMcpPath =
-        options.paths.scope === "local"
-          ? path.join(options.paths.workspaceRoot, ".vscode", "mcp.json")
-          : path.join(options.paths.homeDir, ".vscode", "mcp.json");
+      const profileMcpPath = getCopilotMcpPath(options.paths);
 
       const copilotServers = mapMcpServers(resolved, [
         "type",
@@ -656,12 +579,9 @@ function syncCodex(options: {
   includeRoles: boolean;
   includeMcp: boolean;
 }): void {
-  const codexDir =
-    options.paths.scope === "local"
-      ? path.join(options.paths.workspaceRoot, ".codex")
-      : path.join(options.paths.homeDir, ".codex");
-  const codexConfigPath = path.join(codexDir, "config.toml");
-  const codexAgentsDir = path.join(codexDir, "agents");
+  const codexDir = getCodexRootDir(options.paths);
+  const codexConfigPath = getCodexConfigPath(options.paths);
+  const codexAgentsDir = getCodexAgentsDir(options.paths);
 
   const rawConfig = fs.existsSync(codexConfigPath)
     ? fs.readFileSync(codexConfigPath, "utf8")
@@ -888,36 +808,6 @@ async function removeStaleGeneratedFiles(options: {
     removeFileIfExists(filePath);
   }
   return stale;
-}
-
-function getVsCodeSettingsPath(homeDir: string): string {
-  switch (os.platform()) {
-    case "darwin":
-      return path.join(
-        homeDir,
-        "Library",
-        "Application Support",
-        "Code",
-        "User",
-        "settings.json",
-      );
-    case "win32": {
-      const appData = process.env.APPDATA;
-      if (!appData) {
-        return path.join(
-          homeDir,
-          "AppData",
-          "Roaming",
-          "Code",
-          "User",
-          "settings.json",
-        );
-      }
-      return path.join(appData, "Code", "User", "settings.json");
-    }
-    default:
-      return path.join(homeDir, ".config", "Code", "User", "settings.json");
-  }
 }
 
 function normalizeGeneratedByEntity(
