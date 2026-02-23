@@ -3,6 +3,7 @@ import path from "node:path";
 import matter from "gray-matter";
 import type { Provider, ScopePaths } from "../types.js";
 import { ensureDir, slugify } from "./fs.js";
+import { getProviderSkillsPaths } from "./provider-paths.js";
 
 export interface CanonicalSkill {
   name: string;
@@ -178,10 +179,7 @@ export function applySkillProviderSideEffects(options: {
   dryRun?: boolean;
   warn?: (message: string) => void;
 }): void {
-  const pathsToSymlink = resolveProviderSkillsPaths(
-    options.paths,
-    options.providers,
-  );
+  const pathsToSymlink = getProviderSkillsPaths(options.paths, options.providers);
   if (pathsToSymlink.length === 0) return;
 
   const canonicalSkillsDir = options.paths.skillsDir;
@@ -197,33 +195,6 @@ export function applySkillProviderSideEffects(options: {
       warn: options.warn,
     });
   }
-}
-
-function resolveProviderSkillsPaths(
-  paths: ScopePaths,
-  providers: Provider[],
-): string[] {
-  const targets = new Set<string>();
-  const hasClaudeStyleProvider =
-    providers.includes("claude") || providers.includes("copilot");
-
-  if (hasClaudeStyleProvider) {
-    targets.add(
-      paths.scope === "local"
-        ? path.join(paths.workspaceRoot, ".claude", "skills")
-        : path.join(paths.homeDir, ".claude", "skills"),
-    );
-  }
-
-  if (providers.includes("cursor")) {
-    targets.add(
-      paths.scope === "local"
-        ? path.join(paths.workspaceRoot, ".cursor", "skills")
-        : path.join(paths.homeDir, ".cursor", "skills"),
-    );
-  }
-
-  return [...targets];
 }
 
 function enforceProviderSkillsSymlink(options: {
