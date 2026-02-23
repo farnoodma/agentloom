@@ -41,6 +41,7 @@ import {
   getCursorMcpPath,
   getGeminiSettingsPath,
   getOpenCodeConfigPath,
+  getPiMcpPath,
   getProviderAgentsDir,
   getProviderCommandsDir,
   getVsCodeSettingsPath,
@@ -231,6 +232,7 @@ const PROVIDER_LABELS: Record<Provider, string> = {
   opencode: "OpenCode",
   gemini: "Gemini",
   copilot: "Copilot",
+  pi: "Pi",
 };
 
 const MULTISELECT_HELP_TEXT = "↑↓ move, space select, enter confirm";
@@ -565,6 +567,18 @@ function syncProviderMcp(options: {
         options.generated.add(settingsPath);
       }
     }
+
+    if (provider === "pi") {
+      const outputPath = getPiMcpPath(options.paths);
+
+      const payload = {
+        mcpServers: mapMcpServers(resolved, ["url", "command", "args", "env"]),
+      };
+
+      maybeWriteJson(outputPath, payload, options.dryRun);
+      options.generated.add(outputPath);
+      continue;
+    }
   }
 }
 
@@ -875,7 +889,8 @@ function isLegacyCommandOutputPath(normalizedPath: string): boolean {
     normalizedPath.includes("/.opencode/commands/") ||
     normalizedPath.includes("/.gemini/commands/") ||
     normalizedPath.includes("/.github/prompts/") ||
-    normalizedPath.includes("/.codex/prompts/")
+    normalizedPath.includes("/.codex/prompts/") ||
+    normalizedPath.includes("/.pi/prompts/")
   );
 }
 
@@ -887,7 +902,8 @@ function isLegacyAgentOutputPath(normalizedPath: string): boolean {
     normalizedPath.includes("/.opencode/agents/") ||
     normalizedPath.includes("/.gemini/agents/") ||
     normalizedPath.includes("/.github/agents/") ||
-    normalizedPath.includes("/.codex/agents/")
+    normalizedPath.includes("/.codex/agents/") ||
+    normalizedPath.includes("/.pi/agents/")
   );
 }
 
@@ -899,7 +915,9 @@ function isLegacyMcpOutputPath(normalizedPath: string): boolean {
     normalizedPath.endsWith("/.opencode/opencode.json") ||
     normalizedPath.endsWith("/.gemini/settings.json") ||
     normalizedPath.endsWith("/.vscode/mcp.json") ||
-    normalizedPath.endsWith("/code/user/settings.json")
+    normalizedPath.endsWith("/code/user/settings.json") ||
+    normalizedPath.endsWith("/.pi/mcp.json") ||
+    normalizedPath.endsWith("/.pi/agent/mcp.json")
   );
 }
 

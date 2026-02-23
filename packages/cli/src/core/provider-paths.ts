@@ -32,6 +32,10 @@ export function getProviderAgentsDir(
       return paths.scope === "local"
         ? path.join(workspaceRoot, ".github", "agents")
         : path.join(home, ".vscode", "chatmodes");
+    case "pi":
+      return paths.scope === "local"
+        ? path.join(workspaceRoot, ".pi", "agents")
+        : path.join(home, ".pi", "agent", "agents");
     default:
       return path.join(workspaceRoot, ".agents", "unknown");
   }
@@ -67,6 +71,10 @@ export function getProviderCommandsDir(
       return paths.scope === "local"
         ? path.join(workspaceRoot, ".github", "prompts")
         : path.join(home, ".github", "prompts");
+    case "pi":
+      return paths.scope === "local"
+        ? path.join(workspaceRoot, ".pi", "prompts")
+        : path.join(home, ".pi", "agent", "prompts");
     default:
       return path.join(workspaceRoot, ".agents", "unknown", "commands");
   }
@@ -93,6 +101,14 @@ export function getProviderSkillsPaths(
       paths.scope === "local"
         ? path.join(paths.workspaceRoot, ".cursor", "skills")
         : path.join(paths.homeDir, ".cursor", "skills"),
+    );
+  }
+
+  if (providers.includes("pi")) {
+    targets.add(
+      paths.scope === "local"
+        ? path.join(paths.workspaceRoot, ".pi", "skills")
+        : path.join(paths.homeDir, ".pi", "agent", "skills"),
     );
   }
 
@@ -151,6 +167,12 @@ export function getCodexAgentsDir(paths: ScopePaths): string {
 
 export function getCodexPromptsDir(paths: ScopePaths): string {
   return path.join(paths.homeDir, ".codex", "prompts");
+}
+
+export function getPiMcpPath(paths: ScopePaths): string {
+  return paths.scope === "local"
+    ? path.join(paths.workspaceRoot, ".pi", "mcp.json")
+    : path.join(paths.homeDir, ".pi", "agent", "mcp.json");
 }
 
 export function getVsCodeSettingsPath(homeDir: string): string {

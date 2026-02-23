@@ -1,4 +1,5 @@
 import type { ParsedArgs } from "minimist";
+import { ALL_PROVIDERS } from "../types.js";
 import type { Provider } from "../types.js";
 import { getStringArrayFlag, parseProvidersFlag } from "../core/argv.js";
 import {
@@ -327,16 +328,8 @@ function runMcpAdd(
     const providerMap: Partial<
       Record<Provider, Record<string, unknown> | false>
     > = {};
-    const allProviders: Provider[] = [
-      "cursor",
-      "claude",
-      "codex",
-      "opencode",
-      "gemini",
-      "copilot",
-    ];
 
-    for (const provider of allProviders) {
+    for (const provider of ALL_PROVIDERS) {
       providerMap[provider] = providers.includes(provider)
         ? { ...baseConfig }
         : false;

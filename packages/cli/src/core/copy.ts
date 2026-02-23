@@ -4,7 +4,9 @@ type UsageErrorInput = {
   example?: string;
 };
 
-const PROVIDERS_CSV = "cursor,claude,codex,opencode,gemini,copilot";
+import { ALL_PROVIDERS } from "../types.js";
+
+const PROVIDERS_CSV = ALL_PROVIDERS.join(",");
 
 export function getRootHelpText(): string {
   return `agentloom - unified canonical agent package manager
