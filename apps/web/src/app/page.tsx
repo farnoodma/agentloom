@@ -168,6 +168,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
               <Link
                 key={option}
                 href={withQuery({ period: option, entity, q })}
+                scroll={false}
                 className={`rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-wide transition ${
                   active
                     ? "border-ink bg-ink text-white dark:border-white dark:bg-white dark:text-black"
@@ -187,6 +188,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
               <Link
                 key={option}
                 href={withQuery({ period, entity: option, q })}
+                scroll={false}
                 className={`rounded-md border px-3 py-1 text-xs font-medium transition ${
                   active
                     ? "border-ember bg-ember text-white"

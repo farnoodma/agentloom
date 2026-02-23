@@ -19,7 +19,7 @@ function CodeBlock({ children, command }: { children: string; command?: boolean 
   return (
     <div className="relative rounded-xl border border-ink/10 bg-chalk/80 p-4 card-grid dark:border-white/10 dark:bg-white/5">
       <div className="flex items-start justify-between gap-3">
-        <pre className="overflow-x-auto font-mono text-xs leading-relaxed text-ink md:text-sm dark:text-white">
+        <pre className="min-w-0 flex-1 overflow-x-auto font-mono text-xs leading-relaxed text-ink md:text-sm dark:text-white">
           <code>{children}</code>
         </pre>
         {command && <CopyCommand command={children.replace(/^\$ /, "")} />}
@@ -97,7 +97,7 @@ export default function DocsPage() {
         </nav>
 
         {/* Content */}
-        <div className="space-y-8">
+        <div className="min-w-0 space-y-8">
           {/* Overview */}
           <section className="space-y-4 rounded-2xl border border-ink/10 bg-white p-6 shadow-card md:p-8 dark:border-white/10 dark:bg-black/30">
             <SectionHeading id="overview">Overview</SectionHeading>
