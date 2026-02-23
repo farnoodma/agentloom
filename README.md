@@ -1,18 +1,55 @@
 # agentloom
 
-`agentloom` is a monorepo with:
+**Write your agents once. Use them everywhere.**
 
-- `packages/cli`: the published `agentloom` CLI
-- `apps/web`: the Agentloom public directory web app
-- website: [agentloom.sh](https://agentloom.sh)
+If you're juggling Cursor, Claude, Copilot, Codex, Gemini, and OpenCode — you know the pain. Each tool has its own config format, its own folder structure, its own way of defining agents, commands, and MCP servers. You end up copy-pasting prompts, maintaining six versions of the same agent, and losing track of what's where.
 
-## Install CLI
+Agentloom fixes that. You define your agents, commands, skills, and MCP servers once in a single `.agents/` directory, and agentloom syncs them to every tool you use.
 
 ```bash
-npm i -g agentloom
-# or
-npx agentloom --help
+npx agentloom init
 ```
+
+That's it. Agentloom detects your existing provider configs, migrates them into a unified canonical format, and syncs everything back out. Your agents now work across all your tools.
+
+## What you get
+
+- **One source of truth** — a `.agents/` directory with your agents, commands, skills, and MCP configs in plain markdown and JSON. Version-controlled, diffable, reviewable.
+- **Instant sync** — run `agentloom sync` and your definitions flow to Cursor, Claude, Copilot, Codex, OpenCode, and Gemini in their native formats.
+- **Import from anywhere** — `agentloom add user/repo` pulls agents and skills from GitHub repos. Share your best setups with your team or the community.
+- **No lock-in** — switch tools tomorrow and your agents come with you.
+
+## Quick start
+
+```bash
+# initialize and sync to your tools
+npx agentloom init
+
+# import agents from a GitHub repo (syncs automatically)
+npx agentloom add farnoodma/agents
+
+# re-sync after manual edits to .agents/
+npx agentloom sync
+```
+
+## Documentation
+
+For full CLI usage, commands, schemas, and configuration details, see the [CLI documentation](packages/cli/README.md).
+
+## Supported providers
+
+| Provider | Agents | Commands | Skills | MCP |
+|----------|--------|----------|--------|-----|
+| Cursor   |   +    |    +     |   +    |  +  |
+| Claude   |   +    |    +     |   +    |  +  |
+| Copilot  |   +    |    +     |   +    |  +  |
+| Codex    |   +    |    +     |   +    |  +  |
+| OpenCode |   +    |    +     |   +    |  +  |
+| Gemini   |   +    |    +     |   +    |  +  |
+
+## Directory
+
+Browse and discover community agents, skills, and MCP configs at [agentloom.sh](https://agentloom.sh).
 
 ## Monorepo layout
 
@@ -22,43 +59,6 @@ packages/
 apps/
   web/      # Next.js directory + telemetry ingest API
 ```
-
-## CLI overview
-
-The CLI manages canonical `.agents` config and syncs provider-native outputs for:
-
-- Cursor
-- Claude
-- Codex
-- OpenCode
-- Gemini
-- Copilot
-
-Canonical local layout:
-
-```text
-.agents/
-  agents/
-  commands/
-  skills/
-  mcp.json
-  agents.lock.json
-  settings.local.json
-```
-
-### Key commands
-
-```bash
-agentloom init [--local|--global] [--providers <csv>] [--yes] [--no-sync] [--dry-run]
-agentloom sync [--local|--global] [--providers <csv>] [--yes] [--dry-run]
-agentloom <agent|command|mcp|skill> sync [--local|--global] [--providers <csv>] [--yes] [--dry-run]
-```
-
-- `init`: bootstraps canonical `.agents` files, migrates provider state into canonical files, and syncs provider outputs by default.
-- `sync`: runs provider-to-canonical migration as a pre-step, then generates provider outputs.
-- conflict handling during migration:
-  - interactive sessions prompt for conflict resolution.
-  - non-interactive sessions (or `--yes`) fail fast with actionable conflict output and exit code `2`.
 
 ## Telemetry
 
