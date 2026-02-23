@@ -46,6 +46,20 @@ Canonical local layout:
   settings.local.json
 ```
 
+### Key commands
+
+```bash
+agentloom init [--local|--global] [--providers <csv>] [--yes] [--no-sync] [--dry-run]
+agentloom sync [--local|--global] [--providers <csv>] [--yes] [--dry-run]
+agentloom <agent|command|mcp|skill> sync [--local|--global] [--providers <csv>] [--yes] [--dry-run]
+```
+
+- `init`: bootstraps canonical `.agents` files, migrates provider state into canonical files, and syncs provider outputs by default.
+- `sync`: runs provider-to-canonical migration as a pre-step, then generates provider outputs.
+- conflict handling during migration:
+  - interactive sessions prompt for conflict resolution.
+  - non-interactive sessions (or `--yes`) fail fast with actionable conflict output and exit code `2`.
+
 ## Telemetry
 
 Successful GitHub-based `agentloom add` imports can send anonymous install telemetry to the Agentloom directory API.

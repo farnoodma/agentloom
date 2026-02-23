@@ -4,16 +4,12 @@ import type { ScopePaths } from "../../src/types.js";
 
 const commandMocks = vi.hoisted(() => ({
   parseSkillsDir: vi.fn(),
-  applySkillProviderSideEffects: vi.fn(),
   runScopedAddCommand: vi.fn(),
   runScopedDeleteCommand: vi.fn(),
   runScopedUpdateCommand: vi.fn(),
   runScopedFindCommand: vi.fn(),
+  runScopedSyncCommand: vi.fn(),
   resolvePathsForCommand: vi.fn(),
-  getNonInteractiveMode: vi.fn(),
-  resolveProvidersForSync: vi.fn(),
-  syncFromCanonical: vi.fn(),
-  formatSyncSummary: vi.fn(),
 }));
 
 vi.mock("../../src/core/skills.js", async () => {
@@ -23,7 +19,6 @@ vi.mock("../../src/core/skills.js", async () => {
   return {
     ...actual,
     parseSkillsDir: commandMocks.parseSkillsDir,
-    applySkillProviderSideEffects: commandMocks.applySkillProviderSideEffects,
   };
 });
 
@@ -43,22 +38,13 @@ vi.mock("../../src/commands/find.js", () => ({
   runScopedFindCommand: commandMocks.runScopedFindCommand,
 }));
 
-vi.mock("../../src/commands/entity-utils.js", () => ({
-  resolvePathsForCommand: commandMocks.resolvePathsForCommand,
-  getNonInteractiveMode: commandMocks.getNonInteractiveMode,
+vi.mock("../../src/commands/sync.js", () => ({
+  runScopedSyncCommand: commandMocks.runScopedSyncCommand,
 }));
 
-vi.mock("../../src/sync/index.js", async () => {
-  const actual = await vi.importActual<
-    typeof import("../../src/sync/index.js")
-  >("../../src/sync/index.js");
-  return {
-    ...actual,
-    resolveProvidersForSync: commandMocks.resolveProvidersForSync,
-    syncFromCanonical: commandMocks.syncFromCanonical,
-    formatSyncSummary: commandMocks.formatSyncSummary,
-  };
-});
+vi.mock("../../src/commands/entity-utils.js", () => ({
+  resolvePathsForCommand: commandMocks.resolvePathsForCommand,
+}));
 
 const { runSkillCommand } = await import("../../src/commands/skills.js");
 
@@ -82,26 +68,14 @@ const paths = createScopePaths();
 
 beforeEach(() => {
   commandMocks.parseSkillsDir.mockReset();
-  commandMocks.applySkillProviderSideEffects.mockReset();
   commandMocks.runScopedAddCommand.mockReset();
   commandMocks.runScopedDeleteCommand.mockReset();
   commandMocks.runScopedUpdateCommand.mockReset();
   commandMocks.runScopedFindCommand.mockReset();
+  commandMocks.runScopedSyncCommand.mockReset();
   commandMocks.resolvePathsForCommand.mockReset();
-  commandMocks.getNonInteractiveMode.mockReset();
-  commandMocks.resolveProvidersForSync.mockReset();
-  commandMocks.syncFromCanonical.mockReset();
-  commandMocks.formatSyncSummary.mockReset();
 
   commandMocks.resolvePathsForCommand.mockResolvedValue(paths);
-  commandMocks.getNonInteractiveMode.mockReturnValue(true);
-  commandMocks.resolveProvidersForSync.mockResolvedValue(["cursor"]);
-  commandMocks.syncFromCanonical.mockResolvedValue({
-    providers: ["cursor"],
-    generatedFiles: [],
-    removedFiles: [],
-  });
-  commandMocks.formatSyncSummary.mockReturnValue("sync summary");
 });
 
 describe("runSkillCommand", () => {
@@ -135,46 +109,23 @@ describe("runSkillCommand", () => {
     );
   });
 
-  it("applies side effects and runs native skill sync", async () => {
-    commandMocks.resolveProvidersForSync.mockResolvedValue([
-      "claude",
-      "cursor",
-    ]);
-
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
-
+  it("delegates skill sync to scoped sync pipeline", async () => {
     await runSkillCommand(
       { _: ["skill", "sync"], yes: true, "dry-run": true } as ParsedArgs,
       "/workspace",
     );
 
-    expect(commandMocks.resolveProvidersForSync).toHaveBeenCalledWith({
-      paths,
-      explicitProviders: undefined,
-      nonInteractive: true,
-    });
-    expect(commandMocks.applySkillProviderSideEffects).toHaveBeenCalledWith(
-      expect.objectContaining({
-        paths,
-        providers: ["claude", "cursor"],
-        dryRun: true,
-      }),
-    );
-    expect(commandMocks.syncFromCanonical).toHaveBeenCalledWith({
-      paths,
-      providers: ["claude", "cursor"],
-      yes: true,
-      nonInteractive: true,
-      dryRun: true,
+    expect(commandMocks.runScopedSyncCommand).toHaveBeenCalledWith({
+      argv: { _: ["skill", "sync"], yes: true, "dry-run": true },
+      cwd: "/workspace",
       target: "skill",
     });
-    expect(logSpy).toHaveBeenCalledWith("sync summary");
   });
 
   it("throws usage error for unknown skill actions", async () => {
     await expect(
       runSkillCommand({ _: ["skill", "bogus"] } as ParsedArgs, "/workspace"),
     ).rejects.toThrow(/Invalid skill command/);
-    expect(commandMocks.syncFromCanonical).not.toHaveBeenCalled();
+    expect(commandMocks.runScopedSyncCommand).not.toHaveBeenCalled();
   });
 });
