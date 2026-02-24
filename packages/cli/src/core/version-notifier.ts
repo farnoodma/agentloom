@@ -11,77 +11,111 @@ const UPDATE_CACHE_PATH = path.join(
   ".agents",
   ".agentloom-version-cache.json",
 );
-const CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000;
+const CHECK_INTERVAL_MS = 2 * 60 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 1800;
+const DISABLE_UPDATE_ENV = "AGENTLOOM_DISABLE_UPDATE_NOTIFIER";
+const SKIP_COMMANDS = new Set([
+  "help",
+  "--help",
+  "-h",
+  "version",
+  "--version",
+  "-v",
+  "upgrade",
+]);
 
 type VersionCache = {
   lastCheckedAt?: string;
   latestVersion?: string;
-  lastNotifiedVersion?: string;
+  lastUpgradeAttemptVersion?: string;
+  lastUpgradeAttemptAt?: string;
+  // Backward-compatible fields from previous cache format.
+  lastAutoUpgradeVersion?: string;
+  lastAutoUpgradeAt?: string;
 };
 
 type MaybeNotifyOptions = {
   command: string;
+  argv: string[];
   packageName?: string;
   currentVersion: string;
 };
 
+export type UpgradeResult =
+  | "updated"
+  | "already-latest"
+  | "failed"
+  | "unavailable";
+
 export async function maybeNotifyVersionUpdate(
   options: MaybeNotifyOptions,
 ): Promise<void> {
-  if (process.env.AGENTLOOM_DISABLE_UPDATE_NOTIFIER === "1") return;
-  if (!process.stdout.isTTY || !process.stderr.isTTY) return;
+  if (process.env[DISABLE_UPDATE_ENV] === "1") return;
 
-  const loweredCommand = options.command.toLowerCase();
-  if (
-    loweredCommand === "help" ||
-    loweredCommand === "--help" ||
-    loweredCommand === "-h" ||
-    loweredCommand === "version" ||
-    loweredCommand === "--version" ||
-    loweredCommand === "-v"
-  ) {
-    return;
-  }
+  const loweredCommand = options.command.trim().toLowerCase();
+  if (SKIP_COMMANDS.has(loweredCommand)) return;
 
   const packageName = options.packageName ?? "agentloom";
   const cache = readVersionCache();
-
-  if (
-    cache.latestVersion &&
-    isNewerVersion(cache.latestVersion, options.currentVersion) &&
-    cache.lastNotifiedVersion !== cache.latestVersion
-  ) {
-    await promptAndUpdate(options.currentVersion, cache.latestVersion);
-    cache.lastNotifiedVersion = cache.latestVersion;
-    writeVersionCache(cache);
-  }
+  const latest = await resolveLatestVersion({
+    packageName,
+    cache,
+    forceFetch: false,
+  });
+  if (!latest) return;
+  if (!isNewerVersion(latest, options.currentVersion)) return;
 
   const now = Date.now();
-  const lastChecked = parseTime(cache.lastCheckedAt);
-  if (lastChecked && now - lastChecked < CHECK_INTERVAL_MS) {
+  if (!shouldAttemptAutoUpgrade(cache, latest, now)) {
     return;
   }
 
-  const latest = await fetchLatestVersion(packageName);
-  if (!latest) {
-    cache.lastCheckedAt = new Date(now).toISOString();
+  const approved = await maybeConfirmAutoUpgrade(
+    options.currentVersion,
+    latest,
+  );
+  if (!approved) {
+    recordUpgradeAttempt(cache, latest, now);
     writeVersionCache(cache);
     return;
   }
 
-  cache.lastCheckedAt = new Date(now).toISOString();
-  cache.latestVersion = latest;
+  // Persist attempt before upgrade/rerun, because rerun success paths can exit the process.
+  recordUpgradeAttempt(cache, latest, now);
+  writeVersionCache(cache);
 
-  if (
-    isNewerVersion(latest, options.currentVersion) &&
-    cache.lastNotifiedVersion !== latest
-  ) {
-    await promptAndUpdate(options.currentVersion, latest);
-    cache.lastNotifiedVersion = latest;
+  await promptAndUpdate(options.currentVersion, latest, {
+    packageName,
+    rerunArgs: options.argv,
+  });
+}
+
+export async function upgradeToLatest(options: {
+  currentVersion: string;
+  packageName?: string;
+}): Promise<UpgradeResult> {
+  const packageName = options.packageName ?? "agentloom";
+  const cache = readVersionCache();
+  const latest = await resolveLatestVersion({
+    packageName,
+    cache,
+    forceFetch: true,
+  });
+
+  if (!latest) return "unavailable";
+  if (!isNewerVersion(latest, options.currentVersion)) {
+    return "already-latest";
   }
 
+  const result = await promptAndUpdate(options.currentVersion, latest, {
+    packageName,
+  });
+
+  const now = Date.now();
+  recordUpgradeAttempt(cache, latest, now);
   writeVersionCache(cache);
+
+  return result;
 }
 
 export function isNewerVersion(candidate: string, current: string): boolean {
@@ -159,29 +193,82 @@ function fetchLatestVersion(packageName: string): Promise<string | null> {
 export async function promptAndUpdate(
   current: string,
   latest: string,
-): Promise<"updated" | "declined" | "failed"> {
-  const accepted = await confirm({
-    message: `Update available: ${current} → ${latest}. Update now?`,
-    initialValue: true,
-  });
+  options: {
+    packageName?: string;
+    rerunArgs?: string[];
+  } = {},
+): Promise<"updated" | "already-latest" | "failed"> {
+  if (!isNewerVersion(latest, current)) return "already-latest";
 
-  if (isCancel(accepted) || !accepted) return "declined";
+  const packageName = options.packageName ?? "agentloom";
+  const rerunArgs = options.rerunArgs ?? [];
 
-  console.log(`\nUpdating agentloom to ${latest}...\n`);
-  const result = spawnSync("npm", ["i", "-g", "agentloom"], {
+  if (rerunArgs.length > 0 && isLikelyNpxExecution()) {
+    if (!canRunPackageViaNpx(packageName, latest)) {
+      console.error(
+        "\nAutomatic npx upgrade is currently unavailable; continuing with current version.\n",
+      );
+      return "failed";
+    }
+
+    console.log(
+      `\nUpdate available: ${current} → ${latest}. Re-running with npx ${packageName}@${latest}...\n`,
+    );
+    const rerun = spawnSync(
+      "npx",
+      ["--yes", `${packageName}@${latest}`, ...rerunArgs],
+      {
+        stdio: "inherit",
+        env: buildChildEnv(),
+      },
+    );
+
+    if (rerun.error || rerun.status === null) {
+      console.error(
+        "\nAutomatic npx rerun failed after upgrade. Please run your command again.\n",
+      );
+      process.exit(1);
+      return "failed"; // unreachable, but satisfies type checker
+    }
+
+    process.exit(rerun.status);
+    return rerun.status === 0 ? "updated" : "failed"; // unreachable, but satisfies type checker
+  }
+
+  console.log(`\nUpdating ${packageName} ${current} → ${latest}...\n`);
+  const install = spawnSync("npm", ["i", "-g", `${packageName}@${latest}`], {
     stdio: "inherit",
   });
 
-  if (result.status === 0) {
-    console.log(`\nUpdated to ${latest}. Please re-run your command.\n`);
-    process.exit(0);
-    return "updated"; // unreachable, but satisfies type checker
+  if (install.status !== 0) {
+    console.error(
+      "\nAutomatic upgrade failed. Run `agentloom upgrade` to retry.\n",
+    );
+    return "failed";
   }
 
-  console.error(
-    `\nUpdate failed. You can update manually: npm i -g agentloom\n`,
-  );
-  return "failed";
+  if (rerunArgs.length === 0) {
+    console.log(`\nUpdated to ${latest}.\n`);
+    return "updated";
+  }
+
+  console.log(`\nUpdated to ${latest}. Re-running your command...\n`);
+  const invocation = buildRerunInvocation(rerunArgs);
+  const rerun = spawnSync(invocation.command, invocation.args, {
+    stdio: "inherit",
+    env: buildChildEnv(),
+  });
+
+  if (rerun.error || rerun.status === null) {
+    console.error(
+      "\nAutomatic rerun failed after upgrade. Please run your command again.\n",
+    );
+    process.exit(1);
+    return "failed"; // unreachable, but satisfies type checker
+  }
+
+  process.exit(rerun.status);
+  return "updated"; // unreachable, but satisfies type checker
 }
 
 function readVersionCache(): VersionCache {
@@ -210,4 +297,122 @@ function parseTime(value: string | undefined): number | null {
   const parsed = Date.parse(value);
   if (Number.isNaN(parsed)) return null;
   return parsed;
+}
+
+async function resolveLatestVersion(options: {
+  packageName: string;
+  cache: VersionCache;
+  forceFetch: boolean;
+}): Promise<string | null> {
+  const now = Date.now();
+  const lastChecked = parseTime(options.cache.lastCheckedAt);
+  const shouldFetch =
+    options.forceFetch ||
+    !lastChecked ||
+    now - lastChecked >= CHECK_INTERVAL_MS;
+
+  if (!shouldFetch) {
+    return options.cache.latestVersion ?? null;
+  }
+
+  const fetched = await fetchLatestVersion(options.packageName);
+  options.cache.lastCheckedAt = new Date(now).toISOString();
+  if (fetched) {
+    options.cache.latestVersion = fetched;
+  }
+
+  writeVersionCache(options.cache);
+  if (options.forceFetch) {
+    return fetched ?? null;
+  }
+  return fetched ?? options.cache.latestVersion ?? null;
+}
+
+function shouldAttemptAutoUpgrade(
+  cache: VersionCache,
+  latest: string,
+  now: number,
+): boolean {
+  const lastAttemptVersion =
+    cache.lastUpgradeAttemptVersion ?? cache.lastAutoUpgradeVersion;
+  if (lastAttemptVersion !== latest) return true;
+  const lastAttempt = parseTime(
+    cache.lastUpgradeAttemptAt ?? cache.lastAutoUpgradeAt,
+  );
+  if (!lastAttempt) return true;
+  return now - lastAttempt >= CHECK_INTERVAL_MS;
+}
+
+function isLikelyNpxExecution(): boolean {
+  const npmCommand = process.env.npm_command?.trim().toLowerCase();
+  if (npmCommand === "exec") return true;
+
+  const argv1 = process.argv[1];
+  if (typeof argv1 !== "string" || argv1.length === 0) return false;
+  return argv1.includes(`${path.sep}_npx${path.sep}`);
+}
+
+function buildChildEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    [DISABLE_UPDATE_ENV]: "1",
+  };
+}
+
+export async function maybeConfirmAutoUpgrade(
+  current: string,
+  latest: string,
+): Promise<boolean> {
+  if (!isInteractiveTty()) return true;
+  const approved = await confirm({
+    message: `Update available: ${current} → ${latest}. Upgrade now and re-run your command?`,
+    initialValue: true,
+  });
+  if (isCancel(approved) || approved !== true) return false;
+  return true;
+}
+
+function isInteractiveTty(): boolean {
+  return Boolean(
+    process.stdin.isTTY && process.stdout.isTTY && process.stderr.isTTY,
+  );
+}
+
+function recordUpgradeAttempt(
+  cache: VersionCache,
+  latest: string,
+  now: number,
+): void {
+  cache.lastUpgradeAttemptVersion = latest;
+  cache.lastUpgradeAttemptAt = new Date(now).toISOString();
+}
+
+function canRunPackageViaNpx(packageName: string, version: string): boolean {
+  const probe = spawnSync(
+    "npx",
+    ["--yes", `${packageName}@${version}`, "--version"],
+    {
+      stdio: "ignore",
+      env: buildChildEnv(),
+    },
+  );
+  return !probe.error && probe.status === 0;
+}
+
+function buildRerunInvocation(rerunArgs: string[]): {
+  command: string;
+  args: string[];
+} {
+  const scriptPath = process.argv[1];
+  if (typeof scriptPath === "string" && scriptPath.trim().length > 0) {
+    return {
+      command: process.execPath,
+      args: [...process.execArgv, scriptPath, ...rerunArgs],
+    };
+  }
+
+  return {
+    command: "agentloom",
+    args: rerunArgs,
+  };
 }

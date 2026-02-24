@@ -20,6 +20,7 @@ Aggregate commands:
   init                       Bootstrap canonical files, migrate providers, then sync
   find <query>               Search remote + local entities
   update [source]            Refresh lockfile-managed imports
+  upgrade                    Install the latest CLI release
   sync                       Migrate provider configs then generate provider outputs
   delete <source|name>       Delete imported entities by source or name
 
@@ -122,6 +123,19 @@ Options:
 
 Example:
   agentloom update farnoodma/agents --providers codex,cursor
+`;
+}
+
+export function getUpgradeHelpText(): string {
+  return `Install the latest agentloom release.
+
+Usage:
+  agentloom upgrade
+
+Behavior:
+  - Checks npm for the newest published version
+  - Upgrades immediately without interactive prompts
+  - Reports when the current version is already up to date
 `;
 }
 
