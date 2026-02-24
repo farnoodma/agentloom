@@ -130,11 +130,19 @@ describe("maybePromptManageAgentsBootstrap", () => {
     expect(promptMocks.confirm).not.toHaveBeenCalled();
   });
 
-  it("skips prompt for help and version commands", async () => {
+  it("skips prompt for help, version, and upgrade commands", async () => {
     const { homeDir, cwd } = createIsolatedPaths();
 
     const versionAccepted = await maybePromptManageAgentsBootstrap({
       command: "--version",
+      help: false,
+      yes: false,
+      homeDir,
+      cwd,
+      interactive: true,
+    });
+    const upgradeAccepted = await maybePromptManageAgentsBootstrap({
+      command: "upgrade",
       help: false,
       yes: false,
       homeDir,
@@ -151,6 +159,7 @@ describe("maybePromptManageAgentsBootstrap", () => {
     });
 
     expect(versionAccepted).toBe(false);
+    expect(upgradeAccepted).toBe(false);
     expect(helpAccepted).toBe(false);
     expect(promptMocks.confirm).not.toHaveBeenCalled();
   });

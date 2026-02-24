@@ -55,6 +55,7 @@ Global scope uses `~/.agents` with the same file layout.
 - `agentloom add <source>`
 - `agentloom find <query>`
 - `agentloom update [source]`
+- `agentloom upgrade`
 - `agentloom sync`
 - `agentloom delete <source|name>`
 
@@ -118,6 +119,7 @@ agentloom --help
 agentloom find --help
 agentloom add --help
 agentloom update --help
+agentloom upgrade --help
 agentloom sync --help
 agentloom delete --help
 agentloom agent --help
@@ -131,12 +133,16 @@ agentloom mcp server --help
 
 ### Version update notice
 
-`agentloom` now performs a best-effort npm version check and shows an update hint when a newer release is available.
+`agentloom` performs best-effort npm version checks and upgrades when a newer release is available.
 
-- check is cached (`~/.agents/.agentloom-version-cache.json`)
-- check runs at most once every 12 hours
-- check is skipped in non-interactive sessions
-- disable via:
+- checks are cached (`~/.agents/.agentloom-version-cache.json`)
+- check/upgrade attempts run at most once every 2 hours per detected version
+- in interactive TTY sessions, agentloom asks before upgrading
+- in non-interactive sessions, upgrades run without prompts
+- after an approved upgrade, the original command is re-run automatically
+- if running from `npx`, auto-upgrade re-runs with `npx agentloom@<latest>`
+- manual upgrade command: `agentloom upgrade`
+- disable auto checks via:
 
 ```bash
 AGENTLOOM_DISABLE_UPDATE_NOTIFIER=1

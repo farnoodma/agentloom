@@ -10,6 +10,7 @@ const SKIP_COMMANDS = new Set([
   "version",
   "--version",
   "-v",
+  "upgrade",
 ]);
 
 export function getGlobalManageAgentsSkillPath(homeDir = os.homedir()): string {

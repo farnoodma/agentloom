@@ -17,6 +17,7 @@ describe("copy helpers", () => {
     expect(help).toContain("command <add|list|delete|find|update|sync>");
     expect(help).toContain("find <query>");
     expect(help).toContain("init");
+    expect(help).toContain("upgrade");
     expect(help).toContain("mcp <add|list|delete|find|update|sync>");
     expect(help).toContain("mcp server <add|list|delete>");
     expect(help).toContain("--no-sync");
