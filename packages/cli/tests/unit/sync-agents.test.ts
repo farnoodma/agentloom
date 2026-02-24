@@ -159,6 +159,36 @@ describe("cursor agent sync", () => {
     expect(content).toContain("You are a technical writer. Be concise.");
   });
 
+  it("keeps long descriptions on one line in synced provider frontmatter", async () => {
+    const { workspaceRoot, homeDir } = makeTempDirs();
+
+    const description =
+      "Starts the application, performs auto-login, and reports back the ports and current URL. Use before testing changes in the browser. See application-debugging skill for browser tool guidance.";
+    const agentsDir = path.join(workspaceRoot, ".agents", "agents");
+    ensureDir(agentsDir);
+    writeTextAtomic(
+      path.join(agentsDir, "application-runner.md"),
+      `---\nname: application-runner\ndescription: ${description}\ncursor:\n  model: gpt-5.3-codex\n---\n\nStart services and report readiness.\n`,
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local", homeDir);
+    await syncFromCanonical({
+      paths,
+      providers: ["cursor"],
+      yes: true,
+      nonInteractive: true,
+    });
+
+    const content = fs.readFileSync(
+      path.join(workspaceRoot, ".cursor", "agents", "application-runner.md"),
+      "utf8",
+    );
+    expect(content).toContain(`description: ${description}`);
+    expect(content).not.toContain(
+      "description: Starts the application, performs auto-login, and reports back the\n",
+    );
+  });
+
   it("syncs cursor agents to global scope under ~/.cursor/agents/", async () => {
     const { workspaceRoot, homeDir } = makeTempDirs();
 
