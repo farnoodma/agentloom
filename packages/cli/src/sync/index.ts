@@ -353,7 +353,7 @@ function buildProviderAgentContent(
     ...providerConfig,
   };
 
-  const fm = YAML.stringify(frontmatter).trimEnd();
+  const fm = YAML.stringify(frontmatter, { lineWidth: 0 }).trimEnd();
   return `---\n${fm}\n---\n\n${agent.body.trimStart()}${agent.body.endsWith("\n") ? "" : "\n"}`;
 }
 

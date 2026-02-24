@@ -24,4 +24,17 @@ describe("agent frontmatter parsing", () => {
     expect(serialized).toContain("description: Reviews PRs");
     expect(serialized).toContain("Review the changes carefully.");
   });
+
+  it("keeps long descriptions on a single frontmatter line", () => {
+    const description =
+      "Starts the application, performs auto-login, and reports back the ports and current URL. Use before testing changes in the browser. See application-debugging skill for browser tool guidance.";
+    const raw = `---\nname: application-runner\ndescription: ${description}\n---\n\nStart services and report readiness.\n`;
+    const parsed = parseAgentMarkdown(raw, "/tmp/application-runner.md");
+    const serialized = buildAgentMarkdown(parsed.frontmatter, parsed.body);
+
+    expect(serialized).toContain(`description: ${description}`);
+    expect(serialized).not.toContain(
+      "description: Starts the application, performs auto-login, and reports back the\n",
+    );
+  });
 });

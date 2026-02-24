@@ -609,6 +609,12 @@ function readProviderCommands(
   paths: ScopePaths,
   provider: Provider,
 ): ProviderCommandRecord[] {
+  // Codex prompts are home-scoped; importing them into local canonical state
+  // causes unrelated global prompts to appear in fresh repositories.
+  if (provider === "codex" && paths.scope === "local") {
+    return [];
+  }
+
   const commandsDir = getProviderCommandsDir(paths, provider);
   if (!fs.existsSync(commandsDir) || !fs.statSync(commandsDir).isDirectory()) {
     return [];
