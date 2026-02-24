@@ -67,7 +67,7 @@ export function buildAgentMarkdown(
   frontmatter: AgentFrontmatter,
   body: string,
 ): string {
-  const fm = YAML.stringify(frontmatter).trimEnd();
+  const fm = YAML.stringify(frontmatter, { lineWidth: 0 }).trimEnd();
   const normalizedBody = body.trimStart();
   return `---\n${fm}\n---\n\n${normalizedBody}${normalizedBody.endsWith("\n") ? "" : "\n"}`;
 }
