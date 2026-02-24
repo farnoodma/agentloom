@@ -28,6 +28,16 @@ describe("cli help routing", () => {
     expect(output).toContain("--no-sync");
   });
 
+  it("prints upgrade help", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await runCli(["upgrade", "--help"]);
+
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(output).toContain("agentloom upgrade");
+    expect(output).toContain("Upgrades immediately");
+  });
+
   it("prints mcp help without requiring scope resolution", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
 

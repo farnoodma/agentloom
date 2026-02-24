@@ -220,6 +220,10 @@ export default function DocsPage() {
                       <td className="py-2">Update previously imported sources</td>
                     </tr>
                     <tr className="border-b border-ink/5 dark:border-white/5">
+                      <td className="py-2 pr-4"><InlineCode>agentloom upgrade</InlineCode></td>
+                      <td className="py-2">Check and install the latest CLI release</td>
+                    </tr>
+                    <tr className="border-b border-ink/5 dark:border-white/5">
                       <td className="py-2 pr-4"><InlineCode>agentloom sync</InlineCode></td>
                       <td className="py-2">Sync canonical definitions to all provider configs</td>
                     </tr>
@@ -505,7 +509,7 @@ You are a strict code reviewer. Check for:
                   </tr>
                   <tr className="border-b border-ink/5 dark:border-white/5">
                     <td className="py-2 pr-4"><InlineCode>AGENTLOOM_DISABLE_UPDATE_NOTIFIER=1</InlineCode></td>
-                    <td className="py-2">Suppress new version notifications</td>
+                    <td className="py-2">Disable auto-upgrade checks</td>
                   </tr>
                   <tr>
                     <td className="py-2 pr-4"><InlineCode>AGENTLOOM_DISABLE_MANAGE_AGENTS_PROMPT=1</InlineCode></td>

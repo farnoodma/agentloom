@@ -10,6 +10,7 @@ import { runInitCommand } from "./commands/init.js";
 import { runMcpCommand } from "./commands/mcp.js";
 import { runSkillCommand } from "./commands/skills.js";
 import { runSyncCommand } from "./commands/sync.js";
+import { runUpgradeCommand } from "./commands/upgrade.js";
 import { runUpdateCommand } from "./commands/update.js";
 import { formatUnknownCommandError, getRootHelpText } from "./core/copy.js";
 import { maybePromptManageAgentsBootstrap } from "./core/manage-agents-bootstrap.js";
@@ -45,19 +46,12 @@ export async function runCli(argv: string[]): Promise<void> {
 
   const parsed = parseArgs(argv);
   const cwd = process.cwd();
-
-  const shouldBootstrapManageAgents = await maybePromptManageAgentsBootstrap({
-    command,
-    help: Boolean(parsed.help),
-    yes: Boolean(parsed.yes),
-    cwd,
-  });
-
   const route = parseCommandRoute(argv);
 
   if (!parsed.help) {
     await maybeNotifyVersionUpdate({
       command,
+      argv,
       currentVersion: version,
     });
   }
@@ -66,7 +60,14 @@ export async function runCli(argv: string[]): Promise<void> {
     throw new Error(formatUnknownCommandError(command));
   }
 
-  await runRoutedCommand(route, parsed, cwd, command);
+  const shouldBootstrapManageAgents = await maybePromptManageAgentsBootstrap({
+    command,
+    help: Boolean(parsed.help),
+    yes: Boolean(parsed.yes),
+    cwd,
+  });
+
+  await runRoutedCommand(route, parsed, cwd, command, version);
 
   if (shouldBootstrapManageAgents) {
     const bootstrapArgs = buildManageAgentsBootstrapArgs(parsed, cwd);
@@ -83,6 +84,7 @@ async function runRoutedCommand(
   parsed: ParsedArgs,
   cwd: string,
   command: string,
+  version: string,
 ): Promise<void> {
   if (!route) {
     throw new Error(formatUnknownCommandError(command));
@@ -98,6 +100,9 @@ async function runRoutedCommand(
         return;
       case "update":
         await runUpdateCommand(parsed, cwd);
+        return;
+      case "upgrade":
+        await runUpgradeCommand(parsed, version);
         return;
       case "sync":
         await runSyncCommand(parsed, cwd);

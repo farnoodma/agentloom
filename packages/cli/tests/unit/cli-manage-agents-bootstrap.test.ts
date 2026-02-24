@@ -9,6 +9,7 @@ const commandMocks = vi.hoisted(() => ({
   runMcpCommand: vi.fn(),
   runSkillCommand: vi.fn(),
   runSyncCommand: vi.fn(),
+  runUpgradeCommand: vi.fn(),
   runUpdateCommand: vi.fn(),
 }));
 
@@ -53,6 +54,9 @@ vi.mock("../../src/commands/skills.js", () => ({
 vi.mock("../../src/commands/sync.js", () => ({
   runSyncCommand: commandMocks.runSyncCommand,
 }));
+vi.mock("../../src/commands/upgrade.js", () => ({
+  runUpgradeCommand: commandMocks.runUpgradeCommand,
+}));
 vi.mock("../../src/commands/update.js", () => ({
   runUpdateCommand: commandMocks.runUpdateCommand,
 }));
@@ -93,6 +97,8 @@ beforeEach(() => {
   commandMocks.runSkillCommand.mockResolvedValue(undefined);
   commandMocks.runSyncCommand.mockReset();
   commandMocks.runSyncCommand.mockResolvedValue(undefined);
+  commandMocks.runUpgradeCommand.mockReset();
+  commandMocks.runUpgradeCommand.mockResolvedValue(undefined);
   commandMocks.runUpdateCommand.mockReset();
   commandMocks.runUpdateCommand.mockResolvedValue(undefined);
 

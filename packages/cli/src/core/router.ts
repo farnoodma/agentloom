@@ -4,6 +4,7 @@ export type AggregateVerb =
   | "add"
   | "find"
   | "update"
+  | "upgrade"
   | "sync"
   | "delete"
   | "init";
@@ -29,6 +30,7 @@ const AGGREGATE_VERBS = new Set<AggregateVerb>([
   "add",
   "find",
   "update",
+  "upgrade",
   "sync",
   "delete",
   "init",
