@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { AgentsLockFile, LockEntry, ScopePaths } from "../types.js";
 import { readJsonIfExists, writeJsonAtomic } from "./fs.js";
 
@@ -14,38 +15,40 @@ export function readLockfile(paths: ScopePaths): AgentsLockFile {
 
   return {
     version: 1,
-    entries: lock.entries.map((entry) => ({
-      ...entry,
-      importedAgents: Array.isArray(entry.importedAgents)
-        ? entry.importedAgents
-        : [],
-      importedCommands: Array.isArray(entry.importedCommands)
-        ? entry.importedCommands
-        : [],
-      selectedSourceCommands: Array.isArray(entry.selectedSourceCommands)
-        ? entry.selectedSourceCommands
-        : undefined,
-      commandRenameMap: normalizeRenameMap(entry.commandRenameMap),
-      importedMcpServers: Array.isArray(entry.importedMcpServers)
-        ? entry.importedMcpServers
-        : [],
-      selectedSourceMcpServers: Array.isArray(entry.selectedSourceMcpServers)
-        ? entry.selectedSourceMcpServers
-        : undefined,
-      importedSkills: Array.isArray(entry.importedSkills)
-        ? entry.importedSkills
-        : [],
-      selectedSourceSkills: Array.isArray(entry.selectedSourceSkills)
-        ? entry.selectedSourceSkills
-        : undefined,
-      skillsProviders: Array.isArray(entry.skillsProviders)
-        ? entry.skillsProviders
-        : undefined,
-      skillRenameMap: normalizeRenameMap(entry.skillRenameMap),
-      trackedEntities: Array.isArray(entry.trackedEntities)
-        ? entry.trackedEntities
-        : undefined,
-    })),
+    entries: lock.entries.map((entry) =>
+      normalizeLockEntryForRuntime(paths, {
+        ...entry,
+        importedAgents: Array.isArray(entry.importedAgents)
+          ? entry.importedAgents
+          : [],
+        importedCommands: Array.isArray(entry.importedCommands)
+          ? entry.importedCommands
+          : [],
+        selectedSourceCommands: Array.isArray(entry.selectedSourceCommands)
+          ? entry.selectedSourceCommands
+          : undefined,
+        commandRenameMap: normalizeRenameMap(entry.commandRenameMap),
+        importedMcpServers: Array.isArray(entry.importedMcpServers)
+          ? entry.importedMcpServers
+          : [],
+        selectedSourceMcpServers: Array.isArray(entry.selectedSourceMcpServers)
+          ? entry.selectedSourceMcpServers
+          : undefined,
+        importedSkills: Array.isArray(entry.importedSkills)
+          ? entry.importedSkills
+          : [],
+        selectedSourceSkills: Array.isArray(entry.selectedSourceSkills)
+          ? entry.selectedSourceSkills
+          : undefined,
+        skillsProviders: Array.isArray(entry.skillsProviders)
+          ? entry.skillsProviders
+          : undefined,
+        skillRenameMap: normalizeRenameMap(entry.skillRenameMap),
+        trackedEntities: Array.isArray(entry.trackedEntities)
+          ? entry.trackedEntities
+          : undefined,
+      }),
+    ),
   };
 }
 
@@ -82,7 +85,12 @@ export function writeLockfile(
   paths: ScopePaths,
   lockfile: AgentsLockFile,
 ): void {
-  writeJsonAtomic(paths.lockPath, lockfile);
+  writeJsonAtomic(paths.lockPath, {
+    version: 1,
+    entries: lockfile.entries.map((entry) =>
+      normalizeLockEntryForDisk(paths, entry),
+    ),
+  });
 }
 
 export function upsertLockEntry(
@@ -152,4 +160,44 @@ function normalizeSelectionForKey(value: string[] | undefined): string[] {
   return [
     ...new Set(value.map((item) => item.trim().toLowerCase()).filter(Boolean)),
   ].sort();
+}
+
+function normalizeLockEntryForRuntime(
+  paths: ScopePaths,
+  entry: LockEntry,
+): LockEntry {
+  if (paths.scope !== "local" || entry.sourceType !== "local") {
+    return entry;
+  }
+
+  if (path.isAbsolute(entry.source)) {
+    return entry;
+  }
+
+  return {
+    ...entry,
+    source: path.resolve(paths.workspaceRoot, entry.source),
+  };
+}
+
+function normalizeLockEntryForDisk(
+  paths: ScopePaths,
+  entry: LockEntry,
+): LockEntry {
+  if (paths.scope !== "local" || entry.sourceType !== "local") {
+    return entry;
+  }
+
+  if (!path.isAbsolute(entry.source)) {
+    return {
+      ...entry,
+      source: entry.source || ".",
+    };
+  }
+
+  const relativeSource = path.relative(paths.workspaceRoot, entry.source);
+  return {
+    ...entry,
+    source: relativeSource || ".",
+  };
 }
