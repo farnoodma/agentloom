@@ -85,6 +85,9 @@ describe("importSource local", () => {
     );
     expect(lock?.entries).toHaveLength(1);
     expect(lock?.entries[0]?.sourceType).toBe("local");
+    expect(lock?.entries[0]?.source).toBe(
+      path.relative(workspaceRoot, sourceRoot),
+    );
     expect(lock?.entries[0]?.importedCommands).toEqual(["commands/ship.md"]);
   });
 
@@ -261,8 +264,9 @@ describe("importSource local", () => {
     const lock = readJsonIfExists<AgentsLockFile>(
       path.join(workspaceRoot, ".agents", "agents.lock.json"),
     );
+    const lockSource = path.relative(workspaceRoot, sourceRoot);
     const entriesForSource =
-      lock?.entries.filter((entry) => entry.source === sourceRoot) ?? [];
+      lock?.entries.filter((entry) => entry.source === lockSource) ?? [];
     expect(entriesForSource).toHaveLength(2);
     expect(
       entriesForSource
@@ -303,9 +307,10 @@ describe("importSource local", () => {
     const lockAfterInitialImport = readJsonIfExists<AgentsLockFile>(
       path.join(workspaceRoot, ".agents", "agents.lock.json"),
     );
+    const lockSource = path.relative(workspaceRoot, sourceRoot);
 
     const matchingEntry = lockAfterInitialImport?.entries.find(
-      (entry) => entry.source === sourceRoot,
+      (entry) => entry.source === lockSource,
     );
     expect(matchingEntry?.requestedAgents).toEqual([
       "issue-creator",
@@ -396,8 +401,9 @@ describe("importSource local", () => {
     const lockAfterFirstImport = readJsonIfExists<AgentsLockFile>(
       path.join(workspaceRoot, ".agents", "agents.lock.json"),
     );
+    const lockSource = path.relative(workspaceRoot, sourceRoot);
     const entry = lockAfterFirstImport?.entries.find(
-      (item) => item.source === sourceRoot,
+      (item) => item.source === lockSource,
     );
     expect(entry?.requestedAgents).toEqual(["issue creator"]);
 
@@ -455,8 +461,9 @@ describe("importSource local", () => {
     const lockAfterFirstImport = readJsonIfExists<AgentsLockFile>(
       path.join(workspaceRoot, ".agents", "agents.lock.json"),
     );
+    const lockSource = path.relative(workspaceRoot, sourceRoot);
     const entry = lockAfterFirstImport?.entries.find(
-      (item) => item.source === sourceRoot,
+      (item) => item.source === lockSource,
     );
     expect(entry?.requestedAgents).toEqual(["issue-creator-a"]);
 
