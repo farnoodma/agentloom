@@ -196,20 +196,6 @@ codex:
 You are a strict reviewer...
 ```
 
-Copilot agent frontmatter can include provider-specific fields (for example,
-`copilot.tools`) when needed:
-
-```md
----
-name: reviewer
-description: Review changes and report issues.
-copilot:
-  tools:
-    - codebase
-    - changes
----
-```
-
 ## Command schema
 
 Canonical commands are markdown files. Frontmatter is optional. When present,

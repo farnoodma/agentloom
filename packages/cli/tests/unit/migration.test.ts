@@ -456,7 +456,7 @@ Review active changes.
     ensureDir(path.join(paths.workspaceRoot, ".github", "prompts"));
     writeTextAtomic(
       path.join(paths.workspaceRoot, ".github", "prompts", "review.prompt.md"),
-      "# /review\n\nReview active changes.\n",
+      "# /review\n\nReview active changes with provider drift.\n",
     );
 
     const summary = await migrateProviderStateToCanonical({
@@ -468,11 +468,13 @@ Review active changes.
 
     expect(summary.entities.command.conflicts).toBe(0);
     expect(summary.entities.command.imported).toBe(0);
+    expect(summary.entities.command.skipped).toBe(1);
 
     const canonical = parseCommandContent(
       fs.readFileSync(path.join(paths.commandsDir, "review.md"), "utf8"),
     );
     expect(canonical.frontmatter?.copilot).toBe(false);
+    expect(canonical.body).toContain("Review active changes.");
   });
 
   it("matches renamed canonical agent files by frontmatter name", async () => {

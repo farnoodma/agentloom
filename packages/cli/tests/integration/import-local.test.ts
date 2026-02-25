@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { runAddCommand } from "../../src/commands/add.js";
+import { parseAgentsDir } from "../../src/core/agents.js";
 import { parseArgs } from "../../src/core/argv.js";
 import { parseCommandContent } from "../../src/core/commands.js";
 import {
@@ -185,6 +186,51 @@ Review code changes.
     expect(imported).toContain("tools:");
     expect(imported).toContain("- changes");
     expect(imported).toContain("model: gpt-5");
+  });
+
+  it("merges explicit copilot config with top-level copilot keys for .github agents", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, ".github", "agents"));
+    writeTextAtomic(
+      path.join(sourceRoot, ".github", "agents", "reviewer.agent.md"),
+      `---
+name: reviewer
+description: Reviews PRs
+tools:
+  - codebase
+model: gpt-5
+copilot:
+  temperature: 0.2
+---
+
+Review code changes.
+`,
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    await importSource({
+      source: sourceRoot,
+      paths,
+      importCommands: false,
+      importMcp: false,
+      importSkills: false,
+      yes: true,
+      nonInteractive: true,
+    });
+
+    const [imported] = parseAgentsDir(paths.agentsDir);
+    expect(imported?.frontmatter.copilot).toEqual({
+      temperature: 0.2,
+      tools: ["codebase"],
+      model: "gpt-5",
+    });
   });
 
   it("imports .github prompts and ignores non-prompt markdown files", async () => {
