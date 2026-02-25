@@ -168,4 +168,147 @@ describe("command sync", () => {
       false,
     );
   });
+
+  it("applies copilot prompt frontmatter from provider-specific command config", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-home-"));
+    tempDirs.push(workspaceRoot, homeDir);
+
+    const commandsDir = path.join(workspaceRoot, ".agents", "commands");
+    ensureDir(commandsDir);
+    writeTextAtomic(
+      path.join(commandsDir, "review.md"),
+      `---
+description: Default description
+mode: ask
+copilot:
+  mode: edit
+  tools:
+    - changes
+    - codebase
+  model: gpt-5
+  argument-hint: "<scope>"
+  custom-setting: keep
+---
+
+# /review
+
+Review active changes with scope \${input:args}.
+`,
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local", homeDir);
+    await syncFromCanonical({
+      paths,
+      providers: ["copilot", "cursor"],
+      yes: true,
+      nonInteractive: true,
+      target: "command",
+    });
+
+    const copilotPrompt = fs.readFileSync(
+      path.join(workspaceRoot, ".github", "prompts", "review.prompt.md"),
+      "utf8",
+    );
+    expect(copilotPrompt).toContain("mode: edit");
+    expect(copilotPrompt).toContain("model: gpt-5");
+    expect(copilotPrompt).toContain("argument-hint: <scope>");
+    expect(copilotPrompt).toContain("custom-setting: keep");
+    expect(copilotPrompt).toContain("- changes");
+    expect(copilotPrompt).toContain(
+      "Review active changes with scope ${input:args}.",
+    );
+
+    const cursorPrompt = fs.readFileSync(
+      path.join(workspaceRoot, ".cursor", "commands", "review.md"),
+      "utf8",
+    );
+    expect(cursorPrompt.startsWith("---")).toBe(true);
+    expect(cursorPrompt).toContain("description: Default description");
+    expect(cursorPrompt).toContain("mode: ask");
+    expect(cursorPrompt).not.toContain("copilot:");
+    expect(cursorPrompt).not.toContain("model: gpt-5");
+    expect(cursorPrompt).not.toContain("custom-setting: keep");
+    expect(cursorPrompt).toContain(
+      "Review active changes with scope ${input:args}.",
+    );
+  });
+
+  it("skips provider outputs when command frontmatter disables that provider", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-home-"));
+    tempDirs.push(workspaceRoot, homeDir);
+
+    const commandsDir = path.join(workspaceRoot, ".agents", "commands");
+    ensureDir(commandsDir);
+    writeTextAtomic(
+      path.join(commandsDir, "review.md"),
+      `---
+copilot: false
+---
+
+# /review
+
+Review active changes.
+`,
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local", homeDir);
+    await syncFromCanonical({
+      paths,
+      providers: ["copilot", "cursor"],
+      yes: true,
+      nonInteractive: true,
+      target: "command",
+    });
+
+    expect(
+      fs.existsSync(
+        path.join(workspaceRoot, ".github", "prompts", "review.prompt.md"),
+      ),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(workspaceRoot, ".cursor", "commands", "review.md"),
+      ),
+    ).toBe(true);
+  });
+
+  it("normalizes legacy copilot command argument placeholders", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-home-"));
+    tempDirs.push(workspaceRoot, homeDir);
+
+    const commandsDir = path.join(workspaceRoot, ".agents", "commands");
+    ensureDir(commandsDir);
+    writeTextAtomic(
+      path.join(commandsDir, "review.md"),
+      `# /review
+
+Review active changes with scope $ARGUMENTS.
+`,
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local", homeDir);
+    await syncFromCanonical({
+      paths,
+      providers: ["copilot"],
+      yes: true,
+      nonInteractive: true,
+      target: "command",
+    });
+
+    const copilotPrompt = fs.readFileSync(
+      path.join(workspaceRoot, ".github", "prompts", "review.prompt.md"),
+      "utf8",
+    );
+    expect(copilotPrompt).toContain("${input:args}");
+    expect(copilotPrompt).not.toContain("$ARGUMENTS");
+  });
 });

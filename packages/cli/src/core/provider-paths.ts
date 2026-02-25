@@ -31,7 +31,7 @@ export function getProviderAgentsDir(
     case "copilot":
       return paths.scope === "local"
         ? path.join(workspaceRoot, ".github", "agents")
-        : path.join(home, ".vscode", "chatmodes");
+        : path.join(home, ".github", "agents");
     case "pi":
       return paths.scope === "local"
         ? path.join(workspaceRoot, ".pi", "agents")

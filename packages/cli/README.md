@@ -196,6 +196,50 @@ codex:
 You are a strict reviewer...
 ```
 
+Copilot agent frontmatter can include provider-specific fields (for example,
+`copilot.tools`) when needed:
+
+```md
+---
+name: reviewer
+description: Review changes and report issues.
+copilot:
+  tools:
+    - codebase
+    - changes
+---
+```
+
+## Command schema
+
+Canonical commands are markdown files. Frontmatter is optional. When present,
+provider-specific command config can be nested per provider:
+
+```md
+---
+copilot:
+  description: Review current changes
+  agent: agent
+  tools:
+    - codebase
+  model: gpt-5
+  argument-hint: "<scope>"
+---
+
+# /review
+
+Review active changes with scope ${input:args}.
+```
+
+Notes:
+
+- Provider configs follow the same pattern as agents:
+  - omit provider key for default behavior
+  - `provider: { ... }` to add provider-specific overrides
+  - `provider: false` to disable output for that provider
+- Provider-specific frontmatter keys are passed through as-is to that provider output.
+- Canonical command bodies can use `$ARGUMENTS`; provider-specific placeholder translation is applied during sync (for example Copilot receives `${input:args}`).
+
 ## MCP schema
 
 Canonical MCP file format:

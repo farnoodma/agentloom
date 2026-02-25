@@ -17,8 +17,8 @@ describe("command selector helpers", () => {
 
   it("resolves multiple selectors and reports unmatched entries", () => {
     const commands = [
-      { fileName: "review.md", sourcePath: "", content: "" },
-      { fileName: "ship.md", sourcePath: "", content: "" },
+      { fileName: "review.md", sourcePath: "", content: "", body: "" },
+      { fileName: "ship.md", sourcePath: "", content: "", body: "" },
     ];
 
     const result = resolveCommandSelections(commands, ["review", "missing"]);
