@@ -17,11 +17,15 @@ import {
   isProviderEnabled,
   parseAgentsDir,
 } from "../core/agents.js";
-import { parseCommandsDir } from "../core/commands.js";
+import {
+  parseCommandsDir,
+  renderCommandForProvider,
+} from "../core/commands.js";
 import {
   ensureDir,
   isObject,
   readJsonIfExists,
+  readTextIfExists,
   relativePosix,
   removeFileIfExists,
   slugify,
@@ -124,6 +128,14 @@ export async function syncFromCanonical(
         dryRun: !!options.dryRun,
       });
     }
+
+    if (providers.includes("copilot") && options.paths.scope === "global") {
+      syncCopilotDiscoverySettings({
+        paths: options.paths,
+        dryRun: !!options.dryRun,
+        includeAgentLocations: true,
+      });
+    }
   }
 
   if (target === "all" || target === "command") {
@@ -134,6 +146,14 @@ export async function syncFromCanonical(
         commands,
         generated: generatedCommands,
         dryRun: !!options.dryRun,
+      });
+    }
+
+    if (providers.includes("copilot") && options.paths.scope === "global") {
+      syncCopilotDiscoverySettings({
+        paths: options.paths,
+        dryRun: !!options.dryRun,
+        includePromptLocations: true,
       });
     }
   }
@@ -372,10 +392,12 @@ function syncProviderCommands(options: {
       command.fileName,
     );
     const outputPath = path.join(providerDir, fileName);
+    const content = renderCommandForProvider(command, options.provider);
+    if (content === null) continue;
 
     if (!options.dryRun) {
       ensureDir(path.dirname(outputPath));
-      writeTextAtomic(outputPath, command.content);
+      writeTextAtomic(outputPath, content);
     }
 
     options.generated.add(outputPath);
@@ -580,6 +602,201 @@ function syncProviderMcp(options: {
       continue;
     }
   }
+}
+
+function syncCopilotDiscoverySettings(options: {
+  paths: ScopePaths;
+  dryRun: boolean;
+  includePromptLocations?: boolean;
+  includeAgentLocations?: boolean;
+}): void {
+  const settingsPath = getVsCodeSettingsPath(options.paths.homeDir);
+  const settings = readVsCodeSettings(settingsPath);
+  if (!settings) {
+    return;
+  }
+
+  if (options.includePromptLocations) {
+    appendPathSetting(
+      settings,
+      "chat.promptFilesLocations",
+      path.join(options.paths.homeDir, ".github", "prompts"),
+    );
+  }
+  if (options.includeAgentLocations) {
+    appendPathSetting(
+      settings,
+      "chat.agentFilesLocations",
+      path.join(options.paths.homeDir, ".github", "agents"),
+    );
+  }
+
+  maybeWriteJson(settingsPath, settings, options.dryRun);
+}
+
+function readVsCodeSettings(
+  settingsPath: string,
+): Record<string, unknown> | null {
+  const raw = readTextIfExists(settingsPath);
+  if (raw === null) {
+    return {};
+  }
+
+  const parsed = parseJsonOrJsonc(raw);
+  if (!isObject(parsed)) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function parseJsonOrJsonc(input: string): unknown {
+  try {
+    return JSON.parse(input);
+  } catch {
+    try {
+      const withoutComments = stripJsonComments(input);
+      const normalized = stripTrailingJsonCommas(withoutComments);
+      return JSON.parse(normalized);
+    } catch {
+      return null;
+    }
+  }
+}
+
+function stripJsonComments(input: string): string {
+  let result = "";
+  let inString = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+  let escaped = false;
+
+  for (let i = 0; i < input.length; i += 1) {
+    const char = input[i];
+    const next = i + 1 < input.length ? input[i + 1] : "";
+
+    if (inLineComment) {
+      if (char === "\n") {
+        inLineComment = false;
+        result += char;
+      }
+      continue;
+    }
+
+    if (inBlockComment) {
+      if (char === "*" && next === "/") {
+        inBlockComment = false;
+        i += 1;
+      } else if (char === "\n") {
+        result += char;
+      }
+      continue;
+    }
+
+    if (inString) {
+      result += char;
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      result += char;
+      continue;
+    }
+
+    if (char === "/" && next === "/") {
+      inLineComment = true;
+      i += 1;
+      continue;
+    }
+
+    if (char === "/" && next === "*") {
+      inBlockComment = true;
+      i += 1;
+      continue;
+    }
+
+    result += char;
+  }
+
+  return result;
+}
+
+function stripTrailingJsonCommas(input: string): string {
+  let result = "";
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < input.length; i += 1) {
+    const char = input[i];
+
+    if (inString) {
+      result += char;
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      result += char;
+      continue;
+    }
+
+    if (char === ",") {
+      let lookahead = i + 1;
+      while (lookahead < input.length && /\s/.test(input[lookahead] ?? "")) {
+        lookahead += 1;
+      }
+      const next = input[lookahead];
+      if (next === "}" || next === "]") {
+        continue;
+      }
+    }
+
+    result += char;
+  }
+
+  return result;
+}
+
+function appendPathSetting(
+  settings: Record<string, unknown>,
+  key: string,
+  settingPath: string,
+): void {
+  const existing = Array.isArray(settings[key])
+    ? (settings[key] as unknown[]).filter(
+        (value): value is string =>
+          typeof value === "string" && value.trim() !== "",
+      )
+    : [];
+
+  if (!existing.includes(settingPath)) {
+    existing.push(settingPath);
+  }
+
+  settings[key] = existing;
 }
 
 function syncCodex(options: {
