@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { runAddCommand } from "../../src/commands/add.js";
 import { parseArgs } from "../../src/core/argv.js";
+import { parseCommandContent } from "../../src/core/commands.js";
 import {
   ensureDir,
   readJsonIfExists,
@@ -129,6 +130,148 @@ describe("importSource local", () => {
     expect(lock?.entries[0]?.trackedEntities).toEqual(["command"]);
     expect(lock?.entries[0]?.importedCommands).toEqual(["commands/review.md"]);
     expect(lock?.entries[0]?.importedAgents).toEqual([]);
+  });
+
+  it("imports .github agents with inferred metadata and copilot config", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, ".github", "agents"));
+    writeTextAtomic(
+      path.join(sourceRoot, ".github", "agents", "reviewer.agent.md"),
+      `---
+tools:
+  - changes
+  - codebase
+model: gpt-5
+---
+
+Review code changes.
+`,
+    );
+    writeTextAtomic(
+      path.join(sourceRoot, ".github", "agents", "README.md"),
+      "Agent docs",
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+
+    const summary = await importSource({
+      source: sourceRoot,
+      paths,
+      importCommands: false,
+      importMcp: false,
+      importSkills: false,
+      yes: true,
+      nonInteractive: true,
+    });
+
+    expect(summary.importedAgents).toEqual(["agents/reviewer.md"]);
+    expect(fs.readdirSync(paths.agentsDir)).toEqual(["reviewer.md"]);
+
+    const imported = fs.readFileSync(
+      path.join(paths.agentsDir, "reviewer.md"),
+      "utf8",
+    );
+    expect(imported).toContain(
+      'description: Imported from Copilot agent "reviewer".',
+    );
+    expect(imported).toContain("copilot:");
+    expect(imported).toContain("tools:");
+    expect(imported).toContain("- changes");
+    expect(imported).toContain("model: gpt-5");
+  });
+
+  it("imports .github prompts and ignores non-prompt markdown files", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, ".github", "prompts"));
+    writeTextAtomic(
+      path.join(sourceRoot, ".github", "prompts", "review.prompt.md"),
+      "# /review\n\nReview code changes.\n",
+    );
+    writeTextAtomic(
+      path.join(sourceRoot, ".github", "prompts", "README.md"),
+      "Prompt docs",
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    const summary = await importSource({
+      source: sourceRoot,
+      paths,
+      importAgents: false,
+      importMcp: false,
+      importSkills: false,
+      yes: true,
+      nonInteractive: true,
+    });
+
+    expect(summary.importedCommands).toEqual(["commands/review.md"]);
+    expect(fs.readdirSync(paths.commandsDir)).toEqual(["review.md"]);
+  });
+
+  it("nests imported .github prompt frontmatter under copilot", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, ".github", "prompts"));
+    writeTextAtomic(
+      path.join(sourceRoot, ".github", "prompts", "review.prompt.md"),
+      `---
+description: Copilot review command
+mode: ask
+model: gpt-5
+tools:
+  - codebase
+---
+
+# /review
+
+Review code changes.
+`,
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    await importSource({
+      source: sourceRoot,
+      paths,
+      importAgents: false,
+      importMcp: false,
+      importSkills: false,
+      yes: true,
+      nonInteractive: true,
+    });
+
+    const canonical = parseCommandContent(
+      fs.readFileSync(path.join(paths.commandsDir, "review.md"), "utf8"),
+    );
+    expect(canonical.frontmatter).toEqual({
+      copilot: {
+        description: "Copilot review command",
+        mode: "ask",
+        model: "gpt-5",
+        tools: ["codebase"],
+      },
+    });
+    expect(canonical.frontmatter).not.toHaveProperty("mode");
+    expect(canonical.frontmatter).not.toHaveProperty("model");
+    expect(canonical.frontmatter).not.toHaveProperty("tools");
   });
 
   it("applies --rename for single-agent imports even when commands are present", async () => {

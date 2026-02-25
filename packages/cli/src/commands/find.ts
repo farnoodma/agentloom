@@ -718,6 +718,23 @@ async function getRepoTree(
 function parseAgentPath(
   filePath: string,
 ): { agentName: string; subdir?: string } | null {
+  const directGitHub = filePath.match(
+    /^\.github\/agents\/([^/]+)\.agent\.md$/i,
+  );
+  if (directGitHub) {
+    return { agentName: directGitHub[1] };
+  }
+
+  const nestedGitHub = filePath.match(
+    /^(.+)\/\.github\/agents\/([^/]+)\.agent\.md$/i,
+  );
+  if (nestedGitHub) {
+    return {
+      subdir: nestedGitHub[1],
+      agentName: nestedGitHub[2],
+    };
+  }
+
   const directAgentloom = filePath.match(/^\.agents\/agents\/([^/]+)\.md$/);
   if (directAgentloom) {
     return { agentName: directAgentloom[1] };
@@ -752,50 +769,79 @@ function parseAgentPath(
 function parseCommandPath(
   filePath: string,
 ): { commandName: string; subdir?: string } | null {
+  const directGitHub = filePath.match(
+    /^\.github\/prompts\/([^/]+)\.prompt\.md$/i,
+  );
+  if (directGitHub) {
+    return { commandName: stripPromptSuffix(directGitHub[1]) };
+  }
+
+  const nestedGitHub = filePath.match(
+    /^(.+)\/\.github\/prompts\/([^/]+)\.prompt\.md$/i,
+  );
+  if (nestedGitHub) {
+    return {
+      subdir: nestedGitHub[1],
+      commandName: stripPromptSuffix(nestedGitHub[2]),
+    };
+  }
+
   const directAgentloom = filePath.match(
-    /^\.agents\/commands\/([^/]+)\.(md|mdc)$/i,
+    /^\.agents\/commands\/([^/]+)(?:\.prompt)?\.(md|mdc)$/i,
   );
   if (directAgentloom) {
-    return { commandName: directAgentloom[1] };
+    return { commandName: stripPromptSuffix(directAgentloom[1]) };
   }
 
   const nestedAgentloom = filePath.match(
-    /^(.+)\/\.agents\/commands\/([^/]+)\.(md|mdc)$/i,
+    /^(.+)\/\.agents\/commands\/([^/]+)(?:\.prompt)?\.(md|mdc)$/i,
   );
   if (nestedAgentloom) {
     return {
       subdir: nestedAgentloom[1],
-      commandName: nestedAgentloom[2],
+      commandName: stripPromptSuffix(nestedAgentloom[2]),
     };
   }
 
-  const directCommands = filePath.match(/^commands\/([^/]+)\.(md|mdc)$/i);
+  const directCommands = filePath.match(
+    /^commands\/([^/]+)(?:\.prompt)?\.(md|mdc)$/i,
+  );
   if (directCommands) {
-    return { commandName: directCommands[1] };
+    return { commandName: stripPromptSuffix(directCommands[1]) };
   }
 
-  const nestedCommands = filePath.match(/^(.+)\/commands\/([^/]+)\.(md|mdc)$/i);
+  const nestedCommands = filePath.match(
+    /^(.+)\/commands\/([^/]+)(?:\.prompt)?\.(md|mdc)$/i,
+  );
   if (nestedCommands) {
     return {
       subdir: nestedCommands[1],
-      commandName: nestedCommands[2],
+      commandName: stripPromptSuffix(nestedCommands[2]),
     };
   }
 
-  const directPrompts = filePath.match(/^prompts\/([^/]+)\.(md|mdc)$/i);
+  const directPrompts = filePath.match(
+    /^prompts\/([^/]+)(?:\.prompt)?\.(md|mdc)$/i,
+  );
   if (directPrompts) {
-    return { commandName: directPrompts[1] };
+    return { commandName: stripPromptSuffix(directPrompts[1]) };
   }
 
-  const nestedPrompts = filePath.match(/^(.+)\/prompts\/([^/]+)\.(md|mdc)$/i);
+  const nestedPrompts = filePath.match(
+    /^(.+)\/prompts\/([^/]+)(?:\.prompt)?\.(md|mdc)$/i,
+  );
   if (nestedPrompts) {
     return {
       subdir: nestedPrompts[1],
-      commandName: nestedPrompts[2],
+      commandName: stripPromptSuffix(nestedPrompts[2]),
     };
   }
 
   return null;
+}
+
+function stripPromptSuffix(commandName: string): string {
+  return commandName.replace(/\.prompt$/i, "");
 }
 
 function parseSkillPath(

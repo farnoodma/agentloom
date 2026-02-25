@@ -7,6 +7,8 @@ import {
   select,
   text as promptText,
 } from "@clack/prompts";
+import matter from "gray-matter";
+import YAML from "yaml";
 import type {
   CanonicalAgent,
   CanonicalMcpFile,
@@ -26,6 +28,7 @@ import {
   parseCommandsDir,
   resolveCommandSelections,
 } from "./commands.js";
+import type { CanonicalCommandFile } from "./commands.js";
 import {
   applySkillProviderSideEffects,
   copySkillArtifacts,
@@ -38,6 +41,7 @@ import {
 import {
   ensureDir,
   hashContent,
+  isObject,
   readJsonIfExists,
   relativePosix,
   slugify,
@@ -53,6 +57,7 @@ import {
   discoverSourceSkillsDir,
   prepareSource,
 } from "./sources.js";
+import { isProviderEntityFileName } from "./provider-entity-validation.js";
 
 export class NonInteractiveConflictError extends Error {
   constructor(message: string) {
@@ -179,9 +184,11 @@ export async function importSource(
       ? discoverSourceSkillsDir(prepared.importRoot)
       : null;
 
-    const sourceAgents = sourceAgentsDir ? parseAgentsDir(sourceAgentsDir) : [];
+    const sourceAgents = sourceAgentsDir
+      ? parseSourceAgentsForImport(sourceAgentsDir)
+      : [];
     const sourceCommands = sourceCommandsDir
-      ? parseCommandsDir(sourceCommandsDir)
+      ? parseSourceCommandsForImport(sourceCommandsDir)
       : [];
     const sourceMcp = sourceMcpPath
       ? normalizeMcp(readJsonIfExists<Record<string, unknown>>(sourceMcpPath))
@@ -197,7 +204,7 @@ export async function importSource(
 
     if (shouldImportAgents && requireAgents && !sourceAgentsDir) {
       throw new Error(
-        `No source agents directory found under ${prepared.importRoot} (expected agents/ or .agents/agents/).`,
+        `No source agents directory found under ${prepared.importRoot} (expected agents/, .agents/agents/, or .github/agents/).`,
       );
     }
     if (shouldImportAgents && requireAgents && sourceAgents.length === 0) {
@@ -205,7 +212,7 @@ export async function importSource(
     }
     if (shouldImportCommands && options.requireCommands && !sourceCommandsDir) {
       throw new Error(
-        `No source commands directory found under ${prepared.importRoot} (expected .agents/commands/, commands/, or prompts/).`,
+        `No source commands directory found under ${prepared.importRoot} (expected .agents/commands/, commands/, prompts/, or .github/prompts/).`,
       );
     }
     if (
@@ -241,7 +248,7 @@ export async function importSource(
       Object.keys(sourceMcp?.mcpServers ?? {}).length === 0
     ) {
       throw new Error(
-        `No importable entities found in source "${sourceLocation}".\nExpected agents/, .agents/agents/, commands/, .agents/commands/, prompts/, mcp.json/.agents/mcp.json, skills/, .agents/skills/, or root SKILL.md.`,
+        `No importable entities found in source "${sourceLocation}".\nExpected agents/, .agents/agents/, .github/agents/, commands/, .agents/commands/, prompts/, .github/prompts/, mcp.json/.agents/mcp.json, skills/, .agents/skills/, or root SKILL.md.`,
       );
     }
 
@@ -716,6 +723,205 @@ export async function importSource(
   } finally {
     prepared.cleanup();
   }
+}
+
+function parseSourceAgentsForImport(sourceAgentsDir: string): CanonicalAgent[] {
+  if (isGitHubAgentsDir(sourceAgentsDir)) {
+    return parseGitHubAgentsDirForImport(sourceAgentsDir);
+  }
+  return parseAgentsDir(sourceAgentsDir);
+}
+
+function parseSourceCommandsForImport(
+  sourceCommandsDir: string,
+): CanonicalCommandFile[] {
+  const commands = parseCommandsDir(sourceCommandsDir);
+  if (!isGitHubPromptsDir(sourceCommandsDir)) {
+    return commands;
+  }
+
+  return commands
+    .filter((command) =>
+      isProviderEntityFileName({
+        provider: "copilot",
+        entity: "command",
+        fileName: command.fileName,
+      }),
+    )
+    .map((command) => normalizeGitHubPromptForImport(command));
+}
+
+function isGitHubAgentsDir(sourceAgentsDir: string): boolean {
+  return (
+    path.basename(sourceAgentsDir).toLowerCase() === "agents" &&
+    path.basename(path.dirname(sourceAgentsDir)).toLowerCase() === ".github"
+  );
+}
+
+function isGitHubPromptsDir(sourceCommandsDir: string): boolean {
+  return (
+    path.basename(sourceCommandsDir).toLowerCase() === "prompts" &&
+    path.basename(path.dirname(sourceCommandsDir)).toLowerCase() === ".github"
+  );
+}
+
+function parseGitHubAgentsDirForImport(
+  sourceAgentsDir: string,
+): CanonicalAgent[] {
+  return fs
+    .readdirSync(sourceAgentsDir)
+    .filter((entry) =>
+      isProviderEntityFileName({
+        provider: "copilot",
+        entity: "agent",
+        fileName: entry,
+      }),
+    )
+    .sort((a, b) => a.localeCompare(b))
+    .map((entry) =>
+      parseGitHubAgentForImport(path.join(sourceAgentsDir, entry)),
+    );
+}
+
+function parseGitHubAgentForImport(sourcePath: string): CanonicalAgent {
+  const raw = fs.readFileSync(sourcePath, "utf8");
+  const parsed = matter(raw);
+  const data = isObject(parsed.data)
+    ? (parsed.data as Record<string, unknown>)
+    : {};
+
+  const fileName = path.basename(sourcePath);
+  const fallbackName = inferAgentNameFromFile(fileName);
+  const name =
+    typeof data.name === "string" && data.name.trim().length > 0
+      ? data.name.trim()
+      : fallbackName;
+  const description =
+    typeof data.description === "string" && data.description.trim().length > 0
+      ? data.description.trim()
+      : `Imported from Copilot agent "${name}".`;
+
+  const frontmatter: Record<string, unknown> = {
+    name,
+    description,
+  };
+
+  for (const provider of ALL_PROVIDERS) {
+    if (provider === "copilot") continue;
+    const value = data[provider];
+    if (value === false || isObject(value)) {
+      frontmatter[provider] = cloneUnknown(value);
+    }
+  }
+
+  const explicitCopilot = data.copilot;
+  if (isObject(explicitCopilot)) {
+    frontmatter.copilot = cloneUnknown(explicitCopilot);
+  } else {
+    const inferredCopilotConfig: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(data)) {
+      if (key === "name" || key === "description") continue;
+      if (ALL_PROVIDERS.includes(key as Provider)) continue;
+      inferredCopilotConfig[key] = cloneUnknown(value);
+    }
+
+    if (Object.keys(inferredCopilotConfig).length > 0) {
+      frontmatter.copilot = inferredCopilotConfig;
+    }
+  }
+
+  return {
+    name,
+    description,
+    body: parsed.content.trimStart(),
+    frontmatter: frontmatter as CanonicalAgent["frontmatter"],
+    sourcePath,
+    fileName,
+  };
+}
+
+function normalizeGitHubPromptForImport(
+  command: CanonicalCommandFile,
+): CanonicalCommandFile {
+  const fileName = toCanonicalCommandFileName(command.fileName);
+  if (!command.frontmatter) {
+    return {
+      ...command,
+      fileName,
+    };
+  }
+
+  const nextFrontmatter: Record<string, unknown> = {};
+  for (const provider of ALL_PROVIDERS) {
+    if (provider === "copilot") continue;
+    const value = command.frontmatter[provider];
+    if (value === false || isObject(value)) {
+      nextFrontmatter[provider] = cloneUnknown(value);
+    }
+  }
+
+  const explicitCopilot = command.frontmatter.copilot;
+  if (explicitCopilot === false) {
+    nextFrontmatter.copilot = false;
+  } else {
+    const copilotConfig: Record<string, unknown> = isObject(explicitCopilot)
+      ? cloneUnknown(explicitCopilot)
+      : {};
+
+    for (const [key, value] of Object.entries(command.frontmatter)) {
+      if (ALL_PROVIDERS.includes(key as Provider)) continue;
+      if (!(key in copilotConfig)) {
+        copilotConfig[key] = cloneUnknown(value);
+      }
+    }
+
+    if (Object.keys(copilotConfig).length > 0) {
+      nextFrontmatter.copilot = copilotConfig;
+    }
+  }
+
+  const frontmatter =
+    Object.keys(nextFrontmatter).length > 0 ? nextFrontmatter : undefined;
+  const body = command.body.trimStart();
+  return {
+    ...command,
+    fileName,
+    body,
+    frontmatter,
+    content: buildCommandMarkdownForImport(frontmatter, body),
+  };
+}
+
+function buildCommandMarkdownForImport(
+  frontmatter: Record<string, unknown> | undefined,
+  body: string,
+): string {
+  if (!frontmatter) {
+    return body.endsWith("\n") ? body : `${body}\n`;
+  }
+
+  const fm = YAML.stringify(frontmatter, { lineWidth: 0 }).trimEnd();
+  return `---\n${fm}\n---\n\n${body}${body.endsWith("\n") ? "" : "\n"}`;
+}
+
+function inferAgentNameFromFile(fileName: string): string {
+  const base = fileName
+    .replace(/\.agent\.md$/i, "")
+    .replace(/\.md$/i, "")
+    .trim();
+  return base || "agent";
+}
+
+function toCanonicalCommandFileName(fileName: string): string {
+  const lower = fileName.toLowerCase();
+  if (lower.endsWith(".prompt.md")) {
+    return `${fileName.slice(0, -".prompt.md".length)}.md`;
+  }
+  return fileName;
+}
+
+function cloneUnknown<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
 }
 
 async function resolveAgentsToImport(options: {
