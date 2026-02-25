@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  discoverSourceAgentsDir,
   discoverSourceCommandsDir,
   discoverSourceSkillsDir,
   parseSourceSpec,
@@ -78,6 +79,17 @@ describe("source parsing and revision", () => {
     expect(discoverSourceCommandsDir(root)).toBe(path.join(root, "prompts"));
   });
 
+  it("falls back to .github prompts when command directories are absent", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-sources-"));
+    tempDirs.push(root);
+
+    ensureDir(path.join(root, ".github", "prompts"));
+
+    expect(discoverSourceCommandsDir(root)).toBe(
+      path.join(root, ".github", "prompts"),
+    );
+  });
+
   it("uses command source priority .agents/commands before commands before prompts", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-sources-"));
     tempDirs.push(root);
@@ -100,5 +112,16 @@ describe("source parsing and revision", () => {
 
     ensureDir(path.join(root, "skills"));
     expect(discoverSourceSkillsDir(root)).toBe(path.join(root, "skills"));
+  });
+
+  it("falls back to .github agents when canonical agent directories are absent", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-sources-"));
+    tempDirs.push(root);
+
+    ensureDir(path.join(root, ".github", "agents"));
+
+    expect(discoverSourceAgentsDir(root)).toBe(
+      path.join(root, ".github", "agents"),
+    );
   });
 });

@@ -102,6 +102,11 @@ export function discoverSourceAgentsDir(importRoot: string): string | null {
     return nested;
   }
 
+  const githubAgents = path.join(importRoot, ".github", "agents");
+  if (fs.existsSync(githubAgents) && fs.statSync(githubAgents).isDirectory()) {
+    return githubAgents;
+  }
+
   return null;
 }
 
@@ -129,6 +134,14 @@ export function discoverSourceCommandsDir(importRoot: string): string | null {
   const prompts = path.join(importRoot, "prompts");
   if (fs.existsSync(prompts) && fs.statSync(prompts).isDirectory()) {
     return prompts;
+  }
+
+  const githubPrompts = path.join(importRoot, ".github", "prompts");
+  if (
+    fs.existsSync(githubPrompts) &&
+    fs.statSync(githubPrompts).isDirectory()
+  ) {
+    return githubPrompts;
   }
 
   return null;
