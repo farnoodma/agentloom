@@ -67,10 +67,13 @@ export async function runCli(argv: string[]): Promise<void> {
     cwd,
   });
 
+  const bootstrapArgs = shouldBootstrapManageAgents
+    ? buildManageAgentsBootstrapArgs(parsed, cwd)
+    : undefined;
+
   await runRoutedCommand(route, parsed, cwd, command, version);
 
-  if (shouldBootstrapManageAgents) {
-    const bootstrapArgs = buildManageAgentsBootstrapArgs(parsed, cwd);
+  if (bootstrapArgs) {
     await runSkillCommand(parseArgs(bootstrapArgs), cwd);
   }
 }
@@ -145,8 +148,9 @@ function buildManageAgentsBootstrapArgs(
   parsed: ParsedArgs,
   cwd: string,
 ): string[] {
-  const scope = resolveBootstrapScope(parsed);
-  const providers = resolveBootstrapProviders(parsed, cwd, scope);
+  const inferredScope = resolveBootstrapScope(parsed);
+  const scope = inferredScope ?? "global";
+  const providers = resolveBootstrapProviders(parsed, cwd, inferredScope);
 
   const args: string[] = [
     "skill",

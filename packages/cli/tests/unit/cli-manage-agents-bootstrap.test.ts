@@ -6,6 +6,7 @@ const commandMocks = vi.hoisted(() => ({
   runCommandCommand: vi.fn(),
   runDeleteCommand: vi.fn(),
   runFindCommand: vi.fn(),
+  runInitCommand: vi.fn(),
   runMcpCommand: vi.fn(),
   runSkillCommand: vi.fn(),
   runSyncCommand: vi.fn(),
@@ -44,6 +45,9 @@ vi.mock("../../src/commands/delete.js", () => ({
 }));
 vi.mock("../../src/commands/find.js", () => ({
   runFindCommand: commandMocks.runFindCommand,
+}));
+vi.mock("../../src/commands/init.js", () => ({
+  runInitCommand: commandMocks.runInitCommand,
 }));
 vi.mock("../../src/commands/mcp.js", () => ({
   runMcpCommand: commandMocks.runMcpCommand,
@@ -91,6 +95,8 @@ beforeEach(() => {
   commandMocks.runDeleteCommand.mockResolvedValue(undefined);
   commandMocks.runFindCommand.mockReset();
   commandMocks.runFindCommand.mockResolvedValue(undefined);
+  commandMocks.runInitCommand.mockReset();
+  commandMocks.runInitCommand.mockResolvedValue(undefined);
   commandMocks.runMcpCommand.mockReset();
   commandMocks.runMcpCommand.mockResolvedValue(undefined);
   commandMocks.runSkillCommand.mockReset();
@@ -208,5 +214,52 @@ describe("manage-agents bootstrap in CLI", () => {
     expect(bootstrapArgv.skills).toBe("manage-agents");
     expect(bootstrapArgv.global).toBe(true);
     expect(bootstrapArgv.providers).toBe("codex,gemini");
+  });
+
+  it("pins bootstrap install to global when init later updates scope to local", async () => {
+    bootstrapMocks.maybePromptManageAgentsBootstrap.mockResolvedValue(true);
+
+    const globalSettingsPath = "/mock/home/.agents/settings.local.json";
+    settingsMocks.getGlobalSettingsPath.mockReturnValue(globalSettingsPath);
+    settingsMocks.readSettings.mockImplementation((settingsPath: string) => {
+      if (settingsPath === globalSettingsPath) {
+        return {
+          version: 1,
+          defaultProviders: ["cursor"],
+        };
+      }
+      return {
+        version: 1,
+        defaultProviders: ["cursor"],
+      };
+    });
+
+    commandMocks.runInitCommand.mockImplementation(async () => {
+      settingsMocks.readSettings.mockImplementation((settingsPath: string) => {
+        if (settingsPath === globalSettingsPath) {
+          return {
+            version: 1,
+            lastScope: "local",
+            defaultProviders: ["cursor"],
+          };
+        }
+        return {
+          version: 1,
+          defaultProviders: ["cursor"],
+        };
+      });
+    });
+
+    await runCli(["init"]);
+
+    expect(commandMocks.runInitCommand).toHaveBeenCalledTimes(1);
+    expect(commandMocks.runSkillCommand).toHaveBeenCalledTimes(1);
+    const [bootstrapArgv] = commandMocks.runSkillCommand.mock.calls[0] as [
+      Record<string, unknown>,
+    ];
+    expect(bootstrapArgv._).toEqual(["skill", "add", "farnoodma/agentloom"]);
+    expect(bootstrapArgv.skills).toBe("manage-agents");
+    expect(bootstrapArgv.global).toBe(true);
+    expect(bootstrapArgv.local).toBe(false);
   });
 });
