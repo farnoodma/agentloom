@@ -4,6 +4,7 @@ import { isDeepStrictEqual } from "node:util";
 import { cancel, isCancel, select } from "@clack/prompts";
 import TOML from "@iarna/toml";
 import matter from "gray-matter";
+import YAML from "yaml";
 import { buildAgentMarkdown, parseAgentsDir } from "./agents.js";
 import { parseCommandsDir } from "./commands.js";
 import { ensureDir, isObject, readJsonIfExists, slugify } from "./fs.js";
@@ -29,6 +30,7 @@ import {
   parseSkillsDir,
   skillContentMatchesTarget,
 } from "./skills.js";
+import { isProviderEntityFileName } from "./provider-entity-validation.js";
 import { ALL_PROVIDERS } from "../types.js";
 import type {
   AgentFrontmatter,
@@ -181,6 +183,9 @@ export function formatMigrationSummary(summary: MigrationSummary): string {
 interface ProviderAgentRecord {
   provider: Provider;
   sourcePath: string;
+  fileName: string;
+  sourcePriority: number;
+  nameKey: string;
   key: string;
   name: string;
   description: string;
@@ -196,8 +201,13 @@ async function migrateAgents(
   const canonicalByKey = new Map<string, (typeof canonicalAgents)[number]>();
   for (const agent of canonicalAgents) {
     const key = agentKey(agent.name, agent.fileName);
-    if (!canonicalByKey.has(key)) {
-      canonicalByKey.set(key, agent);
+    // Always let file-derived keys win over name aliases from earlier entries.
+    canonicalByKey.set(key, agent);
+  }
+  for (const agent of canonicalAgents) {
+    const nameKey = slugify(agent.name);
+    if (nameKey && !canonicalByKey.has(nameKey)) {
+      canonicalByKey.set(nameKey, agent);
     }
   }
 
@@ -214,10 +224,15 @@ async function migrateAgents(
       recordsByKey.set(record.key, next);
     }
   }
+  mergeAgentRecordsByName(recordsByKey);
 
   for (const [key, records] of recordsByKey.entries()) {
     if (records.length === 0) continue;
-    const canonical = canonicalByKey.get(key);
+    const canonical = resolveCanonicalAgentForMerge(
+      canonicalByKey,
+      key,
+      records,
+    );
     const existingRaw = canonical
       ? fs.readFileSync(canonical.sourcePath, "utf8")
       : null;
@@ -255,52 +270,259 @@ async function migrateAgents(
   }
 }
 
+function mergeAgentRecordsByName(
+  recordsByKey: Map<string, ProviderAgentRecord[]>,
+): void {
+  const groupKeyByName = new Map<string, string>();
+  for (const [key, records] of [...recordsByKey.entries()]) {
+    if (!recordsByKey.has(key)) continue;
+
+    let targetKey = key;
+    for (const record of records) {
+      const nameKey = slugify(record.name);
+      if (!nameKey) continue;
+
+      const existingKey = groupKeyByName.get(nameKey);
+      if (!existingKey || existingKey === targetKey) {
+        groupKeyByName.set(nameKey, targetKey);
+        continue;
+      }
+
+      const existing = recordsByKey.get(existingKey) ?? [];
+      const current = recordsByKey.get(targetKey) ?? [];
+      existing.push(...current);
+      recordsByKey.set(existingKey, existing);
+      recordsByKey.delete(targetKey);
+      targetKey = existingKey;
+      targetKey = rekeyMergedAgentGroup(recordsByKey, targetKey, nameKey);
+      groupKeyByName.set(nameKey, targetKey);
+    }
+
+    const merged = recordsByKey.get(targetKey) ?? [];
+    for (const record of merged) {
+      const nameKey = slugify(record.name);
+      if (nameKey) {
+        groupKeyByName.set(nameKey, targetKey);
+      }
+    }
+  }
+}
+
+function rekeyMergedAgentGroup(
+  recordsByKey: Map<string, ProviderAgentRecord[]>,
+  currentKey: string,
+  nameKey: string,
+): string {
+  if (!nameKey || currentKey === nameKey) {
+    return currentKey;
+  }
+
+  const current = recordsByKey.get(currentKey);
+  if (!current) {
+    return currentKey;
+  }
+
+  const existingNameKeyGroup = recordsByKey.get(nameKey);
+  if (existingNameKeyGroup && existingNameKeyGroup !== current) {
+    existingNameKeyGroup.push(...current);
+    recordsByKey.set(nameKey, existingNameKeyGroup);
+  } else {
+    recordsByKey.set(nameKey, current);
+  }
+  recordsByKey.delete(currentKey);
+  return nameKey;
+}
+
+function resolveCanonicalAgentForMerge(
+  canonicalByKey: Map<string, ReturnType<typeof parseAgentsDir>[number]>,
+  key: string,
+  records: ProviderAgentRecord[],
+): ReturnType<typeof parseAgentsDir>[number] | undefined {
+  const direct = canonicalByKey.get(key);
+  if (direct) {
+    return direct;
+  }
+
+  for (const record of records) {
+    const nameKey = slugify(record.name);
+    if (!nameKey) continue;
+    const match = canonicalByKey.get(nameKey);
+    if (match) {
+      return match;
+    }
+  }
+
+  return undefined;
+}
+
 function readMarkdownProviderAgents(
   paths: ScopePaths,
   provider: Provider,
 ): ProviderAgentRecord[] {
-  const dirPath = getProviderAgentsDir(paths, provider);
+  const records: ProviderAgentRecord[] = [];
+  const seenSourcePaths = new Set<string>();
+  const candidateDirs: Array<{
+    path: string;
+    sourcePriority: number;
+    fallback: boolean;
+  }> = [
+    {
+      path: getProviderAgentsDir(paths, provider),
+      sourcePriority: 0,
+      fallback: false,
+    },
+  ];
+
+  // Keep backward compatibility with historical global Copilot output.
+  if (provider === "copilot" && paths.scope === "global") {
+    candidateDirs.push({
+      path: path.join(paths.homeDir, ".vscode", "chatmodes"),
+      sourcePriority: 1,
+      fallback: true,
+    });
+  }
+
+  const entriesByPath = new Map<string, string[]>();
+  for (const candidateDir of candidateDirs) {
+    entriesByPath.set(
+      candidateDir.path,
+      listProviderAgentEntries(candidateDir.path, provider),
+    );
+  }
+
+  const primaryEntries = entriesByPath.get(candidateDirs[0]?.path ?? "") ?? [];
+  const useFallbackDirs =
+    !(provider === "copilot" && paths.scope === "global") ||
+    primaryEntries.length === 0;
+
+  for (const candidateDir of candidateDirs) {
+    if (candidateDir.fallback && !useFallbackDirs) continue;
+
+    const dirPath = candidateDir.path;
+    const entries = entriesByPath.get(dirPath) ?? [];
+
+    for (const fileName of entries) {
+      const sourcePath = path.join(dirPath, fileName);
+      if (seenSourcePaths.has(sourcePath)) continue;
+      seenSourcePaths.add(sourcePath);
+
+      const raw = fs.readFileSync(sourcePath, "utf8");
+      const parsed = matter(raw);
+      const data = isObject(parsed.data) ? parsed.data : {};
+      const parsedName =
+        typeof data.name === "string" && data.name.trim().length > 0
+          ? data.name.trim()
+          : guessAgentNameFromFile(fileName);
+      const parsedDescription =
+        typeof data.description === "string" &&
+        data.description.trim().length > 0
+          ? data.description.trim()
+          : `Migrated from ${provider}`;
+      const nameKey = providerAgentNameKey(parsedName, fileName);
+      const key = agentKey(parsedName, fileName);
+      const providerConfig = extractProviderConfigFromAgentFrontmatter(
+        data,
+        provider,
+      );
+      records.push({
+        provider,
+        sourcePath,
+        fileName,
+        sourcePriority: candidateDir.sourcePriority,
+        nameKey,
+        key,
+        name: parsedName,
+        description: parsedDescription,
+        body: parsed.content.trimStart(),
+        providerConfig,
+      });
+    }
+  }
+
+  return dedupeProviderAgentRecords(records);
+}
+
+function listProviderAgentEntries(
+  dirPath: string,
+  provider: Provider,
+): string[] {
   if (!fs.existsSync(dirPath) || !fs.statSync(dirPath).isDirectory()) {
     return [];
   }
 
-  const entries = fs
+  return fs
     .readdirSync(dirPath, { withFileTypes: true })
     .filter((entry) => entry.isFile())
     .map((entry) => entry.name)
-    .filter((name) => name.toLowerCase().endsWith(".md"))
+    .filter((name) =>
+      isProviderEntityFileName({
+        provider,
+        entity: "agent",
+        fileName: name,
+      }),
+    )
     .sort();
+}
 
-  const records: ProviderAgentRecord[] = [];
-  for (const fileName of entries) {
-    const sourcePath = path.join(dirPath, fileName);
-    const raw = fs.readFileSync(sourcePath, "utf8");
-    const parsed = matter(raw);
-    const data = isObject(parsed.data) ? parsed.data : {};
-    const parsedName =
-      typeof data.name === "string" && data.name.trim().length > 0
-        ? data.name.trim()
-        : guessAgentNameFromFile(fileName);
-    const parsedDescription =
-      typeof data.description === "string" && data.description.trim().length > 0
-        ? data.description.trim()
-        : `Migrated from ${provider}`;
-    const providerConfig = extractProviderConfigFromAgentFrontmatter(
-      data,
-      provider,
-    );
-    records.push({
-      provider,
-      sourcePath,
-      key: agentKey(parsedName, fileName),
-      name: parsedName,
-      description: parsedDescription,
-      body: parsed.content.trimStart(),
-      providerConfig,
-    });
+function providerAgentNameKey(name: string, fileName: string): string {
+  return slugify(name) || agentFileKey(fileName);
+}
+
+function dedupeProviderAgentRecords(
+  records: ProviderAgentRecord[],
+): ProviderAgentRecord[] {
+  const recordsByName = new Map<string, ProviderAgentRecord[]>();
+  for (const record of records) {
+    const next = recordsByName.get(record.nameKey) ?? [];
+    next.push(record);
+    recordsByName.set(record.nameKey, next);
   }
 
-  return records;
+  const deduped: ProviderAgentRecord[] = [];
+  for (const [nameKey, bucket] of recordsByName.entries()) {
+    if (bucket.length === 1) {
+      deduped.push(bucket[0]);
+      continue;
+    }
+
+    const ranked = [...bucket].sort(compareProviderAgentCollisionPriority);
+    const winner = ranked[0];
+    const ignored = ranked.slice(1).map((record) => record.sourcePath);
+    console.warn(
+      `Warning: Duplicate ${winner.provider} agents share canonical name "${nameKey}". Keeping ${winner.sourcePath} and ignoring ${ignored.join(", ")}.`,
+    );
+    deduped.push(winner);
+  }
+
+  return deduped.sort(
+    (a, b) =>
+      a.key.localeCompare(b.key) || a.sourcePath.localeCompare(b.sourcePath),
+  );
+}
+
+function compareProviderAgentCollisionPriority(
+  left: ProviderAgentRecord,
+  right: ProviderAgentRecord,
+): number {
+  if (left.sourcePriority !== right.sourcePriority) {
+    return left.sourcePriority - right.sourcePriority;
+  }
+
+  const leftFileMatchesName = isProviderAgentFileAlignedWithName(left) ? 0 : 1;
+  const rightFileMatchesName = isProviderAgentFileAlignedWithName(right)
+    ? 0
+    : 1;
+  if (leftFileMatchesName !== rightFileMatchesName) {
+    return leftFileMatchesName - rightFileMatchesName;
+  }
+
+  return left.sourcePath.localeCompare(right.sourcePath);
+}
+
+function isProviderAgentFileAlignedWithName(
+  record: ProviderAgentRecord,
+): boolean {
+  return agentFileKey(record.fileName) === record.nameKey;
 }
 
 function readCodexProviderAgents(paths: ScopePaths): ProviderAgentRecord[] {
@@ -372,6 +594,9 @@ function readCodexProviderAgents(paths: ScopePaths): ProviderAgentRecord[] {
     records.push({
       provider: "codex",
       sourcePath: roleTomlPath,
+      fileName: `${roleName}.md`,
+      sourcePriority: 0,
+      nameKey: providerAgentNameKey(roleName, `${roleName}.md`),
       key: agentKey(roleName, `${roleName}.md`),
       name: roleName,
       description: description || roleName,
@@ -412,8 +637,15 @@ function guessAgentNameFromFile(fileName: string): string {
   return base.trim() || "agent";
 }
 
+function agentFileKey(fileName: string): string {
+  const normalizedFile = fileName
+    .replace(/\.agent\.md$/i, "")
+    .replace(/\.md$/i, "");
+  return slugify(normalizedFile);
+}
+
 function agentKey(name: string, fileName: string): string {
-  return slugify(name) || slugify(fileName.replace(/\.md$/i, "")) || "agent";
+  return agentFileKey(fileName) || slugify(name) || "agent";
 }
 
 async function resolveAgentMerge(options: {
@@ -430,9 +662,11 @@ async function resolveAgentMerge(options: {
     return null;
   }
 
-  let name = options.canonical?.name ?? records[0].name;
-  let description = options.canonical?.description ?? records[0].description;
-  let body = options.canonical?.body ?? records[0].body;
+  const preferredRecord = choosePreferredProviderAgent(records);
+  let name = options.canonical?.name ?? preferredRecord.name;
+  let description =
+    options.canonical?.description ?? preferredRecord.description;
+  let body = options.canonical?.body ?? preferredRecord.body;
   const frontmatter: AgentFrontmatter = options.canonical
     ? ({ ...options.canonical.frontmatter } as AgentFrontmatter)
     : ({
@@ -441,11 +675,10 @@ async function resolveAgentMerge(options: {
       } as AgentFrontmatter);
 
   if (!options.canonical && records.length > 1) {
-    const first = records[0];
-    const different = records.some(
-      (record) => !sameAgentContent(first, record),
+    const allSameBody = records.every((record) =>
+      sameNormalizedBody(record.body, records[0].body),
     );
-    if (different) {
+    if (!allSameBody) {
       options.onConflict();
       const chosen = await chooseProviderSource({
         conflictLabel: `agent "${options.key}"`,
@@ -461,7 +694,7 @@ async function resolveAgentMerge(options: {
 
   if (options.canonical) {
     for (const record of records) {
-      if (!sameAgentContent({ name, description, body }, record)) {
+      if (!sameNormalizedBody(record.body, body)) {
         options.onConflict();
         const decision = await resolveCanonicalConflict({
           conflictLabel: `agent "${record.key}" from ${record.provider}`,
@@ -478,7 +711,14 @@ async function resolveAgentMerge(options: {
   }
 
   for (const record of records) {
-    frontmatter[record.provider] = cloneRecord(record.providerConfig);
+    const providerConfig = cloneRecord(record.providerConfig);
+    if (record.name.trim() !== name.trim()) {
+      providerConfig.name = record.name;
+    }
+    if (record.description.trim() !== description.trim()) {
+      providerConfig.description = record.description;
+    }
+    frontmatter[record.provider] = providerConfig;
   }
   frontmatter.name = name;
   frontmatter.description = description;
@@ -492,6 +732,12 @@ async function resolveAgentMerge(options: {
     outputPath,
     markdown,
   };
+}
+
+function choosePreferredProviderAgent(
+  records: ProviderAgentRecord[],
+): ProviderAgentRecord {
+  return records.find((record) => record.provider === "copilot") ?? records[0];
 }
 
 function dedupeAgentRecords(
@@ -509,15 +755,8 @@ function dedupeAgentRecords(
   return unique;
 }
 
-function sameAgentContent(
-  left: { name: string; description: string; body: string },
-  right: { name: string; description: string; body: string },
-): boolean {
-  return (
-    left.name.trim() === right.name.trim() &&
-    left.description.trim() === right.description.trim() &&
-    normalizeBody(left.body) === normalizeBody(right.body)
-  );
+function sameNormalizedBody(left: string, right: string): boolean {
+  return normalizeBody(left) === normalizeBody(right);
 }
 
 interface ProviderCommandRecord {
@@ -525,6 +764,8 @@ interface ProviderCommandRecord {
   sourcePath: string;
   targetFileName: string;
   content: string;
+  body: string;
+  frontmatter?: Record<string, unknown>;
 }
 
 async function migrateCommands(
@@ -549,15 +790,15 @@ async function migrateCommands(
 
   for (const [fileName, records] of grouped.entries()) {
     const canonical = canonicalByFile.get(fileName);
-    let content = canonical?.content ?? records[0].content;
+    let preferredRecord = choosePreferredProviderCommand(records);
+    let body = canonical?.body ?? preferredRecord.body;
     let hadConflict = false;
 
     if (!canonical) {
-      const allSame = records.every(
-        (record) =>
-          normalizeBody(record.content) === normalizeBody(records[0].content),
+      const allSameBody = records.every((record) =>
+        sameNormalizedBody(record.body, records[0].body),
       );
-      if (!allSame) {
+      if (!allSameBody) {
         hadConflict = true;
         summary.conflicts += 1;
         const chosen = await resolveProviderDuplicateConflict({
@@ -566,11 +807,15 @@ async function migrateCommands(
           yes: Boolean(options.yes),
           nonInteractive: Boolean(options.nonInteractive),
         });
-        content = chosen.content;
+        preferredRecord = chosen;
+        body = chosen.body;
       }
     } else {
       for (const record of records) {
-        if (normalizeBody(record.content) === normalizeBody(content)) continue;
+        if (sameNormalizedBody(record.body, body)) {
+          continue;
+        }
+
         hadConflict = true;
         summary.conflicts += 1;
         const decision = await resolveCanonicalConflict({
@@ -579,10 +824,18 @@ async function migrateCommands(
           nonInteractive: Boolean(options.nonInteractive),
         });
         if (decision === "provider") {
-          content = record.content;
+          preferredRecord = record;
+          body = record.body;
         }
       }
     }
+
+    const frontmatter = mergeCommandFrontmatter({
+      canonicalFrontmatter: canonical?.frontmatter,
+      records,
+      preferredRecord,
+    });
+    const content = buildCommandMarkdown(frontmatter, body);
 
     const hasChanged = canonical
       ? canonical.content !== content
@@ -605,6 +858,119 @@ async function migrateCommands(
   }
 }
 
+function choosePreferredProviderCommand(
+  records: ProviderCommandRecord[],
+): ProviderCommandRecord {
+  const withFrontmatter = records.filter((record) => record.frontmatter);
+  if (withFrontmatter.length === 0) {
+    return records[0];
+  }
+
+  return (
+    withFrontmatter.find((record) => record.provider === "copilot") ??
+    withFrontmatter[0]
+  );
+}
+
+const COMMAND_GENERIC_FRONTMATTER_KEYS = new Set<string>([
+  "name",
+  "description",
+]);
+
+function mergeCommandFrontmatter(options: {
+  canonicalFrontmatter?: Record<string, unknown>;
+  records: ProviderCommandRecord[];
+  preferredRecord: ProviderCommandRecord;
+}): Record<string, unknown> | undefined {
+  const hasCanonical = options.canonicalFrontmatter !== undefined;
+  const merged = options.canonicalFrontmatter
+    ? cloneRecord(options.canonicalFrontmatter)
+    : {};
+
+  const sharedGeneric = new Map<string, unknown>();
+  for (const key of COMMAND_GENERIC_FRONTMATTER_KEYS) {
+    if (merged[key] !== undefined) {
+      sharedGeneric.set(key, merged[key]);
+      continue;
+    }
+
+    if (!hasCanonical) {
+      const preferredValue = options.preferredRecord.frontmatter?.[key];
+      if (preferredValue !== undefined) {
+        const cloned = cloneRecord(preferredValue);
+        merged[key] = cloned;
+        sharedGeneric.set(key, cloned);
+      }
+    }
+  }
+
+  for (const record of options.records) {
+    const existingProviderValue = merged[record.provider];
+    if (existingProviderValue === false) {
+      continue;
+    }
+
+    const hadProviderObject = isObject(existingProviderValue);
+    const existingProviderConfig = hadProviderObject
+      ? cloneRecord(existingProviderValue as Record<string, unknown>)
+      : {};
+    const providerConfig: Record<string, unknown> = existingProviderConfig;
+    const data = record.frontmatter ?? {};
+
+    for (const [key, value] of Object.entries(data)) {
+      if (PROVIDER_NAME_KEYS.has(key)) continue;
+
+      if (COMMAND_GENERIC_FRONTMATTER_KEYS.has(key)) {
+        if (!sharedGeneric.has(key)) {
+          if (hasCanonical) {
+            providerConfig[key] = cloneRecord(value);
+            continue;
+          }
+
+          const cloned = cloneRecord(value);
+          merged[key] = cloned;
+          sharedGeneric.set(key, cloned);
+          continue;
+        }
+
+        const sharedValue = sharedGeneric.get(key);
+        if (!isDeepStrictEqual(sharedValue, value)) {
+          providerConfig[key] = cloneRecord(value);
+        }
+        continue;
+      }
+
+      const sharedValue = merged[key];
+      if (sharedValue !== undefined && isDeepStrictEqual(sharedValue, value)) {
+        continue;
+      }
+
+      providerConfig[key] = cloneRecord(value);
+    }
+
+    if (Object.keys(providerConfig).length > 0 || hadProviderObject) {
+      merged[record.provider] = providerConfig;
+    }
+  }
+
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
+function buildCommandMarkdown(
+  frontmatter: Record<string, unknown> | undefined,
+  body: string,
+): string {
+  const normalizedBody = body.trimStart();
+  if (!frontmatter || Object.keys(frontmatter).length === 0) {
+    return normalizedBody.endsWith("\n")
+      ? normalizedBody
+      : `${normalizedBody}\n`;
+  }
+
+  const fm = YAML.stringify(frontmatter, { lineWidth: 0 }).trimEnd();
+  return `---\n${fm}\n---\n\n${normalizedBody}${normalizedBody.endsWith("\n") ? "" : "\n"}`;
+}
+
 function readProviderCommands(
   paths: ScopePaths,
   provider: Provider,
@@ -621,12 +987,22 @@ function readProviderCommands(
   }
 
   const files = parseCommandsDir(commandsDir);
-  return files.map((file) => ({
-    provider,
-    sourcePath: file.sourcePath,
-    targetFileName: toCanonicalCommandFileName(file.fileName),
-    content: file.content,
-  }));
+  return files
+    .filter((file) =>
+      isProviderEntityFileName({
+        provider,
+        entity: "command",
+        fileName: file.fileName,
+      }),
+    )
+    .map((file) => ({
+      provider,
+      sourcePath: file.sourcePath,
+      targetFileName: toCanonicalCommandFileName(file.fileName),
+      content: file.content,
+      body: file.body,
+      frontmatter: file.frontmatter,
+    }));
 }
 
 function toCanonicalCommandFileName(fileName: string): string {
