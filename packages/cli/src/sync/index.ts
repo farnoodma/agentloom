@@ -651,12 +651,19 @@ function readVsCodeSettings(
 }
 
 function parseJsonOrJsonc(input: string): unknown {
+  if (input.trim() === "") {
+    return {};
+  }
+
   try {
     return JSON.parse(input);
   } catch {
     try {
       const withoutComments = stripJsonComments(input);
       const normalized = stripTrailingJsonCommas(withoutComments);
+      if (normalized.trim() === "") {
+        return {};
+      }
       return JSON.parse(normalized);
     } catch {
       return null;

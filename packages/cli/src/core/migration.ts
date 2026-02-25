@@ -812,6 +812,10 @@ async function migrateCommands(
       }
     } else {
       for (const record of records) {
+        if (canonical.frontmatter?.[record.provider] === false) {
+          continue;
+        }
+
         if (sameNormalizedBody(record.body, body)) {
           continue;
         }

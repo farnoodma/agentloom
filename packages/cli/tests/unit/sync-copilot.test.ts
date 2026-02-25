@@ -171,4 +171,88 @@ Review changed files and report issues.
       expect.arrayContaining([path.join(homeDir, ".github", "agents")]),
     );
   });
+
+  it("treats empty VS Code settings as writable JSON when syncing discovery paths", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-home-"));
+    tempDirs.push(workspaceRoot, homeDir);
+
+    const paths = buildScopePaths(workspaceRoot, "global", homeDir);
+    ensureDir(paths.agentsDir);
+    writeTextAtomic(
+      path.join(paths.agentsDir, "reviewer.md"),
+      `---
+name: reviewer
+description: Reviews changes
+---
+
+Review changed files and report issues.
+`,
+    );
+
+    const settingsPath = getVsCodeSettingsPath(homeDir);
+    ensureDir(path.dirname(settingsPath));
+    writeTextAtomic(settingsPath, "   \n");
+
+    await syncFromCanonical({
+      paths,
+      providers: ["copilot"],
+      yes: true,
+      nonInteractive: true,
+      target: "agent",
+    });
+
+    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8")) as {
+      [key: string]: unknown;
+    };
+    expect(settings["chat.agentFilesLocations"]).toEqual(
+      expect.arrayContaining([path.join(homeDir, ".github", "agents")]),
+    );
+  });
+
+  it("treats comment-only VS Code settings as writable JSON when syncing discovery paths", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-home-"));
+    tempDirs.push(workspaceRoot, homeDir);
+
+    const paths = buildScopePaths(workspaceRoot, "global", homeDir);
+    ensureDir(paths.agentsDir);
+    writeTextAtomic(
+      path.join(paths.agentsDir, "reviewer.md"),
+      `---
+name: reviewer
+description: Reviews changes
+---
+
+Review changed files and report issues.
+`,
+    );
+
+    const settingsPath = getVsCodeSettingsPath(homeDir);
+    ensureDir(path.dirname(settingsPath));
+    writeTextAtomic(
+      settingsPath,
+      `// user comment-only settings placeholder
+`,
+    );
+
+    await syncFromCanonical({
+      paths,
+      providers: ["copilot"],
+      yes: true,
+      nonInteractive: true,
+      target: "agent",
+    });
+
+    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8")) as {
+      [key: string]: unknown;
+    };
+    expect(settings["chat.agentFilesLocations"]).toEqual(
+      expect.arrayContaining([path.join(homeDir, ".github", "agents")]),
+    );
+  });
 });

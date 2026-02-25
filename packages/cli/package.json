@@ -1,6 +1,6 @@
 {
   "name": "agentloom",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Unified agent and MCP sync CLI for multi-provider AI tooling",
   "type": "module",
   "bin": {

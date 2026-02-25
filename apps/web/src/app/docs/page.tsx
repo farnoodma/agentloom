@@ -7,6 +7,7 @@ const SECTIONS = [
   { id: "canonical-layout", label: "Canonical Layout" },
   { id: "commands", label: "Commands" },
   { id: "agent-schema", label: "Agent Schema" },
+  { id: "command-schema", label: "Command Schema" },
   { id: "mcp-schema", label: "MCP Schema" },
   { id: "providers", label: "Providers" },
   { id: "telemetry", label: "Telemetry" },
@@ -360,6 +361,46 @@ You are a strict code reviewer. Check for:
               Provider-specific blocks (<InlineCode>claude:</InlineCode>, <InlineCode>codex:</InlineCode>, etc.)
               let you tune model, reasoning effort, and other settings per tool without duplicating the prompt.
             </Prose>
+          </section>
+
+          {/* Command Schema */}
+          <section className="space-y-4 rounded-2xl border border-ink/10 bg-white p-6 shadow-card md:p-8 dark:border-white/10 dark:bg-black/30">
+            <SectionHeading id="command-schema">Command Schema</SectionHeading>
+            <Prose>
+              Canonical commands are markdown files. Frontmatter is optional. When present,
+              provider-specific command config can be nested per provider.
+            </Prose>
+
+            <CodeBlock>{`---
+copilot:
+  description: Review current changes
+  agent: agent
+  tools:
+    - codebase
+  model: gpt-5
+  argument-hint: "<scope>"
+---
+
+# /review
+
+Review active changes with scope \${input:args}.`}</CodeBlock>
+
+            <ul className="space-y-2 pl-5 text-sm text-ink/80 dark:text-white/80">
+              <li className="list-disc">
+                Provider configs follow the same pattern as agents.
+              </li>
+              <li className="list-disc">
+                Omit a provider key for default behavior, add <InlineCode>provider: {"{ ... }"}</InlineCode> for
+                provider-specific overrides, or set <InlineCode>provider: false</InlineCode> to disable output for a provider.
+              </li>
+              <li className="list-disc">
+                Provider-specific frontmatter keys are passed through as-is to provider outputs.
+              </li>
+              <li className="list-disc">
+                Canonical command bodies can use <InlineCode>$ARGUMENTS</InlineCode>; provider-specific placeholder
+                translation is applied during sync (for example, Copilot receives <InlineCode>${"${input:args}"}</InlineCode>).
+              </li>
+            </ul>
           </section>
 
           {/* MCP Schema */}

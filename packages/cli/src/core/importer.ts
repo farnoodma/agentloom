@@ -814,19 +814,28 @@ function parseGitHubAgentForImport(sourcePath: string): CanonicalAgent {
     }
   }
 
+  const inferredCopilotConfig: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (key === "name" || key === "description") continue;
+    if (ALL_PROVIDERS.includes(key as Provider)) continue;
+    inferredCopilotConfig[key] = cloneUnknown(value);
+  }
+
   const explicitCopilot = data.copilot;
-  if (isObject(explicitCopilot)) {
-    frontmatter.copilot = cloneUnknown(explicitCopilot);
+  if (explicitCopilot === false) {
+    frontmatter.copilot = false;
   } else {
-    const inferredCopilotConfig: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(data)) {
-      if (key === "name" || key === "description") continue;
-      if (ALL_PROVIDERS.includes(key as Provider)) continue;
-      inferredCopilotConfig[key] = cloneUnknown(value);
+    const copilotConfig: Record<string, unknown> = isObject(explicitCopilot)
+      ? cloneUnknown(explicitCopilot)
+      : {};
+    for (const [key, value] of Object.entries(inferredCopilotConfig)) {
+      if (!(key in copilotConfig)) {
+        copilotConfig[key] = value;
+      }
     }
 
-    if (Object.keys(inferredCopilotConfig).length > 0) {
-      frontmatter.copilot = inferredCopilotConfig;
+    if (Object.keys(copilotConfig).length > 0) {
+      frontmatter.copilot = copilotConfig;
     }
   }
 
