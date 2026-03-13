@@ -32,6 +32,8 @@ describe("lockfile helpers", () => {
       importedAgents: [],
       importedCommands: [],
       importedMcpServers: [],
+      importedRules: [],
+      importedSkills: [],
       contentHash: "hash-a",
     });
 
@@ -62,6 +64,7 @@ describe("lockfile helpers", () => {
           importedAgents: [],
           importedCommands: [],
           importedMcpServers: [],
+          importedRules: [],
           importedSkills: [],
           contentHash: "hash-a",
         },
@@ -99,6 +102,7 @@ describe("lockfile helpers", () => {
               importedAgents: [],
               importedCommands: [],
               importedMcpServers: [],
+              importedRules: [],
               importedSkills: [],
               contentHash: "hash-a",
             },
@@ -112,5 +116,42 @@ describe("lockfile helpers", () => {
 
     const lock = readLockfile(paths);
     expect(lock.entries[0]?.source).toBe(sourceRoot);
+  });
+
+  it("preserves rule selector and rename metadata", () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(workspaceRoot);
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    fs.mkdirSync(path.dirname(paths.lockPath), { recursive: true });
+
+    writeLockfile(paths, {
+      version: 1,
+      entries: [
+        {
+          source: "/tmp/source",
+          sourceType: "local",
+          resolvedCommit: "abc123",
+          importedAt: "2026-01-01T00:00:00.000Z",
+          importedAgents: [],
+          importedCommands: [],
+          importedMcpServers: [],
+          importedRules: ["rules/always-test.md"],
+          selectedSourceRules: ["always-test.md"],
+          ruleRenameMap: { "always-test.md": "always-run-tests.md" },
+          importedSkills: [],
+          contentHash: "hash-a",
+        },
+      ],
+    });
+
+    const lock = readLockfile(paths);
+    expect(lock.entries[0]?.importedRules).toEqual(["rules/always-test.md"]);
+    expect(lock.entries[0]?.selectedSourceRules).toEqual(["always-test.md"]);
+    expect(lock.entries[0]?.ruleRenameMap).toEqual({
+      "always-test.md": "always-run-tests.md",
+    });
   });
 });

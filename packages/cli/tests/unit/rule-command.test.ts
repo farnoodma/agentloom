@@ -3,7 +3,7 @@ import type { ParsedArgs } from "minimist";
 import type { ScopePaths } from "../../src/types.js";
 
 const commandMocks = vi.hoisted(() => ({
-  parseSkillsDir: vi.fn(),
+  parseRulesDir: vi.fn(),
   runScopedAddCommand: vi.fn(),
   runScopedDeleteCommand: vi.fn(),
   runScopedUpdateCommand: vi.fn(),
@@ -12,13 +12,13 @@ const commandMocks = vi.hoisted(() => ({
   resolvePathsForCommand: vi.fn(),
 }));
 
-vi.mock("../../src/core/skills.js", async () => {
+vi.mock("../../src/core/rules.js", async () => {
   const actual = await vi.importActual<
-    typeof import("../../src/core/skills.js")
-  >("../../src/core/skills.js");
+    typeof import("../../src/core/rules.js")
+  >("../../src/core/rules.js");
   return {
     ...actual,
-    parseSkillsDir: commandMocks.parseSkillsDir,
+    parseRulesDir: commandMocks.parseRulesDir,
   };
 });
 
@@ -46,7 +46,7 @@ vi.mock("../../src/commands/entity-utils.js", () => ({
   resolvePathsForCommand: commandMocks.resolvePathsForCommand,
 }));
 
-const { runSkillCommand } = await import("../../src/commands/skills.js");
+const { runRuleCommand } = await import("../../src/commands/rule.js");
 
 function createScopePaths(root = "/tmp/agentloom"): ScopePaths {
   return {
@@ -68,7 +68,7 @@ function createScopePaths(root = "/tmp/agentloom"): ScopePaths {
 const paths = createScopePaths();
 
 beforeEach(() => {
-  commandMocks.parseSkillsDir.mockReset();
+  commandMocks.parseRulesDir.mockReset();
   commandMocks.runScopedAddCommand.mockReset();
   commandMocks.runScopedDeleteCommand.mockReset();
   commandMocks.runScopedUpdateCommand.mockReset();
@@ -79,54 +79,53 @@ beforeEach(() => {
   commandMocks.resolvePathsForCommand.mockResolvedValue(paths);
 });
 
-describe("runSkillCommand", () => {
-  it("lists canonical skills from .agents/skills", async () => {
-    commandMocks.parseSkillsDir.mockReturnValue([
+describe("runRuleCommand", () => {
+  it("lists canonical rules from .agents/rules", async () => {
+    commandMocks.parseRulesDir.mockReturnValue([
       {
-        name: "release-check",
-        sourcePath: "/tmp/agentloom/.agents/skills/release-check",
-        skillPath: "/tmp/agentloom/.agents/skills/release-check/SKILL.md",
-        layout: "nested",
+        id: "always-test",
+        name: "Always Test",
+        fileName: "always-test.md",
       },
     ]);
 
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
-    await runSkillCommand({ _: ["skill", "list"] } as ParsedArgs, "/workspace");
+    await runRuleCommand({ _: ["rule", "list"] } as ParsedArgs, "/workspace");
 
-    expect(commandMocks.parseSkillsDir).toHaveBeenCalledWith(paths.skillsDir);
-    expect(logSpy).toHaveBeenCalledWith("release-check (release-check)");
+    expect(commandMocks.parseRulesDir).toHaveBeenCalledWith(paths.rulesDir);
+    expect(logSpy).toHaveBeenCalledWith("Always Test (always-test.md)");
   });
 
-  it("delegates skill find to scoped native find", async () => {
-    await runSkillCommand(
-      { _: ["skill", "find", "release"] } as ParsedArgs,
+  it("delegates rule find to scoped native find", async () => {
+    await runRuleCommand(
+      { _: ["rule", "find", "test"] } as ParsedArgs,
       "/workspace",
     );
 
     expect(commandMocks.runScopedFindCommand).toHaveBeenCalledWith(
-      { _: ["skill", "find", "release"] },
-      "skill",
+      { _: ["rule", "find", "test"] },
+      "rule",
     );
   });
 
-  it("delegates skill sync to scoped sync pipeline", async () => {
-    await runSkillCommand(
-      { _: ["skill", "sync"], yes: true, "dry-run": true } as ParsedArgs,
+  it("delegates rule sync to scoped sync pipeline", async () => {
+    await runRuleCommand(
+      { _: ["rule", "sync"], yes: true, "dry-run": true } as ParsedArgs,
       "/workspace",
     );
 
     expect(commandMocks.runScopedSyncCommand).toHaveBeenCalledWith({
-      argv: { _: ["skill", "sync"], yes: true, "dry-run": true },
+      argv: { _: ["rule", "sync"], yes: true, "dry-run": true },
       cwd: "/workspace",
-      target: "skill",
+      target: "rule",
     });
   });
 
-  it("throws usage error for unknown skill actions", async () => {
+  it("throws usage error for unknown rule actions", async () => {
     await expect(
-      runSkillCommand({ _: ["skill", "bogus"] } as ParsedArgs, "/workspace"),
-    ).rejects.toThrow(/Invalid skill command/);
+      runRuleCommand({ _: ["rule", "bogus"] } as ParsedArgs, "/workspace"),
+    ).rejects.toThrow(/Invalid rule command/);
     expect(commandMocks.runScopedSyncCommand).not.toHaveBeenCalled();
   });
 });

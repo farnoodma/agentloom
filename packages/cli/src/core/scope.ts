@@ -30,6 +30,7 @@ export function buildScopePaths(
     agentsRoot,
     agentsDir: path.join(agentsRoot, "agents"),
     commandsDir: path.join(agentsRoot, "commands"),
+    rulesDir: path.join(agentsRoot, "rules"),
     skillsDir: path.join(agentsRoot, "skills"),
     mcpPath: path.join(agentsRoot, "mcp.json"),
     lockPath: path.join(agentsRoot, "agents.lock.json"),

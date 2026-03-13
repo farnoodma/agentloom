@@ -37,6 +37,7 @@ function createScopePaths(root = "/tmp/agentloom"): ScopePaths {
     agentsRoot: `${root}/.agents`,
     agentsDir: `${root}/.agents/agents`,
     commandsDir: `${root}/.agents/commands`,
+    rulesDir: `${root}/.agents/rules`,
     skillsDir: `${root}/.agents/skills`,
     mcpPath: `${root}/.agents/mcp.json`,
     lockPath: `${root}/.agents/agents.lock.json`,
@@ -63,6 +64,7 @@ const summaryWithSkills: ImportSummary = {
   importedAgents: [],
   importedCommands: [],
   importedMcpServers: [],
+  importedRules: [],
   importedSkills: ["release-check"],
 };
 

@@ -6,6 +6,10 @@ import {
   normalizeCommandSelector,
   stripCommandFileExtension,
 } from "../core/commands.js";
+import {
+  normalizeRuleSelector,
+  stripRuleFileExtension,
+} from "../core/rules.js";
 import { readLockfile } from "../core/lockfile.js";
 import { prepareSource, parseSourceSpec } from "../core/sources.js";
 import { getUpdateHelpText } from "../core/copy.js";
@@ -120,6 +124,7 @@ async function runEntityAwareUpdate(options: {
       !updatePlan.importAgents &&
       !updatePlan.importCommands &&
       !updatePlan.importMcp &&
+      !updatePlan.importRules &&
       !updatePlan.importSkills
     ) {
       skipped += 1;
@@ -135,6 +140,7 @@ async function runEntityAwareUpdate(options: {
         promptForAgentSelection: false,
         promptForCommands: false,
         promptForMcp: false,
+        promptForRules: false,
         promptForSkills: false,
         yes: Boolean(options.argv.yes),
         nonInteractive,
@@ -143,6 +149,7 @@ async function runEntityAwareUpdate(options: {
         requireAgents: updatePlan.importAgents,
         importCommands: updatePlan.importCommands,
         importMcp: updatePlan.importMcp,
+        importRules: updatePlan.importRules,
       };
 
       if (updatePlan.importSkills) {
@@ -163,6 +170,14 @@ async function runEntityAwareUpdate(options: {
 
       if (updatePlan.mcpSelectors) {
         importOptions.mcpSelectors = updatePlan.mcpSelectors;
+      }
+
+      if (updatePlan.ruleSelectors) {
+        importOptions.ruleSelectors = updatePlan.ruleSelectors;
+      }
+
+      if (updatePlan.ruleRenameMap) {
+        importOptions.ruleRenameMap = updatePlan.ruleRenameMap;
       }
 
       if (updatePlan.skillSelectors) {
@@ -201,11 +216,14 @@ interface EntryUpdatePlan {
   importAgents: boolean;
   importCommands: boolean;
   importMcp: boolean;
+  importRules: boolean;
   importSkills: boolean;
   requestedAgents?: string[];
   commandSelectors?: string[];
   commandRenameMap?: Record<string, string>;
   mcpSelectors?: string[];
+  ruleSelectors?: string[];
+  ruleRenameMap?: Record<string, string>;
   skillSelectors?: string[];
   skillsProviders?: Provider[];
   skillRenameMap?: Record<string, string>;
@@ -218,21 +236,26 @@ function buildEntryUpdatePlan(
   const includeAgents = shouldUpdateEntity(entry, "agent", target);
   const includeCommands = shouldUpdateEntity(entry, "command", target);
   const includeMcp = shouldUpdateEntity(entry, "mcp", target);
+  const includeRules = shouldUpdateEntity(entry, "rule", target);
   const includeSkills = shouldUpdateEntity(entry, "skill", target);
 
   const commandOptions = getUpdateCommandOptions(entry, includeCommands);
   const mcpOptions = getUpdateMcpOptions(entry, includeMcp);
+  const ruleOptions = getUpdateRuleOptions(entry, includeRules);
   const skillOptions = getUpdateSkillOptions(entry, includeSkills);
 
   return {
     importAgents: includeAgents,
     importCommands: commandOptions.importCommands,
     importMcp: mcpOptions.importMcp,
+    importRules: ruleOptions.importRules,
     importSkills: skillOptions.importSkills,
     requestedAgents: includeAgents ? entry.requestedAgents : undefined,
     commandSelectors: commandOptions.commandSelectors,
     commandRenameMap: commandOptions.commandRenameMap,
     mcpSelectors: mcpOptions.mcpSelectors,
+    ruleSelectors: ruleOptions.ruleSelectors,
+    ruleRenameMap: ruleOptions.ruleRenameMap,
     skillSelectors: skillOptions.skillSelectors,
     skillsProviders: skillOptions.skillsProviders,
     skillRenameMap: skillOptions.skillRenameMap,
@@ -287,7 +310,7 @@ function shouldUpdateEntity(
 ): boolean {
   if (target !== "all" && target !== entity) return false;
   if (target === "all" && !entry.trackedEntities) {
-    if (entity === "skill") {
+    if (entity === "skill" || entity === "rule") {
       return tracksEntity(entry, entity);
     }
     return true;
@@ -304,6 +327,9 @@ function tracksEntity(entry: LockEntry, entity: EntityType): boolean {
     : [];
   const importedMcpServers = Array.isArray(entry.importedMcpServers)
     ? entry.importedMcpServers
+    : [];
+  const importedRules = Array.isArray(entry.importedRules)
+    ? entry.importedRules
     : [];
   const importedSkills = Array.isArray(entry.importedSkills)
     ? entry.importedSkills
@@ -324,6 +350,13 @@ function tracksEntity(entry: LockEntry, entity: EntityType): boolean {
   if (entity === "mcp") {
     return (
       importedMcpServers.length > 0 || Boolean(entry.selectedSourceMcpServers)
+    );
+  }
+  if (entity === "rule") {
+    return (
+      importedRules.length > 0 ||
+      Boolean(entry.selectedSourceRules) ||
+      Boolean(entry.ruleRenameMap)
     );
   }
   return (
@@ -390,6 +423,39 @@ function getUpdateMcpOptions(
   };
 }
 
+interface UpdateRuleOptions {
+  importRules: boolean;
+  ruleSelectors?: string[];
+  ruleRenameMap?: Record<string, string>;
+}
+
+function getUpdateRuleOptions(
+  entry: LockEntry,
+  includeRules: boolean,
+): UpdateRuleOptions {
+  if (!includeRules) {
+    return { importRules: false };
+  }
+
+  const ruleSelectors = getUpdateRuleSelectors(entry);
+  if (ruleSelectors && ruleSelectors.length === 0) {
+    return { importRules: false };
+  }
+
+  if (!ruleSelectors) {
+    return {
+      importRules: true,
+      ruleRenameMap: entry.ruleRenameMap,
+    };
+  }
+
+  return {
+    importRules: true,
+    ruleSelectors,
+    ruleRenameMap: getUpdateRuleRenameMap(entry, ruleSelectors),
+  };
+}
+
 interface UpdateSkillOptions {
   importSkills: boolean;
   skillSelectors?: string[];
@@ -431,10 +497,11 @@ function getUpdateCommandRenameMap(
   entry: LockEntry,
   commandSelectors: string[],
 ): Record<string, string> | undefined {
-  const renameMapFromLock = filterRenameMapBySelectors(
-    entry.commandRenameMap,
-    commandSelectors,
-  );
+  const renameMapFromLock = filterRenameMapBySelectors({
+    renameMap: entry.commandRenameMap,
+    selectors: commandSelectors,
+    normalizeSelector: normalizeCommandSelector,
+  });
   if (renameMapFromLock) {
     return renameMapFromLock;
   }
@@ -471,16 +538,69 @@ function inferUpdateCommandRename(
   return importedName;
 }
 
-function filterRenameMapBySelectors(
-  renameMap: Record<string, string> | undefined,
-  selectors: string[],
-): Record<string, string> | undefined {
-  if (!renameMap) return undefined;
+function getUpdateRuleSelectors(entry: LockEntry): string[] | undefined {
+  if (entry.selectedSourceRules !== undefined) {
+    return entry.selectedSourceRules;
+  }
+  return undefined;
+}
 
-  const selectorSet = new Set(selectors.map(normalizeCommandSelector));
-  const filteredEntries = Object.entries(renameMap)
+function getUpdateRuleRenameMap(
+  entry: LockEntry,
+  ruleSelectors: string[],
+): Record<string, string> | undefined {
+  const renameMapFromLock = filterRenameMapBySelectors({
+    renameMap: entry.ruleRenameMap,
+    selectors: ruleSelectors,
+    normalizeSelector: normalizeRuleSelector,
+  });
+  if (renameMapFromLock) {
+    return renameMapFromLock;
+  }
+
+  const inferredRename = inferUpdateRuleRename(entry, ruleSelectors);
+  if (!inferredRename) return undefined;
+
+  return {
+    [ruleSelectors[0]]: inferredRename,
+  };
+}
+
+function inferUpdateRuleRename(
+  entry: LockEntry,
+  ruleSelectors: string[] | undefined,
+): string | undefined {
+  if (!ruleSelectors || ruleSelectors.length !== 1) {
+    return undefined;
+  }
+
+  if (entry.importedRules.length !== 1) {
+    return undefined;
+  }
+
+  const sourceName = stripRuleFileExtension(ruleSelectors[0]);
+  const importedName = stripRuleFileExtension(
+    path.basename(entry.importedRules[0]),
+  );
+
+  if (!sourceName || !importedName || sourceName === importedName) {
+    return undefined;
+  }
+
+  return importedName;
+}
+
+function filterRenameMapBySelectors(options: {
+  renameMap: Record<string, string> | undefined;
+  selectors: string[];
+  normalizeSelector: (value: string) => string;
+}): Record<string, string> | undefined {
+  if (!options.renameMap) return undefined;
+
+  const selectorSet = new Set(options.selectors.map(options.normalizeSelector));
+  const filteredEntries = Object.entries(options.renameMap)
     .filter(([sourceSelector]) =>
-      selectorSet.has(normalizeCommandSelector(sourceSelector)),
+      selectorSet.has(options.normalizeSelector(sourceSelector)),
     )
     .map(([sourceSelector, importedFileName]) => [
       sourceSelector,

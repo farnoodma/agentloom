@@ -7,7 +7,7 @@ const EMPTY_MANIFEST: SyncManifest = {
   generatedFiles: [],
 };
 
-const ENTITY_TYPES: EntityType[] = ["agent", "command", "mcp", "skill"];
+const ENTITY_TYPES: EntityType[] = ["agent", "command", "mcp", "rule", "skill"];
 
 export function readManifest(paths: ScopePaths): SyncManifest {
   const manifest = readJsonIfExists<SyncManifest>(paths.manifestPath);

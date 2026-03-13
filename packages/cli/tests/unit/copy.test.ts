@@ -19,10 +19,12 @@ describe("copy helpers", () => {
     expect(help).toContain("init");
     expect(help).toContain("upgrade");
     expect(help).toContain("mcp <add|list|delete|find|update|sync>");
+    expect(help).toContain("rule <add|list|delete|find|update|sync>");
     expect(help).toContain("mcp server <add|list|delete>");
     expect(help).toContain("--no-sync");
     expect(help).toContain("--providers <csv>");
     expect(help).toContain("--selection-mode <mode>");
+    expect(help).toContain("--rules <csv>");
   });
 
   it("renders actionable usage errors", () => {
@@ -64,6 +66,8 @@ describe("copy helpers", () => {
   it("includes targeted add import help", () => {
     const help = getAddHelpText();
     expect(help).toContain("--agents <name>");
+    expect(help).toContain("--rule <name>");
+    expect(help).toContain("--rules <name>");
     expect(help).toContain("--selection-mode <mode>");
     expect(help).toContain("agentloom add farnoodma/agents --providers");
   });

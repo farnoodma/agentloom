@@ -402,6 +402,83 @@ Skill body.
     expect(lock?.entries[0]?.trackedEntities).toEqual(["command"]);
   });
 
+  it("merges command-only reimports into existing rule-bearing lock entries", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "commands"));
+    ensureDir(path.join(sourceRoot, "rules"));
+    writeTextAtomic(
+      path.join(sourceRoot, "commands", "review.md"),
+      "# /review\n\nReview changes.\n",
+    );
+    writeTextAtomic(
+      path.join(sourceRoot, "commands", "deploy.md"),
+      "# /deploy\n\nDeploy changes.\n",
+    );
+    writeTextAtomic(
+      path.join(sourceRoot, "rules", "always-test.md"),
+      `---
+name: Always Test
+---
+
+Run tests before merge.
+`,
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+
+    await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: false,
+      importCommands: true,
+      importMcp: false,
+      importRules: true,
+      importSkills: false,
+      requireCommands: true,
+      requireRules: true,
+      commandSelectors: ["review.md"],
+    });
+
+    const secondSummary = await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: false,
+      importCommands: true,
+      importMcp: false,
+      importRules: false,
+      importSkills: false,
+      requireCommands: true,
+      commandSelectors: ["deploy.md"],
+    });
+
+    expect(secondSummary.importedCommands).toEqual(["commands/deploy.md"]);
+
+    const lock = readJsonIfExists<AgentsLockFile>(
+      path.join(workspaceRoot, ".agents", "agents.lock.json"),
+    );
+    expect(lock?.entries).toHaveLength(1);
+    expect(lock?.entries[0]?.importedCommands).toEqual([
+      "commands/review.md",
+      "commands/deploy.md",
+    ]);
+    expect(lock?.entries[0]?.selectedSourceCommands).toEqual([
+      "review.md",
+      "deploy.md",
+    ]);
+    expect(lock?.entries[0]?.importedRules).toEqual(["rules/always-test.md"]);
+  });
+
   it("throws a single actionable error when aggregate imports find no entities", async () => {
     const sourceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "agentloom-source-"),
@@ -575,6 +652,142 @@ Skill body.
         "utf8",
       ),
     ).toContain("v2");
+  });
+
+  it("supports single-rule --rename and replays the persisted rename map", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "rules"));
+    writeTextAtomic(
+      path.join(sourceRoot, "rules", "always-test.md"),
+      `---
+name: Always Test
+---
+
+Run tests before merge.
+`,
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    const summary = await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: false,
+      importCommands: false,
+      importMcp: false,
+      importRules: true,
+      requireRules: true,
+      rename: "always-run-tests",
+    });
+
+    expect(summary.importedRules).toEqual(["rules/always-run-tests.md"]);
+    expect(
+      fs.existsSync(path.join(paths.rulesDir, "always-run-tests.md")),
+    ).toBe(true);
+
+    const lockAfterFirstImport = readJsonIfExists<AgentsLockFile>(
+      path.join(workspaceRoot, ".agents", "agents.lock.json"),
+    );
+    expect(lockAfterFirstImport?.entries[0]?.ruleRenameMap).toEqual({
+      "always-test": "always-run-tests.md",
+    });
+
+    writeTextAtomic(
+      path.join(sourceRoot, "rules", "always-test.md"),
+      `---
+name: Always Test
+---
+
+Run tests before merge and before release.
+`,
+    );
+
+    const replaySummary = await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: false,
+      importCommands: false,
+      importMcp: false,
+      importRules: true,
+      requireRules: true,
+      ruleSelectors: ["always-test"],
+      ruleRenameMap: lockAfterFirstImport?.entries[0]?.ruleRenameMap,
+    });
+
+    expect(replaySummary.importedRules).toEqual(["rules/always-run-tests.md"]);
+    expect(
+      fs.readFileSync(path.join(paths.rulesDir, "always-run-tests.md"), "utf8"),
+    ).toContain("before release");
+  });
+
+  it("does not apply rule --rename during aggregate imports that also include skills", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "rules"));
+    ensureDir(path.join(sourceRoot, "skills", "release-check"));
+    writeTextAtomic(
+      path.join(sourceRoot, "rules", "always-test.md"),
+      `---
+name: Always Test
+---
+
+Run tests before merge.
+`,
+    );
+    writeTextAtomic(
+      path.join(sourceRoot, "skills", "release-check", "SKILL.md"),
+      `---
+name: release-check
+description: Validate release readiness
+---
+
+Skill body.
+`,
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    const summary = await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: true,
+      requireAgents: false,
+      importCommands: true,
+      requireCommands: false,
+      importMcp: true,
+      requireMcp: false,
+      importRules: true,
+      requireRules: false,
+      importSkills: true,
+      requireSkills: false,
+      rename: "team-rules",
+    });
+
+    expect(summary.importedRules).toEqual(["rules/always-test.md"]);
+    expect(summary.importedSkills).toEqual(["release-check"]);
+    expect(fs.existsSync(path.join(paths.rulesDir, "always-test.md"))).toBe(
+      true,
+    );
+    expect(fs.existsSync(path.join(paths.rulesDir, "team-rules.md"))).toBe(
+      false,
+    );
   });
 
   it("resolves skills providers and stores provider side-effect metadata", async () => {

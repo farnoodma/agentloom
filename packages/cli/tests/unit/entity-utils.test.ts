@@ -43,6 +43,7 @@ describe("resolvePathsForCommand", () => {
       agentsRoot: "/home/test/.agents",
       agentsDir: "/home/test/.agents/agents",
       commandsDir: "/home/test/.agents/commands",
+      rulesDir: "/home/test/.agents/rules",
       skillsDir: "/home/test/.agents/skills",
       mcpPath: "/home/test/.agents/mcp.json",
       lockPath: "/home/test/.agents/agents.lock.json",

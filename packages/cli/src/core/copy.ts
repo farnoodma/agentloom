@@ -16,7 +16,7 @@ Usage:
   agentloom <entity> <verb> [options]
 
 Aggregate commands:
-  add <source>               Import agents/commands/mcp/skills from a source
+  add <source>               Import agents/commands/mcp/rules/skills from a source
   init                       Bootstrap canonical files, migrate providers, then sync
   find <query>               Search remote + local entities
   update [source]            Refresh lockfile-managed imports
@@ -28,6 +28,7 @@ Entity commands:
   agent <add|list|delete|find|update|sync>
   command <add|list|delete|find|update|sync>
   mcp <add|list|delete|find|update|sync>
+  rule <add|list|delete|find|update|sync>
   skill <add|list|delete|find|update|sync>
 
 MCP manual server commands:
@@ -43,6 +44,8 @@ Common options:
   --agents <csv>             Agent selectors for add/delete
   --commands <csv>           Command selectors for add/delete
   --mcps <csv>               MCP selectors for add/delete
+  --rule <csv>               Alias for --rules
+  --rules <csv>              Rule selectors for add/delete
   --skills <csv>             Skill selectors for add/delete
   --selection-mode <mode>    Add mode: all (default) or custom
   --source <value>           Explicit source filter for update/delete
@@ -54,6 +57,7 @@ Examples:
   agentloom agent add farnoodma/agents --agents issue-creator
   agentloom command add farnoodma/agents --commands review
   agentloom mcp add farnoodma/agents --mcps browser
+  agentloom rule add farnoodma/agents --rules always-test
   agentloom skill add farnoodma/agents --skills pr-review
   agentloom update
   agentloom command update farnoodma/agents
@@ -67,7 +71,7 @@ export function getFindHelpText(): string {
 
 Usage:
   agentloom find <query>
-  agentloom <agent|command|mcp|skill> find <query>
+  agentloom <agent|command|mcp|rule|skill> find <query>
 
 Examples:
   agentloom find reviewer
@@ -81,6 +85,7 @@ export function getAddHelpText(): string {
 Source discovery:
   agents: .agents/agents -> agents
   commands: .agents/commands -> commands -> prompts
+  rules: .agents/rules -> rules
   skills: .agents/skills -> skills -> root SKILL.md
 
 Usage:
@@ -92,6 +97,8 @@ Options:
   --agents <name>            Import selected agents (repeatable/csv)
   --commands <name>          Import selected commands (repeatable/csv)
   --mcps <name>              Import selected MCP servers (repeatable/csv)
+  --rule <name>              Alias for --rules
+  --rules <name>             Import selected rules (repeatable/csv)
   --skills <name>            Import selected skills (repeatable/csv)
   --selection-mode <mode>    all|sync-all (include future items) or custom (pin selection)
   --rename <name>            Rename imported item for single-item add flows
@@ -111,7 +118,7 @@ export function getUpdateHelpText(): string {
 
 Usage:
   agentloom update [source] [options]
-  agentloom <agent|command|mcp|skill> update [source] [options]
+  agentloom <agent|command|mcp|rule|skill> update [source] [options]
 
 Options:
   --source <value>           Explicit source filter
@@ -144,7 +151,7 @@ export function getSyncHelpText(): string {
 
 Usage:
   agentloom sync [options]
-  agentloom <agent|command|mcp|skill> sync [options]
+  agentloom <agent|command|mcp|rule|skill> sync [options]
 
 Options:
   --local | --global         Choose canonical scope (interactive prompts when omitted)

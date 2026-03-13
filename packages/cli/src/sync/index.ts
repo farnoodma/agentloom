@@ -22,6 +22,11 @@ import {
   renderCommandForProvider,
 } from "../core/commands.js";
 import {
+  parseRulesDir,
+  renderRuleForCursor,
+  upsertManagedRuleBlocks,
+} from "../core/rules.js";
+import {
   ensureDir,
   isObject,
   readJsonIfExists,
@@ -42,12 +47,14 @@ import {
   getCodexConfigPath,
   getCodexRootDir,
   getCopilotMcpPath,
+  getCursorRulesDir,
   getCursorMcpPath,
   getGeminiSettingsPath,
   getOpenCodeConfigPath,
   getPiMcpPath,
   getProviderAgentsDir,
   getProviderCommandsDir,
+  getRuleInstructionPaths,
   getVsCodeSettingsPath,
 } from "../core/provider-paths.js";
 import {
@@ -90,6 +97,7 @@ export async function syncFromCanonical(
 ): Promise<SyncSummary> {
   const agents = parseAgentsDir(options.paths.agentsDir);
   const commands = parseCommandsDir(options.paths.commandsDir);
+  const rules = parseRulesDir(options.paths.rulesDir);
   const mcp = readCanonicalMcp(options.paths);
   const manifest = readManifest(options.paths);
   const effectiveManifest: SyncManifest = {
@@ -117,6 +125,9 @@ export async function syncFromCanonical(
   const generatedAgents = new Set<string>();
   const generatedCommands = new Set<string>();
   const generatedMcp = new Set<string>();
+  const generatedRules = new Set<string>();
+  const updatedRuleInstructionFiles = new Set<string>();
+  const retainedRuleInstructionFiles = new Set<string>();
 
   if (target === "all" || target === "agent") {
     for (const provider of providers) {
@@ -168,6 +179,38 @@ export async function syncFromCanonical(
     });
   }
 
+  if (target === "all" || target === "rule") {
+    syncManagedRuleInstructions({
+      paths: options.paths,
+      providers,
+      rules,
+      generated: generatedRules,
+      updated: updatedRuleInstructionFiles,
+      retained: retainedRuleInstructionFiles,
+      previouslyTracked: new Set(
+        effectiveManifest.generatedByEntity?.rule ?? [],
+      ),
+      dryRun: !!options.dryRun,
+    });
+
+    if (providers.includes("cursor") && options.paths.scope === "local") {
+      syncCursorRules({
+        paths: options.paths,
+        rules,
+        generated: generatedRules,
+        dryRun: !!options.dryRun,
+      });
+    }
+
+    if (providers.includes("copilot") && options.paths.scope === "global") {
+      syncCopilotDiscoverySettings({
+        paths: options.paths,
+        dryRun: !!options.dryRun,
+        includeInstructionLocations: true,
+      });
+    }
+  }
+
   if (providers.includes("codex")) {
     const includeRoles = target === "all" || target === "agent";
     const includeMcp = target === "all" || target === "mcp";
@@ -205,6 +248,9 @@ export async function syncFromCanonical(
   if (target === "all" || target === "mcp") {
     nextByEntity.mcp = [...generatedMcp].sort();
   }
+  if (target === "all" || target === "rule") {
+    nextByEntity.rule = [...generatedRules].sort();
+  }
 
   nextManifest.generatedByEntity = pruneGeneratedByEntity(nextByEntity);
 
@@ -213,6 +259,7 @@ export async function syncFromCanonical(
       ...(nextManifest.generatedByEntity.agent ?? []),
       ...(nextManifest.generatedByEntity.command ?? []),
       ...(nextManifest.generatedByEntity.mcp ?? []),
+      ...(nextManifest.generatedByEntity.rule ?? []),
       ...(nextManifest.generatedByEntity.skill ?? []),
     ]),
   ].sort();
@@ -220,6 +267,7 @@ export async function syncFromCanonical(
   const removedFiles = await removeStaleGeneratedFiles({
     oldManifest: manifest,
     newManifest: nextManifest,
+    protectedFiles: retainedRuleInstructionFiles,
     dryRun: !!options.dryRun,
     yes: !!options.yes,
     nonInteractive: !!options.nonInteractive,
@@ -240,7 +288,12 @@ export async function syncFromCanonical(
 
   return {
     providers,
-    generatedFiles: nextManifest.generatedFiles,
+    generatedFiles: [
+      ...new Set([
+        ...nextManifest.generatedFiles,
+        ...updatedRuleInstructionFiles,
+      ]),
+    ].sort(),
     removedFiles,
   };
 }
@@ -433,6 +486,28 @@ function mapProviderCommandFileName(
   return fileName;
 }
 
+function syncCursorRules(options: {
+  paths: ScopePaths;
+  rules: ReturnType<typeof parseRulesDir>;
+  generated: Set<string>;
+  dryRun: boolean;
+}): void {
+  if (options.paths.scope !== "local") {
+    return;
+  }
+
+  const rulesDir = getCursorRulesDir(options.paths);
+  for (const rule of options.rules) {
+    const outputPath = path.join(rulesDir, `${rule.id}.mdc`);
+    const content = renderRuleForCursor(rule);
+    if (!options.dryRun) {
+      ensureDir(path.dirname(outputPath));
+      writeTextAtomic(outputPath, content);
+    }
+    options.generated.add(outputPath);
+  }
+}
+
 function syncProviderMcp(options: {
   providers: Provider[];
   paths: ScopePaths;
@@ -604,11 +679,71 @@ function syncProviderMcp(options: {
   }
 }
 
+function syncManagedRuleInstructions(options: {
+  paths: ScopePaths;
+  providers: Provider[];
+  rules: ReturnType<typeof parseRulesDir>;
+  generated: Set<string>;
+  updated: Set<string>;
+  retained: Set<string>;
+  previouslyTracked: Set<string>;
+  dryRun: boolean;
+}): void {
+  const cleanupProviders: readonly Provider[] =
+    options.paths.scope === "global"
+      ? ["claude", "gemini", "copilot", "opencode"]
+      : ALL_PROVIDERS;
+  const activeTargets = new Set(
+    getRuleInstructionPaths(options.paths, options.providers),
+  );
+  if (options.paths.scope === "global" && activeTargets.size === 0) {
+    return;
+  }
+  const cleanupTargets = new Set(
+    getRuleInstructionPaths(options.paths, cleanupProviders),
+  );
+
+  for (const targetPath of cleanupTargets) {
+    const existing = readTextIfExists(targetPath) ?? "";
+    const next = upsertManagedRuleBlocks(
+      existing,
+      activeTargets.has(targetPath) ? options.rules : [],
+    );
+    const shouldTrackGenerated =
+      activeTargets.has(targetPath) &&
+      options.rules.length > 0 &&
+      next.trim().length > 0;
+    if (shouldTrackGenerated) {
+      options.generated.add(targetPath);
+    }
+    const shouldRetainOnDisk =
+      !shouldTrackGenerated &&
+      next.trim().length > 0 &&
+      fs.existsSync(targetPath);
+    if (shouldRetainOnDisk) {
+      options.retained.add(targetPath);
+    }
+    if (next === existing) continue;
+    options.updated.add(targetPath);
+    if (!options.dryRun) {
+      if (next.trim().length === 0) {
+        if (!options.previouslyTracked.has(targetPath)) {
+          removeFileIfExists(targetPath);
+        }
+      } else {
+        ensureDir(path.dirname(targetPath));
+        writeTextAtomic(targetPath, next);
+      }
+    }
+  }
+}
+
 function syncCopilotDiscoverySettings(options: {
   paths: ScopePaths;
   dryRun: boolean;
   includePromptLocations?: boolean;
   includeAgentLocations?: boolean;
+  includeInstructionLocations?: boolean;
 }): void {
   const settingsPath = getVsCodeSettingsPath(options.paths.homeDir);
   const settings = readVsCodeSettings(settingsPath);
@@ -628,6 +763,13 @@ function syncCopilotDiscoverySettings(options: {
       settings,
       "chat.agentFilesLocations",
       path.join(options.paths.homeDir, ".github", "agents"),
+    );
+  }
+  if (options.includeInstructionLocations) {
+    appendPathSetting(
+      settings,
+      "chat.instructionsFilesLocations",
+      path.join(options.paths.homeDir, ".github", "copilot-instructions.md"),
     );
   }
 
@@ -1009,14 +1151,17 @@ function maybeWriteJson(
 async function removeStaleGeneratedFiles(options: {
   oldManifest: SyncManifest;
   newManifest: SyncManifest;
+  protectedFiles?: Iterable<string>;
   dryRun: boolean;
   yes: boolean;
   nonInteractive: boolean;
 }): Promise<string[]> {
   const oldSet = new Set(options.oldManifest.generatedFiles);
   const newSet = new Set(options.newManifest.generatedFiles);
+  const protectedSet = new Set(options.protectedFiles ?? []);
   const stale = [...oldSet]
     .filter((filePath) => !newSet.has(filePath))
+    .filter((filePath) => !protectedSet.has(filePath))
     .filter((filePath) => fs.existsSync(filePath));
 
   if (stale.length === 0) return [];
@@ -1060,6 +1205,7 @@ function normalizeGeneratedByEntity(
     agent: Array.isArray(source.agent) ? [...source.agent] : [],
     command: Array.isArray(source.command) ? [...source.command] : [],
     mcp: Array.isArray(source.mcp) ? [...source.mcp] : [],
+    rule: Array.isArray(source.rule) ? [...source.rule] : [],
     skill: Array.isArray(source.skill) ? [...source.skill] : [],
   };
 }
@@ -1071,6 +1217,7 @@ function inferGeneratedByEntityFromLegacyFiles(
     agent: [],
     command: [],
     mcp: [],
+    rule: [],
     skill: [],
   };
 
@@ -1102,8 +1249,12 @@ function classifyLegacyGeneratedFile(filePath: string): EntityType[] {
     return ["mcp"];
   }
 
+  if (isLegacyRuleOutputPath(normalized)) {
+    return ["agent", "rule"];
+  }
+
   // Preserve unknown generated paths during scoped syncs.
-  return ["agent", "command", "mcp"];
+  return ["agent", "command", "mcp", "rule"];
 }
 
 function isLegacyCommandOutputPath(normalizedPath: string): boolean {
@@ -1121,7 +1272,6 @@ function isLegacyCommandOutputPath(normalizedPath: string): boolean {
 function isLegacyAgentOutputPath(normalizedPath: string): boolean {
   return (
     normalizedPath.includes("/.cursor/agents/") ||
-    normalizedPath.includes("/.cursor/rules/") ||
     normalizedPath.includes("/.claude/agents/") ||
     normalizedPath.includes("/.opencode/agents/") ||
     normalizedPath.includes("/.gemini/agents/") ||
@@ -1129,6 +1279,10 @@ function isLegacyAgentOutputPath(normalizedPath: string): boolean {
     normalizedPath.includes("/.codex/agents/") ||
     normalizedPath.includes("/.pi/agents/")
   );
+}
+
+function isLegacyRuleOutputPath(normalizedPath: string): boolean {
+  return normalizedPath.includes("/.cursor/rules/");
 }
 
 function isLegacyMcpOutputPath(normalizedPath: string): boolean {
@@ -1154,7 +1308,7 @@ function pruneGeneratedByEntity(
 ): Partial<Record<EntityType, string[]>> {
   const next: Partial<Record<EntityType, string[]>> = {};
 
-  for (const entity of ["agent", "command", "mcp", "skill"] as const) {
+  for (const entity of ["agent", "command", "mcp", "rule", "skill"] as const) {
     const files = value[entity];
     if (!files || files.length === 0) continue;
     next[entity] = [...new Set(files)].sort();

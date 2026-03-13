@@ -233,6 +233,147 @@ describe("find command", () => {
     );
   });
 
+  it("finds rules from rules/ paths and prints rule install commands", async () => {
+    vi.spyOn(https, "get").mockImplementation(((url, _options, callback) => {
+      const request = new EventEmitter() as EventEmitter & {
+        setTimeout: (milliseconds: number, handler: () => void) => void;
+        destroy: () => void;
+      };
+      request.setTimeout = (_milliseconds, _handler) => undefined;
+      request.destroy = () => undefined;
+
+      const targetUrl = typeof url === "string" ? new URL(url) : url;
+      const response = new EventEmitter() as EventEmitter & {
+        statusCode?: number;
+      };
+      response.statusCode = 200;
+
+      queueMicrotask(() => {
+        callback(response as never);
+
+        if (targetUrl.pathname.endsWith("/search/repositories")) {
+          response.emit(
+            "data",
+            Buffer.from(
+              JSON.stringify({
+                items: [
+                  {
+                    full_name: "acme/frontend-agents",
+                    stargazers_count: 42,
+                    default_branch: "main",
+                  },
+                ],
+              }),
+            ),
+          );
+          response.emit("end");
+          return;
+        }
+
+        response.emit(
+          "data",
+          Buffer.from(
+            JSON.stringify({
+              tree: [
+                {
+                  path: "rules/always-test.md",
+                  type: "blob",
+                },
+              ],
+            }),
+          ),
+        );
+        response.emit("end");
+      });
+
+      return request as never;
+    }) as typeof https.get);
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await runScopedFindCommand(
+      { _: ["rule", "find", "test"] } as never,
+      "rule",
+    );
+
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(output).toContain('Found 1 match(es) for "test".');
+    expect(output).toContain(
+      "acme/frontend-agents@always-test (42★) (rules/always-test.md)",
+    );
+    expect(output).toContain(
+      "Install: agentloom rule add acme/frontend-agents --rules always-test",
+    );
+  });
+
+  it("ignores non-canonical cursor rule paths for rule installs", async () => {
+    vi.spyOn(https, "get").mockImplementation(((url, _options, callback) => {
+      const request = new EventEmitter() as EventEmitter & {
+        setTimeout: (milliseconds: number, handler: () => void) => void;
+        destroy: () => void;
+      };
+      request.setTimeout = (_milliseconds, _handler) => undefined;
+      request.destroy = () => undefined;
+
+      const targetUrl = typeof url === "string" ? new URL(url) : url;
+      const response = new EventEmitter() as EventEmitter & {
+        statusCode?: number;
+      };
+      response.statusCode = 200;
+
+      queueMicrotask(() => {
+        callback(response as never);
+
+        if (targetUrl.pathname.endsWith("/search/repositories")) {
+          response.emit(
+            "data",
+            Buffer.from(
+              JSON.stringify({
+                items: [
+                  {
+                    full_name: "acme/frontend-agents",
+                    stargazers_count: 42,
+                    default_branch: "main",
+                  },
+                ],
+              }),
+            ),
+          );
+          response.emit("end");
+          return;
+        }
+
+        response.emit(
+          "data",
+          Buffer.from(
+            JSON.stringify({
+              tree: [
+                {
+                  path: ".cursor/rules/always-test.mdc",
+                  type: "blob",
+                },
+              ],
+            }),
+          ),
+        );
+        response.emit("end");
+      });
+
+      return request as never;
+    }) as typeof https.get);
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await runScopedFindCommand(
+      { _: ["rule", "find", "test"] } as never,
+      "rule",
+    );
+
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(output).toContain('No matches found for "test".');
+    expect(output).not.toContain("agentloom rule add");
+  });
+
   it("parses root SKILL.md names for skill install commands", async () => {
     vi.spyOn(https, "get").mockImplementation(((url, _options, callback) => {
       const request = new EventEmitter() as EventEmitter & {

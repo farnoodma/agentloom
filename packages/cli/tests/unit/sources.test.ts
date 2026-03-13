@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   discoverSourceAgentsDir,
   discoverSourceCommandsDir,
+  discoverSourceRulesDir,
   discoverSourceSkillsDir,
   parseSourceSpec,
   prepareSource,
@@ -123,5 +124,26 @@ describe("source parsing and revision", () => {
     expect(discoverSourceAgentsDir(root)).toBe(
       path.join(root, ".github", "agents"),
     );
+  });
+
+  it("uses rule source priority .agents/rules before rules", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-sources-"));
+    tempDirs.push(root);
+
+    ensureDir(path.join(root, ".agents", "rules"));
+    ensureDir(path.join(root, "rules"));
+
+    expect(discoverSourceRulesDir(root)).toBe(
+      path.join(root, ".agents", "rules"),
+    );
+  });
+
+  it("falls back to rules when .agents/rules is absent", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-sources-"));
+    tempDirs.push(root);
+
+    ensureDir(path.join(root, "rules"));
+
+    expect(discoverSourceRulesDir(root)).toBe(path.join(root, "rules"));
   });
 });

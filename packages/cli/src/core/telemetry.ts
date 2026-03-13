@@ -13,7 +13,7 @@ export type TelemetrySource = {
 };
 
 export type TelemetryItem = {
-  entityType: "agent" | "skill" | "command" | "mcp";
+  entityType: "agent" | "skill" | "command" | "mcp" | "rule";
   name: string;
   filePath: string;
 };
@@ -73,6 +73,7 @@ export function parseGitHubSource(input: string): TelemetrySource | null {
 
 export function buildTelemetryItems(summary: ImportSummary): TelemetryItem[] {
   const items: TelemetryItem[] = [];
+  const importedRules = summary.importedRules ?? [];
 
   for (const filePath of summary.importedAgents) {
     const name = path.basename(filePath, path.extname(filePath));
@@ -86,6 +87,21 @@ export function buildTelemetryItems(summary: ImportSummary): TelemetryItem[] {
 
   for (const serverName of summary.importedMcpServers) {
     items.push({ entityType: "mcp", name: serverName, filePath: "mcp.json" });
+  }
+
+  if (summary.telemetryRules && summary.telemetryRules.length > 0) {
+    for (const rule of summary.telemetryRules) {
+      items.push({
+        entityType: "rule",
+        name: rule.name,
+        filePath: rule.filePath.replace(/^\/+/, ""),
+      });
+    }
+  } else {
+    for (const filePath of importedRules) {
+      const name = path.basename(filePath, path.extname(filePath));
+      items.push({ entityType: "rule", name, filePath });
+    }
   }
 
   if (summary.telemetrySkills && summary.telemetrySkills.length > 0) {

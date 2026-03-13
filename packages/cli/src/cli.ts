@@ -8,6 +8,7 @@ import { runDeleteCommand } from "./commands/delete.js";
 import { runFindCommand } from "./commands/find.js";
 import { runInitCommand } from "./commands/init.js";
 import { runMcpCommand } from "./commands/mcp.js";
+import { runRuleCommand } from "./commands/rule.js";
 import { runSkillCommand } from "./commands/skills.js";
 import { runSyncCommand } from "./commands/sync.js";
 import { runUpgradeCommand } from "./commands/upgrade.js";
@@ -138,6 +139,9 @@ async function runRoutedCommand(
       return;
     case "skill":
       await runSkillCommand(parsed, cwd);
+      return;
+    case "rule":
+      await runRuleCommand(parsed, cwd);
       return;
     default:
       throw new Error(formatUnknownCommandError(command));

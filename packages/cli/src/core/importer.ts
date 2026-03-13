@@ -30,6 +30,13 @@ import {
 } from "./commands.js";
 import type { CanonicalCommandFile } from "./commands.js";
 import {
+  normalizeRuleSelector,
+  parseRulesDir,
+  resolveRuleSelections,
+  stripRuleFileExtension,
+  type CanonicalRuleFile,
+} from "./rules.js";
+import {
   applySkillProviderSideEffects,
   copySkillArtifacts,
   normalizeSkillSelector,
@@ -54,6 +61,7 @@ import {
   discoverSourceAgentsDir,
   discoverSourceCommandsDir,
   discoverSourceMcpPath,
+  discoverSourceRulesDir,
   discoverSourceSkillsDir,
   prepareSource,
 } from "./sources.js";
@@ -90,6 +98,11 @@ export interface ImportOptions {
   requireMcp?: boolean;
   mcpSelectors?: string[];
   promptForMcp?: boolean;
+  importRules?: boolean;
+  requireRules?: boolean;
+  ruleSelectors?: string[];
+  promptForRules?: boolean;
+  ruleRenameMap?: Record<string, string>;
   importSkills?: boolean;
   requireSkills?: boolean;
   skillSelectors?: string[];
@@ -109,7 +122,9 @@ export interface ImportSummary {
   importedAgents: string[];
   importedCommands: string[];
   importedMcpServers: string[];
+  importedRules: string[];
   importedSkills: string[];
+  telemetryRules?: Array<{ name: string; filePath: string }>;
   telemetrySkills?: Array<{ name: string; filePath: string }>;
   resolvedCommit: string;
 }
@@ -134,6 +149,11 @@ interface SkillSelectionResult {
   selectionMode: SelectionMode;
 }
 
+interface RuleSelectionResult {
+  selectedRules: CanonicalRuleFile[];
+  selectionMode: SelectionMode;
+}
+
 interface SelectionModeResolution {
   selectionMode: SelectionMode;
   skipImport: boolean;
@@ -146,12 +166,15 @@ export async function importSource(
   const requireAgents = options.requireAgents ?? shouldImportAgents;
   const shouldImportCommands = options.importCommands ?? true;
   const shouldImportMcp = options.importMcp ?? true;
+  const shouldImportRules = options.importRules ?? false;
+  const requireRules = options.requireRules ?? shouldImportRules;
   const shouldImportSkills = options.importSkills ?? false;
 
   if (
     !shouldImportAgents &&
     !shouldImportCommands &&
     !shouldImportMcp &&
+    !shouldImportRules &&
     !shouldImportSkills
   ) {
     throw new Error("No import targets selected.");
@@ -180,6 +203,9 @@ export async function importSource(
     const sourceMcpPath = shouldImportMcp
       ? discoverSourceMcpPath(prepared.importRoot)
       : null;
+    const sourceRulesDir = shouldImportRules
+      ? discoverSourceRulesDir(prepared.importRoot)
+      : null;
     const sourceSkillsDir = shouldImportSkills
       ? discoverSourceSkillsDir(prepared.importRoot)
       : null;
@@ -193,6 +219,7 @@ export async function importSource(
     const sourceMcp = sourceMcpPath
       ? normalizeMcp(readJsonIfExists<Record<string, unknown>>(sourceMcpPath))
       : null;
+    const sourceRules = sourceRulesDir ? parseRulesDir(sourceRulesDir) : [];
     const sourceSkills = sourceSkillsDir ? parseSkillsDir(sourceSkillsDir) : [];
     const hasExplicitCommandSelection =
       (options.commandSelectors?.length ?? 0) > 0;
@@ -200,6 +227,7 @@ export async function importSource(
       shouldImportAgents &&
       shouldImportCommands &&
       shouldImportMcp &&
+      (options.importRules === undefined || shouldImportRules) &&
       shouldImportSkills;
 
     if (shouldImportAgents && requireAgents && !sourceAgentsDir) {
@@ -227,6 +255,14 @@ export async function importSource(
         `No source mcp.json found under ${prepared.importRoot} (expected mcp.json or .agents/mcp.json).`,
       );
     }
+    if (shouldImportRules && requireRules && !sourceRulesDir) {
+      throw new Error(
+        `No source rules directory found under ${prepared.importRoot} (expected .agents/rules/ or rules/).`,
+      );
+    }
+    if (shouldImportRules && requireRules && sourceRules.length === 0) {
+      throw new Error(`No rule files found in ${sourceRulesDir}.`);
+    }
     if (shouldImportSkills && options.requireSkills && !sourceSkillsDir) {
       throw new Error(
         `No source skills directory found under ${prepared.importRoot} (expected .agents/skills/, skills/, or root SKILL.md).`,
@@ -244,11 +280,12 @@ export async function importSource(
       isAggregateImport &&
       sourceAgents.length === 0 &&
       sourceCommands.length === 0 &&
+      sourceRules.length === 0 &&
       sourceSkills.length === 0 &&
       Object.keys(sourceMcp?.mcpServers ?? {}).length === 0
     ) {
       throw new Error(
-        `No importable entities found in source "${sourceLocation}".\nExpected agents/, .agents/agents/, .github/agents/, commands/, .agents/commands/, prompts/, .github/prompts/, mcp.json/.agents/mcp.json, skills/, .agents/skills/, or root SKILL.md.`,
+        `No importable entities found in source "${sourceLocation}".\nExpected agents/, .agents/agents/, .github/agents/, commands/, .agents/commands/, prompts/, .github/prompts/, mcp.json/.agents/mcp.json, rules/.agents/rules/, skills/, .agents/skills/, or root SKILL.md.`,
       );
     }
 
@@ -303,6 +340,23 @@ export async function importSource(
       });
       selectedSourceMcpServers = mcpSelection.selectedServerNames;
       mcpSelectionMode = mcpSelection.selectionMode;
+    }
+
+    let selectedRules: CanonicalRuleFile[] = [];
+    let selectedSourceRules: string[] = [];
+    let ruleSelectionMode: SelectionMode = "all";
+
+    if (shouldImportRules && sourceRulesDir) {
+      const ruleSelection = await resolveRulesToImport({
+        sourceRules,
+        selectors: options.ruleSelectors ?? [],
+        promptForRules: options.promptForRules ?? true,
+        nonInteractive: Boolean(options.nonInteractive),
+        selectionMode: options.selectionMode,
+      });
+      selectedRules = ruleSelection.selectedRules;
+      ruleSelectionMode = ruleSelection.selectionMode;
+      selectedSourceRules = selectedRules.map((rule) => rule.fileName);
     }
 
     let selectedSkills: CanonicalSkill[] = [];
@@ -432,6 +486,56 @@ export async function importSource(
       importedMcpServers.push(...selectedSourceMcpServers);
     }
 
+    const importedRules: string[] = [];
+    const telemetryRules: Array<{ name: string; filePath: string }> = [];
+    const importedRuleRenameMap: Record<string, string> = {};
+    if (shouldImportRules && sourceRulesDir) {
+      if (selectedRules.length > 0) {
+        ensureDir(options.paths.rulesDir);
+      }
+
+      for (const [index, rule] of selectedRules.entries()) {
+        let targetFileName = rule.fileName;
+
+        const mappedTargetFileName = resolveMappedTargetRuleFileName(
+          rule.fileName,
+          options.ruleRenameMap,
+        );
+        if (mappedTargetFileName) {
+          targetFileName = mappedTargetFileName;
+        } else if (
+          options.rename &&
+          selectedRules.length === 1 &&
+          importedAgents.length === 0 &&
+          importedCommands.length === 0 &&
+          importedMcpServers.length === 0 &&
+          selectedSkills.length === 0
+        ) {
+          targetFileName = `${slugify(options.rename) || "rule"}.md`;
+        }
+
+        const resolvedFileName = await resolveRuleConflict({
+          targetFileName,
+          ruleContent: rule.content,
+          paths: options.paths,
+          yes: !!options.yes,
+          nonInteractive: !!options.nonInteractive,
+          promptLabel: `${rule.fileName} (${index + 1}/${selectedRules.length})`,
+        });
+
+        if (!resolvedFileName) continue;
+
+        const targetPath = path.join(options.paths.rulesDir, resolvedFileName);
+        writeTextAtomic(targetPath, rule.content);
+        importedRules.push(relativePosix(options.paths.agentsRoot, targetPath));
+        telemetryRules.push({
+          name: stripRuleFileExtension(rule.fileName),
+          filePath: relativePosix(prepared.rootPath, rule.sourcePath),
+        });
+        importedRuleRenameMap[rule.fileName] = resolvedFileName;
+      }
+    }
+
     const importedSkills: string[] = [];
     const telemetrySkills: Array<{ name: string; filePath: string }> = [];
     const importedSkillRenameMap: Record<string, string> = {};
@@ -455,7 +559,8 @@ export async function importSource(
           selectedSkills.length === 1 &&
           importedAgents.length === 0 &&
           importedCommands.length === 0 &&
-          importedMcpServers.length === 0
+          importedMcpServers.length === 0 &&
+          importedRules.length === 0
         ) {
           targetSkillDirName = slugify(options.rename) || "skill";
         }
@@ -514,6 +619,8 @@ export async function importSource(
     const selectedSubsetOfSourceMcp =
       sourceMcpServerNames.length > 0 &&
       selectedSourceMcpServers.length < sourceMcpServerNames.length;
+    const selectedSubsetOfSourceRules =
+      sourceRules.length > 0 && selectedSourceRules.length < sourceRules.length;
     const selectedSubsetOfSourceSkills =
       sourceSkills.length > 0 &&
       selectedSourceSkills.length < sourceSkills.length;
@@ -521,6 +628,8 @@ export async function importSource(
       shouldImportCommands && commandSelectionMode === "custom";
     const shouldPersistMcpSelection =
       shouldImportMcp && mcpSelectionMode === "custom";
+    const shouldPersistRuleSelection =
+      shouldImportRules && ruleSelectionMode === "custom";
     const shouldPersistSkillSelection =
       shouldImportSkills && skillSelectionMode === "custom";
 
@@ -532,6 +641,10 @@ export async function importSource(
       shouldPersistMcpSelection || selectedSubsetOfSourceMcp
         ? selectedSourceMcpServers
         : undefined;
+    const selectedSourceRulesForLock =
+      shouldPersistRuleSelection || selectedSubsetOfSourceRules
+        ? selectedSourceRules
+        : undefined;
     const selectedSourceSkillsForLock =
       shouldPersistSkillSelection || selectedSubsetOfSourceSkills
         ? selectedSourceSkills
@@ -542,6 +655,7 @@ export async function importSource(
       !shouldImportAgents &&
       shouldImportCommands &&
       !shouldImportMcp &&
+      !shouldImportRules &&
       !shouldImportSkills;
     const existingEntry = isCommandOnlyImport
       ? findRelaxedCommandEntry(lockfile.entries, {
@@ -559,6 +673,7 @@ export async function importSource(
             : options.agents,
           selectedSourceCommands: selectedSourceCommandsForLock,
           selectedSourceMcpServers: selectedSourceMcpServersForLock,
+          selectedSourceRules: selectedSourceRulesForLock,
           selectedSourceSkills: selectedSourceSkillsForLock,
           skillsProviders: skillsProvidersForLock,
         });
@@ -583,6 +698,9 @@ export async function importSource(
     const lockImportedMcpServers = shouldImportMcp
       ? importedMcpServers
       : (existingEntry?.importedMcpServers ?? []);
+    const lockImportedRules = shouldImportRules
+      ? importedRules
+      : (existingEntry?.importedRules ?? []);
     const lockImportedSkills = shouldImportSkills
       ? importedSkills
       : (existingEntry?.importedSkills ?? []);
@@ -615,12 +733,20 @@ export async function importSource(
         ? [...selectedSourceMcpServers]
         : undefined
       : existingEntry?.selectedSourceMcpServers;
+    const lockSelectedSourceRules = shouldImportRules
+      ? shouldPersistRuleSelection || selectedSubsetOfSourceRules
+        ? [...selectedSourceRules]
+        : undefined
+      : existingEntry?.selectedSourceRules;
 
     const lockSelectedSourceSkills = shouldImportSkills
       ? shouldPersistSkillSelection || selectedSubsetOfSourceSkills
         ? [...selectedSourceSkills]
         : undefined
       : existingEntry?.selectedSourceSkills;
+    const lockRuleRenameMap = shouldImportRules
+      ? normalizeRuleRenameMap(importedRuleRenameMap)
+      : existingEntry?.ruleRenameMap;
     const lockSkillsProviders = shouldImportSkills
       ? (skillsProvidersForLock ?? existingEntry?.skillsProviders)
       : existingEntry?.skillsProviders;
@@ -654,6 +780,9 @@ export async function importSource(
       commandRenameMap: lockCommandRenameMap,
       importedMcpServers: lockImportedMcpServers,
       selectedSourceMcpServers: lockSelectedSourceMcpServers,
+      importedRules: lockImportedRules,
+      selectedSourceRules: lockSelectedSourceRules,
+      ruleRenameMap: lockRuleRenameMap,
       importedSkills: lockImportedSkills,
       selectedSourceSkills: lockSelectedSourceSkills,
       skillsProviders: lockSkillsProviders,
@@ -668,6 +797,9 @@ export async function importSource(
         commandRenameMap: lockCommandRenameMap ?? {},
         mcp: lockImportedMcpServers,
         selectedSourceMcpServers: lockSelectedSourceMcpServers ?? [],
+        rules: lockImportedRules,
+        selectedSourceRules: lockSelectedSourceRules ?? [],
+        ruleRenameMap: lockRuleRenameMap ?? {},
         skills: lockImportedSkills,
         selectedSourceSkills: lockSelectedSourceSkills ?? [],
         skillsProviders: lockSkillsProviders ?? [],
@@ -690,6 +822,9 @@ export async function importSource(
       commandRenameMap: lockCommandRenameMap,
       importedMcpServers: lockImportedMcpServers,
       selectedSourceMcpServers: lockSelectedSourceMcpServers,
+      importedRules: lockImportedRules,
+      selectedSourceRules: lockSelectedSourceRules,
+      ruleRenameMap: lockRuleRenameMap,
       importedSkills: lockImportedSkills,
       selectedSourceSkills: lockSelectedSourceSkills,
       skillsProviders: lockSkillsProviders,
@@ -716,7 +851,9 @@ export async function importSource(
       importedAgents,
       importedCommands,
       importedMcpServers,
+      importedRules,
       importedSkills,
+      telemetryRules: telemetryRules.length > 0 ? telemetryRules : undefined,
       telemetrySkills: telemetrySkills.length > 0 ? telemetrySkills : undefined,
       resolvedCommit: prepared.resolvedCommit,
     };
@@ -1165,6 +1302,7 @@ function findMatchingLockEntry(
     | "requestedAgents"
     | "selectedSourceCommands"
     | "selectedSourceMcpServers"
+    | "selectedSourceRules"
     | "selectedSourceSkills"
     | "skillsProviders"
   >,
@@ -1182,6 +1320,11 @@ function findMatchingLockEntry(
       sameStringSelectionForMatch(
         entry.selectedSourceMcpServers,
         key.selectedSourceMcpServers,
+      ) &&
+      sameStringSelectionForMatch(
+        entry.selectedSourceRules,
+        key.selectedSourceRules,
+        { wildcardWhenRightIsUndefined: true },
       ) &&
       sameStringSelectionForMatch(
         entry.selectedSourceSkills,
@@ -1212,6 +1355,7 @@ function findRelaxedCommandEntry(
     (entry) =>
       entry.importedAgents.length > 0 ||
       entry.importedMcpServers.length > 0 ||
+      entry.importedRules.length > 0 ||
       entry.importedSkills.length > 0,
   );
 
@@ -1276,6 +1420,9 @@ function computeTrackedEntitiesForLock(options: {
   commandRenameMap?: Record<string, string>;
   importedMcpServers: string[];
   selectedSourceMcpServers?: string[];
+  importedRules: string[];
+  selectedSourceRules?: string[];
+  ruleRenameMap?: Record<string, string>;
   importedSkills: string[];
   selectedSourceSkills?: string[];
   skillsProviders?: Provider[];
@@ -1303,6 +1450,14 @@ function computeTrackedEntitiesForLock(options: {
     (options.selectedSourceMcpServers?.length ?? 0) > 0
   ) {
     tracked.push("mcp");
+  }
+
+  if (
+    options.importedRules.length > 0 ||
+    (options.selectedSourceRules?.length ?? 0) > 0 ||
+    Object.keys(options.ruleRenameMap ?? {}).length > 0
+  ) {
+    tracked.push("rule");
   }
 
   if (
@@ -1364,6 +1519,61 @@ function resolveMappedTargetFileName(
 
     const sourceExtension = path.extname(sourceFileName) || ".md";
     return `${slugify(importedBaseName) || "command"}${sourceExtension}`;
+  }
+
+  return undefined;
+}
+
+function normalizeRuleRenameMap(
+  renameMap: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  if (!renameMap) return undefined;
+
+  const normalizedEntries = Object.entries(renameMap)
+    .map(([sourceSelector, importedName]) => {
+      const normalizedSourceSelector = normalizeRuleSelector(sourceSelector);
+      const importedBaseName = path.basename(importedName.trim());
+      if (!normalizedSourceSelector || !importedBaseName) {
+        return null;
+      }
+
+      const ext = path.extname(importedBaseName);
+      const stem = stripRuleFileExtension(importedBaseName);
+      const normalizedTarget = `${slugify(stem) || "rule"}${ext || ".md"}`;
+      return [normalizedSourceSelector, normalizedTarget] as const;
+    })
+    .filter(
+      (
+        entry,
+      ): entry is readonly [
+        normalizedSourceSelector: string,
+        importedName: string,
+      ] => entry !== null,
+    );
+
+  if (normalizedEntries.length === 0) return undefined;
+  return Object.fromEntries(normalizedEntries);
+}
+
+function resolveMappedTargetRuleFileName(
+  sourceFileName: string,
+  renameMap: Record<string, string> | undefined,
+): string | undefined {
+  if (!renameMap) return undefined;
+
+  const normalizedSourceName = normalizeRuleSelector(sourceFileName);
+  for (const [sourceSelector, importedName] of Object.entries(renameMap)) {
+    if (normalizeRuleSelector(sourceSelector) !== normalizedSourceName) {
+      continue;
+    }
+
+    const importedBaseName = path.basename(importedName.trim());
+    if (!importedBaseName) return undefined;
+
+    const ext = path.extname(importedBaseName);
+    if (ext) return importedBaseName;
+
+    return `${slugify(importedBaseName) || "rule"}.md`;
   }
 
   return undefined;
@@ -1645,6 +1855,73 @@ async function resolveCommandConflict(options: {
   return options.targetFileName;
 }
 
+async function resolveRuleConflict(options: {
+  targetFileName: string;
+  ruleContent: string;
+  paths: ScopePaths;
+  yes: boolean;
+  nonInteractive: boolean;
+  promptLabel: string;
+}): Promise<string | null> {
+  const targetPath = path.join(options.paths.rulesDir, options.targetFileName);
+  if (!fs.existsSync(targetPath)) return options.targetFileName;
+
+  const existing = fs.readFileSync(targetPath, "utf8");
+  if (existing === options.ruleContent) return options.targetFileName;
+
+  if (options.yes) {
+    return options.targetFileName;
+  }
+
+  if (options.nonInteractive) {
+    throw new NonInteractiveConflictError(
+      `Conflict for ${options.targetFileName}. Use --yes or run interactively.`,
+    );
+  }
+
+  const choice = await select({
+    message: `Rule conflict for ${options.promptLabel}`,
+    options: [
+      { value: "overwrite", label: `Overwrite ${options.targetFileName}` },
+      { value: "skip", label: "Skip this rule" },
+      { value: "rename", label: "Rename imported rule" },
+    ],
+  });
+
+  if (isCancel(choice)) {
+    cancel("Operation cancelled.");
+    process.exit(1);
+  }
+
+  if (choice === "skip") return null;
+
+  if (choice === "rename") {
+    const entered = await promptText({
+      message: `New filename (without extension) for ${options.promptLabel}`,
+      placeholder: options.targetFileName.replace(/\.(md|mdc)$/i, ""),
+      validate(value) {
+        if (!value.trim()) return "Name is required.";
+        if (/[\\/]/.test(value)) return "Use a simple filename.";
+        return undefined;
+      },
+    });
+
+    if (isCancel(entered)) {
+      cancel("Operation cancelled.");
+      process.exit(1);
+    }
+
+    const extension = path.extname(options.targetFileName) || ".md";
+    const renamedFileName = `${slugify(String(entered)) || "rule"}${extension}`;
+    return resolveRuleConflict({
+      ...options,
+      targetFileName: renamedFileName,
+    });
+  }
+
+  return options.targetFileName;
+}
+
 async function resolveCommandsToImport(options: {
   sourceCommands: ReturnType<typeof parseCommandsDir>;
   selectors: string[];
@@ -1812,6 +2089,87 @@ async function resolveMcpServersToImport(options: {
   return {
     selectedServerNames: available.filter((serverName) =>
       selectedNames.has(serverName),
+    ),
+    selectionMode,
+  };
+}
+
+async function resolveRulesToImport(options: {
+  sourceRules: CanonicalRuleFile[];
+  selectors: string[];
+  promptForRules: boolean;
+  nonInteractive: boolean;
+  selectionMode?: SelectionMode;
+}): Promise<RuleSelectionResult> {
+  const selectors = options.selectors
+    .map((selector) => selector.trim())
+    .filter(Boolean);
+
+  if (selectors.length > 0) {
+    const { selected, unmatched } = resolveRuleSelections(
+      options.sourceRules,
+      selectors,
+    );
+
+    if (unmatched.length > 0) {
+      throw new Error(
+        `Rule(s) not found in source: ${unmatched.join(", ")}. Available: ${options.sourceRules.map((item) => item.fileName).join(", ")}`,
+      );
+    }
+
+    return {
+      selectedRules: selected,
+      selectionMode: "custom",
+    };
+  }
+
+  const selectionResolution = await resolveSelectionModeWithSkip({
+    entityLabel: "rules",
+    selectionMode: options.selectionMode,
+    promptForSelection: options.promptForRules,
+    nonInteractive: options.nonInteractive,
+  });
+  const selectionMode = selectionResolution.selectionMode;
+  if (selectionResolution.skipImport) {
+    return {
+      selectedRules: [],
+      selectionMode: "custom",
+    };
+  }
+
+  if (
+    selectionMode === "all" ||
+    !options.promptForRules ||
+    options.nonInteractive
+  ) {
+    return {
+      selectedRules: options.sourceRules,
+      selectionMode,
+    };
+  }
+
+  const selected = await multiselect({
+    message: withMultiselectHelp("Select rules to import"),
+    options: options.sourceRules.map((item) => ({
+      value: item.fileName,
+      label: item.fileName,
+      hint: item.name,
+    })),
+    initialValues: options.sourceRules.map((item) => item.fileName),
+  });
+
+  if (isCancel(selected)) {
+    cancel("Operation cancelled.");
+    process.exit(1);
+  }
+
+  const selectedNames = Array.isArray(selected)
+    ? new Set(selected.map((value) => String(value)))
+    : new Set<string>();
+
+  return {
+    selectedRules: options.sourceRules.filter((item) =>
+      selectedNames.has(item.fileName),
     ),
     selectionMode,
   };

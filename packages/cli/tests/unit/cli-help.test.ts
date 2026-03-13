@@ -16,6 +16,7 @@ describe("cli help routing", () => {
     expect(output).toContain("Aggregate commands:");
     expect(output).toContain("init");
     expect(output).toContain("find <query>");
+    expect(output).toContain("rule <add|list|delete|find|update|sync>");
   });
 
   it("prints init help", async () => {
@@ -80,6 +81,17 @@ describe("cli help routing", () => {
 
     const output = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
     expect(output).toContain("agentloom command add <source> [options]");
+  });
+
+  it("prints rule help without requiring scope resolution", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await runCli(["rule", "--help"]);
+
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(output).toContain(
+      "agentloom rule <add|list|delete|find|update|sync> [options]",
+    );
   });
 
   it("throws actionable unknown command message", async () => {
