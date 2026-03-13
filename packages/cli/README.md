@@ -10,7 +10,7 @@ For monorepo-level documentation and architecture context, see the [root README]
 npx agentloom init
 ```
 
-That's all you need. Agentloom picks up your existing provider configs, migrates them into a unified `.agents/` directory, and syncs everything back out to all your tools. From here on, manage your agents, commands, skills, and MCP servers in one place and run `agentloom sync` whenever you make changes.
+That's all you need. Agentloom picks up your existing provider configs, migrates them into a unified `.agents/` directory, and syncs everything back out to all your tools. From here on, manage your agents, commands, rules, skills, and MCP servers in one place and run `agentloom sync` whenever you make changes.
 
 ## Install
 
@@ -32,6 +32,9 @@ Project scope:
   commands/
     review.md
     ship.md
+  rules/
+    always-test.md
+    enforce-logs.md
   skills/
     reviewing/
       SKILL.md
@@ -59,7 +62,7 @@ Global scope uses `~/.agents` with the same file layout.
 - `agentloom sync`
 - `agentloom delete <source|name>`
 
-Aggregate `add` imports discoverable entities from a source (agents, commands, MCP servers, skills). In interactive sessions, each entity supports two tracking modes:
+Aggregate `add` imports discoverable entities from a source (agents, commands, rules, MCP servers, skills). In interactive sessions, each entity supports two tracking modes:
 
 - `Sync everything from source` (default): updates include newly added source items.
 - `Use custom selection`: updates stay pinned to the selected items, even if all current items were selected.
@@ -68,6 +71,7 @@ Source path resolution is additive and priority-ordered:
 
 - Agents: `.agents/agents` -> `agents`
 - Commands: `.agents/commands` -> `commands` -> `prompts`
+- Rules: `.agents/rules` -> `rules`
 - Skills: `.agents/skills` -> `skills` -> root `SKILL.md` fallback
 - MCP: `.agents/mcp.json` -> `mcp.json`
 
@@ -78,6 +82,7 @@ Aggregate `agentloom add <source>` can import command/skill/MCP-only repositorie
 - `agentloom agent <add|list|delete|find|update|sync>`
 - `agentloom command <add|list|delete|find|update|sync>`
 - `agentloom mcp <add|list|delete|find|update|sync>`
+- `agentloom rule <add|list|delete|find|update|sync>`
 - `agentloom skill <add|list|delete|find|update|sync>`
 
 ### Selector flags
@@ -85,11 +90,13 @@ Aggregate `agentloom add <source>` can import command/skill/MCP-only repositorie
 - `--agents <csv>`
 - `--commands <csv>`
 - `--mcps <csv>`
+- `--rule <csv>` (alias)
+- `--rules <csv>`
 - `--skills <csv>`
 - `--selection-mode <all|sync-all|custom>`
 - `--source <value>`
 - `--name <value>`
-- `--entity <agent|command|mcp|skill>`
+- `--entity <agent|command|mcp|rule|skill>`
 
 ### MCP manual server mode
 
@@ -107,6 +114,7 @@ agentloom add farnoodma/agents
 agentloom agent add farnoodma/agents --agents issue-creator
 agentloom command add farnoodma/agents --commands review
 agentloom mcp add farnoodma/agents --mcps browser
+agentloom rule add farnoodma/agents --rules always-test
 agentloom skill add farnoodma/agents --skills pr-review
 agentloom delete farnoodma/agents
 agentloom mcp server add browser-tools --command npx --arg browser-tools-mcp
@@ -128,6 +136,7 @@ agentloom command --help
 agentloom command add --help
 agentloom mcp --help
 agentloom mcp add --help
+agentloom rule --help
 agentloom mcp server --help
 ```
 
@@ -166,6 +175,7 @@ The install runs after the requested command completes so scope/provider selecti
 Successful GitHub-based `agentloom add` imports can send anonymous telemetry
 to the Agentloom directory API.
 
+- tracked entities: agents, commands, rules, skills, MCP servers
 - disable telemetry via `AGENTLOOM_DISABLE_TELEMETRY=1`
 - override endpoint via `AGENTLOOM_TELEMETRY_ENDPOINT`
 
@@ -226,6 +236,29 @@ Notes:
 - Provider-specific frontmatter keys are passed through as-is to that provider output.
 - Canonical command bodies can use `$ARGUMENTS`; provider-specific placeholder translation is applied during sync (for example Copilot receives `${input:args}`).
 
+## Rule schema
+
+Canonical rules are markdown files under `.agents/rules/*.md`.
+Rules require `frontmatter.name`. Additional frontmatter keys are preserved.
+
+```md
+---
+name: Always run tests
+description: Require tests before merge
+globs:
+  - "**/*.ts"
+alwaysApply: true
+---
+
+Before finishing any change, run the project checks and include the result.
+```
+
+Notes:
+
+- Rule ID is the canonical filename stem (for example `.agents/rules/always-test.md` -> `always-test`).
+- Managed instruction-block rendering uses only `frontmatter.name` + body.
+- Extra frontmatter keys are used only for Cursor `.cursor/rules/*.mdc` rendering.
+
 ## MCP schema
 
 Canonical MCP file format:
@@ -263,6 +296,22 @@ This follows official Codex multi-agent guidance.
 For canonical commands (`.agents/commands`), Codex output is always written to
 global prompts under `~/.codex/prompts` (Codex prompts are global-only), even
 when syncing local scope.
+
+## Rule sync behavior
+
+Rule sync is additive on top of agent/command/MCP/skill sync:
+
+- Local scope always updates managed rule blocks in `AGENTS.md`.
+- Local + Cursor writes `.cursor/rules/<rule-id>.mdc`.
+- Local + Claude writes managed blocks to `CLAUDE.md`.
+- Local + Gemini writes managed blocks to `GEMINI.md`.
+- Local + Copilot writes managed blocks to `.github/copilot-instructions.md`.
+- Local + OpenCode/Codex/Pi use the same managed `AGENTS.md` baseline blocks.
+- Global + Claude writes `~/.claude/CLAUDE.md`.
+- Global + Gemini writes `~/.gemini/GEMINI.md`.
+- Global + Copilot writes `~/.github/copilot-instructions.md` and adds that location to VS Code `chat.instructionsFilesLocations`.
+- Global + OpenCode writes `~/.config/opencode/AGENTS.md`.
+- Global Cursor/Codex/Pi rule settings are no-op unless a stable provider settings key exists.
 
 ## Development
 
