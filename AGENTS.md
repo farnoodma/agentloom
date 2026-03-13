@@ -21,6 +21,8 @@ Canonical layout (local scope):
     *.md
   commands/
     *.md
+  rules/
+    *.md
   skills/
     <skill>/
       SKILL.md
@@ -38,10 +40,11 @@ Global scope uses `~/.agents` with the same canonical files.
 
 | Command | Description |
 | --- | --- |
-| `agentloom add|find|update|sync|delete` | Aggregate operations across agents/commands/mcp/skills |
+| `agentloom add|find|update|sync|delete` | Aggregate operations across agents/commands/rules/mcp/skills |
 | `agentloom agent <add|list|delete|find|update|sync>` | Entity-scoped agent operations |
 | `agentloom command <add|list|delete|find|update|sync>` | Entity-scoped command operations |
 | `agentloom mcp <add|list|delete|find|update|sync>` | Entity-scoped MCP import/update/search/sync |
+| `agentloom rule <add|list|delete|find|update|sync>` | Entity-scoped rule operations |
 | `agentloom mcp server <add|list|delete>` | Manual MCP server editing in canonical `mcp.json` |
 | `agentloom skill <add|list|delete|find|update|sync>` | Entity-scoped skill operations |
 
@@ -79,7 +82,7 @@ apps/web/
 ### Source import expectations (`add` / `update`)
 
 1. Source parsing supports local paths, GitHub slugs, and git URLs.
-2. Source discovery supports entity directories: `agents/`, `commands/`, `skills/` (and `.agents/*` equivalents).
+2. Source discovery supports entity directories: `agents/`, `commands/`, `rules/`, `skills/` (and `.agents/*` equivalents).
 3. MCP discovery checks `.agents/mcp.json` first, then `mcp.json`.
 4. Imports update `.agents/agents.lock.json` with resolved commit and imported items.
 5. In non-interactive mode, unresolved conflicts must fail with actionable guidance unless `--yes` is set.
@@ -98,6 +101,7 @@ apps/web/
 - Entity-targeted syncs must preserve untouched entity outputs via manifest merge.
 - Stale generated files are removed based on manifest diff (with prompt unless `--yes` or non-interactive).
 - Codex sync is special: it updates `.codex/config.toml`, enables `features.multi_agent = true`, and writes role TOML + instruction files under `.codex/agents/`.
+- Rule sync also updates managed instruction blocks in AGENTS/provider instruction files and local Cursor `.cursor/rules/*.mdc`.
 
 ## Development
 

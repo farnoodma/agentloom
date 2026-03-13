@@ -7,7 +7,7 @@ import {
 describe("leaderboard cursor encoding", () => {
   it("round-trips a leaderboard cursor", () => {
     const encoded = encodeLeaderboardCursor({
-      entitySort: 4,
+      entitySort: 5,
       installs: 42,
       totalInstalls: 900,
       firstSeenAt: "2026-02-18T00:00:00.000Z",
@@ -15,7 +15,7 @@ describe("leaderboard cursor encoding", () => {
     });
 
     expect(decodeLeaderboardCursor(encoded)).toEqual({
-      entitySort: 4,
+      entitySort: 5,
       installs: 42,
       totalInstalls: 900,
       firstSeenAt: "2026-02-18T00:00:00.000Z",
@@ -52,7 +52,28 @@ describe("leaderboard cursor encoding", () => {
     ).toString("base64url");
 
     expect(decodeLeaderboardCursor(encodedLegacyCursor)).toEqual({
-      entitySort: 4,
+      entitySort: 5,
+      installs: 12,
+      totalInstalls: 18,
+      firstSeenAt: "2026-02-18T00:00:00.000Z",
+      id: "550e8400-e29b-41d4-a716-446655440000",
+    });
+  });
+
+  it("maps legacy entity sort values into the current ordering", () => {
+    const encodedLegacyCursor = Buffer.from(
+      JSON.stringify({
+        e: 2,
+        i: 12,
+        t: 18,
+        f: "2026-02-18T00:00:00.000Z",
+        id: "550e8400-e29b-41d4-a716-446655440000",
+      }),
+      "utf8",
+    ).toString("base64url");
+
+    expect(decodeLeaderboardCursor(encodedLegacyCursor)).toEqual({
+      entitySort: 3,
       installs: 12,
       totalInstalls: 18,
       firstSeenAt: "2026-02-18T00:00:00.000Z",

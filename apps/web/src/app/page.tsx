@@ -61,6 +61,7 @@ const ENTITY_LABELS: Record<CatalogEntityType | "all", string> = {
   agent: "Agents",
   skill: "Skills",
   command: "Commands",
+  rule: "Rules",
   mcp: "MCP",
 };
 
@@ -85,6 +86,9 @@ function buildHeroCommand(input: {
 
   if (input.entity === "skill") {
     return `npx agentloom skill add ${source}`;
+  }
+  if (input.entity === "rule") {
+    return `npx agentloom rule add ${source}`;
   }
 
   return `npx agentloom mcp add ${source}`;

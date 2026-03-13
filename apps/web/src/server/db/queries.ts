@@ -45,6 +45,7 @@ export interface LeaderboardPage {
 }
 
 interface CursorPayload {
+  v?: number;
   e?: number;
   i: number;
   t: number;
@@ -52,10 +53,13 @@ interface CursorPayload {
   id: string;
 }
 
+const CURRENT_CURSOR_VERSION = 2;
+
 const ENTITY_SORT_ORDER = sql<number>`CASE
-  WHEN ${catalogItems.entityType} = 'agent' THEN 4
-  WHEN ${catalogItems.entityType} = 'skill' THEN 3
-  WHEN ${catalogItems.entityType} = 'command' THEN 2
+  WHEN ${catalogItems.entityType} = 'agent' THEN 5
+  WHEN ${catalogItems.entityType} = 'skill' THEN 4
+  WHEN ${catalogItems.entityType} = 'command' THEN 3
+  WHEN ${catalogItems.entityType} = 'rule' THEN 2
   WHEN ${catalogItems.entityType} = 'mcp' THEN 1
   ELSE 0
 END`;
@@ -109,6 +113,7 @@ function isValidCursorPayload(value: unknown): value is CursorPayload {
   const payload = value as Partial<CursorPayload>;
 
   return (
+    (payload.v === undefined || Number.isInteger(payload.v)) &&
     (payload.e === undefined || Number.isInteger(payload.e)) &&
     Number.isInteger(payload.i) &&
     Number.isInteger(payload.t) &&
@@ -139,6 +144,7 @@ function toCursor(row: LeaderboardRow): LeaderboardCursor {
 
 export function encodeLeaderboardCursor(cursor: LeaderboardCursor): string {
   const payload: CursorPayload = {
+    v: CURRENT_CURSOR_VERSION,
     e: cursor.entitySort,
     i: cursor.installs,
     t: cursor.totalInstalls,
@@ -164,10 +170,7 @@ export function decodeLeaderboardCursor(encoded: string): LeaderboardCursor | nu
     }
 
     return {
-      entitySort:
-        typeof payload.e === "number" && Number.isInteger(payload.e)
-          ? payload.e
-          : getEntitySortValue("agent"),
+      entitySort: decodeEntitySort(payload),
       installs: payload.i,
       totalInstalls: payload.t,
       firstSeenAt,
@@ -176,6 +179,21 @@ export function decodeLeaderboardCursor(encoded: string): LeaderboardCursor | nu
   } catch {
     return null;
   }
+}
+
+function decodeEntitySort(payload: CursorPayload): number {
+  if (typeof payload.e !== "number" || !Number.isInteger(payload.e)) {
+    return getEntitySortValue("agent");
+  }
+
+  if (payload.v === CURRENT_CURSOR_VERSION) {
+    return payload.e;
+  }
+
+  if (payload.e === 4) return 5;
+  if (payload.e === 3) return 4;
+  if (payload.e === 2) return 3;
+  return payload.e;
 }
 
 export async function getLeaderboardPage(input: {
@@ -382,9 +400,10 @@ export async function getItemDetail(input: {
 }
 
 function getEntitySortValue(entityType: CatalogEntityType): number {
-  if (entityType === "agent") return 4;
-  if (entityType === "skill") return 3;
-  if (entityType === "command") return 2;
+  if (entityType === "agent") return 5;
+  if (entityType === "skill") return 4;
+  if (entityType === "command") return 3;
+  if (entityType === "rule") return 2;
   if (entityType === "mcp") return 1;
   return 0;
 }

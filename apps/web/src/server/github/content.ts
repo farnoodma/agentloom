@@ -40,6 +40,11 @@ function candidatePaths(input: {
     push(`commands/${input.slug}.md`);
     push(`prompts/${input.slug}.md`);
     push(`.agents/commands/${input.slug}.md`);
+  } else if (input.entityType === "rule") {
+    push(`rules/${input.slug}.md`);
+    push(`.agents/rules/${input.slug}.md`);
+    push(`.cursor/rules/${input.slug}.md`);
+    push(`.cursor/rules/${input.slug}.mdc`);
   } else if (input.entityType === "skill") {
     push(`skills/${input.slug}/SKILL.md`);
     push(`.agents/skills/${input.slug}/SKILL.md`);

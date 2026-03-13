@@ -96,4 +96,24 @@ describe("GET /api/v1/leaderboard", () => {
       error: "invalid_cursor",
     });
   });
+
+  it("accepts rule entity filter", async () => {
+    getLeaderboardPageMock.mockResolvedValue({
+      rows: [],
+      nextCursor: null,
+    });
+
+    const response = await GET(
+      new Request("http://localhost/api/v1/leaderboard?entity=rule"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(getLeaderboardPageMock).toHaveBeenCalledWith({
+      period: "all",
+      entity: "rule",
+      q: "",
+      cursor: undefined,
+      limit: 50,
+    });
+  });
 });

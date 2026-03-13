@@ -56,4 +56,31 @@ describe("POST /api/v1/installs", () => {
     expect(response.status).toBe(202);
     expect(body).toEqual({ accepted: true });
   });
+
+  it("accepts rule telemetry payloads", async () => {
+    recordInstallEventMock.mockResolvedValue({ accepted: true });
+
+    const response = await POST(
+      new Request("http://localhost/api/v1/installs", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          eventId: "550e8400-e29b-41d4-a716-446655440000",
+          occurredAt: "2026-02-21T14:00:00.000Z",
+          cliVersion: "0.1.0",
+          source: { owner: "farnoodma", repo: "agents" },
+          items: [
+            {
+              entityType: "rule",
+              name: "always-test",
+              filePath: "rules/always-test.md",
+            },
+          ],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toEqual({ accepted: true });
+  });
 });

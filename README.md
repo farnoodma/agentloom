@@ -2,9 +2,9 @@
 
 **Write your agents once. Use them everywhere.**
 
-If you're juggling Cursor, Claude, Copilot, Codex, Gemini, and OpenCode — you know the pain. Each tool has its own config format, its own folder structure, its own way of defining agents, commands, and MCP servers. You end up copy-pasting prompts, maintaining six versions of the same agent, and losing track of what's where.
+If you're juggling Cursor, Claude, Copilot, Codex, Gemini, and OpenCode — you know the pain. Each tool has its own config format, its own folder structure, its own way of defining agents, commands, rules, and MCP servers. You end up copy-pasting prompts, maintaining six versions of the same setup, and losing track of what's where.
 
-Agentloom fixes that. You define your agents, commands, skills, and MCP servers once in a single `.agents/` directory, and agentloom syncs them to every tool you use.
+Agentloom fixes that. You define your agents, commands, rules, skills, and MCP servers once in a single `.agents/` directory, and agentloom syncs them to every tool you use.
 
 ```bash
 npx agentloom init
@@ -14,7 +14,7 @@ That's it. Agentloom detects your existing provider configs, migrates them into 
 
 ## What you get
 
-- **One source of truth** — a `.agents/` directory with your agents, commands, skills, and MCP configs in plain markdown and JSON. Version-controlled, diffable, reviewable.
+- **One source of truth** — a `.agents/` directory with your agents, commands, rules, skills, and MCP configs in plain markdown and JSON. Version-controlled, diffable, reviewable.
 - **Instant sync** — run `agentloom sync` and your definitions flow to Cursor, Claude, Copilot, Codex, OpenCode, and Gemini in their native formats.
 - **Import from anywhere** — `agentloom add user/repo` pulls agents and skills from GitHub repos. Share your best setups with your team or the community.
 - **No lock-in** — switch tools tomorrow and your agents come with you.
@@ -38,19 +38,19 @@ For full CLI usage, commands, schemas, and configuration details, see the [CLI d
 
 ## Supported providers
 
-| Provider | Agents | Commands | Skills | MCP |
-|----------|--------|----------|--------|-----|
-| Cursor   |   +    |    +     |   +    |  +  |
-| Claude   |   +    |    +     |   +    |  +  |
-| Copilot  |   +    |    +     |   +    |  +  |
-| Codex    |   +    |    +     |   +    |  +  |
-| OpenCode |   +    |    +     |   +    |  +  |
-| Gemini   |   +    |    +     |   +    |  +  |
-| Pi       |   +    |    +     |   +    |  +  |
+| Provider | Agents | Commands | Rules | Skills | MCP |
+|----------|--------|----------|-------|--------|-----|
+| Cursor   |   +    |    +     |   +   |   +    |  +  |
+| Claude   |   +    |    +     |   +   |   +    |  +  |
+| Copilot  |   +    |    +     |   +   |   +    |  +  |
+| Codex    |   +    |    +     |   +   |   +    |  +  |
+| OpenCode |   +    |    +     |   +   |   +    |  +  |
+| Gemini   |   +    |    +     |   +   |   +    |  +  |
+| Pi       |   +    |    +     |   +   |   +    |  +  |
 
 ## Directory
 
-Browse and discover community agents, skills, and MCP configs at [agentloom.sh](https://agentloom.sh).
+Browse and discover community agents, skills, commands, rules, and MCP configs at [agentloom.sh](https://agentloom.sh).
 
 ## Monorepo layout
 
@@ -65,7 +65,7 @@ apps/
 
 Successful GitHub-based `agentloom add` imports can send anonymous install telemetry to the Agentloom directory API.
 
-- tracked: agents, skills, commands, and MCP servers from GitHub sources
+- tracked: agents, skills, commands, rules, and MCP servers from GitHub sources
 - not tracked: local-path adds
 - opt out: `AGENTLOOM_DISABLE_TELEMETRY=1`
 - override endpoint: `AGENTLOOM_TELEMETRY_ENDPOINT=https://...`

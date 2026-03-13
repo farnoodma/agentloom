@@ -8,6 +8,7 @@ const SECTIONS = [
   { id: "commands", label: "Commands" },
   { id: "agent-schema", label: "Agent Schema" },
   { id: "command-schema", label: "Command Schema" },
+  { id: "rule-schema", label: "Rule Schema" },
   { id: "mcp-schema", label: "MCP Schema" },
   { id: "providers", label: "Providers" },
   { id: "telemetry", label: "Telemetry" },
@@ -63,7 +64,7 @@ export default function DocsPage() {
           Write your agents once.<br />Use them everywhere.
         </h1>
         <p className="mt-4 max-w-2xl text-sm text-ink/70 md:text-base dark:text-white/70">
-          Agentloom is a CLI that unifies agent, skill, command, and MCP server
+          Agentloom is a CLI that unifies agent, skill, command, rule, and MCP server
           definitions across Cursor, Claude, Copilot, Codex, OpenCode, Gemini, and Pi.
           No more copy-pasting prompts between seven different config formats.
         </p>
@@ -169,6 +170,9 @@ export default function DocsPage() {
   commands/
     review.md             # Command prompts
     ship.md
+  rules/
+    always-test.md        # Managed instruction rules
+    enforce-logs.md
   skills/
     reviewing/
       SKILL.md            # Skill entry point
@@ -185,6 +189,7 @@ export default function DocsPage() {
               Agentloom can import repositories that use different directory conventions:
               for agents it checks <InlineCode>.agents/agents</InlineCode> then <InlineCode>agents/</InlineCode>,
               for commands <InlineCode>.agents/commands</InlineCode> then <InlineCode>commands/</InlineCode> then <InlineCode>prompts/</InlineCode>,
+              for rules <InlineCode>.agents/rules</InlineCode> then <InlineCode>rules/</InlineCode>,
               for skills <InlineCode>.agents/skills</InlineCode> then <InlineCode>skills/</InlineCode> then a
               root <InlineCode>SKILL.md</InlineCode> fallback.
             </Prose>
@@ -210,7 +215,7 @@ export default function DocsPage() {
                   <tbody className="text-ink/80 dark:text-white/80">
                     <tr className="border-b border-ink/5 dark:border-white/5">
                       <td className="py-2 pr-4"><InlineCode>agentloom add &lt;source&gt;</InlineCode></td>
-                      <td className="py-2">Import agents, commands, skills, and MCP servers from a source</td>
+                      <td className="py-2">Import agents, commands, rules, skills, and MCP servers from a source</td>
                     </tr>
                     <tr className="border-b border-ink/5 dark:border-white/5">
                       <td className="py-2 pr-4"><InlineCode>agentloom find &lt;query&gt;</InlineCode></td>
@@ -245,6 +250,7 @@ export default function DocsPage() {
               <CodeBlock>{`agentloom agent <add|list|delete|find|update|sync>
 agentloom command <add|list|delete|find|update|sync>
 agentloom mcp <add|list|delete|find|update|sync>
+agentloom rule <add|list|delete|find|update|sync>
 agentloom skill <add|list|delete|find|update|sync>`}</CodeBlock>
             </div>
 
@@ -273,6 +279,14 @@ agentloom skill <add|list|delete|find|update|sync>`}</CodeBlock>
                     <tr className="border-b border-ink/5 dark:border-white/5">
                       <td className="py-2 pr-4"><InlineCode>--mcps &lt;csv&gt;</InlineCode></td>
                       <td className="py-2">Select specific MCP servers</td>
+                    </tr>
+                    <tr className="border-b border-ink/5 dark:border-white/5">
+                      <td className="py-2 pr-4"><InlineCode>--rules &lt;csv&gt;</InlineCode></td>
+                      <td className="py-2">Select specific rules</td>
+                    </tr>
+                    <tr className="border-b border-ink/5 dark:border-white/5">
+                      <td className="py-2 pr-4"><InlineCode>--rule &lt;csv&gt;</InlineCode></td>
+                      <td className="py-2">Alias for <InlineCode>--rules</InlineCode></td>
                     </tr>
                     <tr className="border-b border-ink/5 dark:border-white/5">
                       <td className="py-2 pr-4"><InlineCode>--skills &lt;csv&gt;</InlineCode></td>
@@ -322,6 +336,9 @@ $ agentloom command add farnoodma/agents --commands review
 
 # Import a specific MCP server
 $ agentloom mcp add farnoodma/agents --mcps browser
+
+# Import a specific rule
+$ agentloom rule add farnoodma/agents --rules always-test
 
 # Import a specific skill
 $ agentloom skill add farnoodma/agents --skills pr-review
@@ -405,6 +422,38 @@ Review active changes with scope \${input:args}.`}</CodeBlock>
 
           {/* MCP Schema */}
           <section className="space-y-4 rounded-2xl border border-ink/10 bg-white p-6 shadow-card md:p-8 dark:border-white/10 dark:bg-black/30">
+            <SectionHeading id="rule-schema">Rule Schema</SectionHeading>
+            <Prose>
+              Canonical rules live in <InlineCode>.agents/rules/*.md</InlineCode>.
+              Rules require <InlineCode>frontmatter.name</InlineCode>. Extra
+              frontmatter keys are preserved, but used only for Cursor rule file rendering.
+            </Prose>
+
+            <CodeBlock>{`---
+name: Always run checks
+description: Require checks before shipping
+alwaysApply: true
+globs:
+  - "**/*.ts"
+---
+
+Before finishing any change, run project checks and include the result.`}</CodeBlock>
+
+            <ul className="space-y-2 pl-5 text-sm text-ink/80 dark:text-white/80">
+              <li className="list-disc">
+                Rule IDs come from canonical filename stems (for example <InlineCode>always-run-checks.md</InlineCode>).
+              </li>
+              <li className="list-disc">
+                Managed instruction blocks use markers like <InlineCode>{"<!-- agentloom:always-run-checks:start -->"}</InlineCode>.
+              </li>
+              <li className="list-disc">
+                Cursor receives provider-native files at <InlineCode>.cursor/rules/&lt;rule-id&gt;.mdc</InlineCode>.
+              </li>
+            </ul>
+          </section>
+
+          {/* MCP Schema */}
+          <section className="space-y-4 rounded-2xl border border-ink/10 bg-white p-6 shadow-card md:p-8 dark:border-white/10 dark:bg-black/30">
             <SectionHeading id="mcp-schema">MCP Schema</SectionHeading>
             <Prose>
               MCP servers are defined in <InlineCode>mcp.json</InlineCode>.
@@ -437,7 +486,7 @@ Review active changes with scope \${input:args}.`}</CodeBlock>
             <SectionHeading id="providers">Supported Providers</SectionHeading>
             <Prose>
               Agentloom syncs your definitions to every major AI coding tool.
-              Full support across all entity types.
+              Rule sync writes managed instruction blocks plus provider-native Cursor rules.
             </Prose>
 
             <div className="overflow-x-auto">
@@ -447,6 +496,7 @@ Review active changes with scope \${input:args}.`}</CodeBlock>
                     <th className="py-2 pr-4 font-medium text-ink/70 dark:text-white/70">Provider</th>
                     <th className="py-2 pr-4 text-center font-medium text-ink/70 dark:text-white/70">Agents</th>
                     <th className="py-2 pr-4 text-center font-medium text-ink/70 dark:text-white/70">Commands</th>
+                    <th className="py-2 pr-4 text-center font-medium text-ink/70 dark:text-white/70">Rules</th>
                     <th className="py-2 pr-4 text-center font-medium text-ink/70 dark:text-white/70">Skills</th>
                     <th className="py-2 text-center font-medium text-ink/70 dark:text-white/70">MCP</th>
                   </tr>
@@ -455,6 +505,7 @@ Review active changes with scope \${input:args}.`}</CodeBlock>
                   {["Cursor", "Claude", "Copilot", "Codex", "OpenCode", "Gemini", "Pi"].map((provider) => (
                     <tr key={provider} className="border-b border-ink/5 dark:border-white/5">
                       <td className="py-2 pr-4 font-medium">{provider}</td>
+                      <td className="py-2 pr-4 text-center text-ocean">✓</td>
                       <td className="py-2 pr-4 text-center text-ocean">✓</td>
                       <td className="py-2 pr-4 text-center text-ocean">✓</td>
                       <td className="py-2 pr-4 text-center text-ocean">✓</td>
@@ -470,6 +521,11 @@ Review active changes with scope \${input:args}.`}</CodeBlock>
               following official Codex multi-agent guidance. Codex commands are always written to
               global prompts under <InlineCode>~/.codex/prompts</InlineCode>.
             </Prose>
+            <Prose>
+              Rule sync behavior: local runs always update managed blocks in <InlineCode>AGENTS.md</InlineCode>;
+              local Cursor also writes <InlineCode>.cursor/rules/*.mdc</InlineCode>. Global Copilot also updates
+              VS Code <InlineCode>chat.instructionsFilesLocations</InlineCode> for instruction discovery.
+            </Prose>
           </section>
 
           {/* Telemetry */}
@@ -482,7 +538,7 @@ Review active changes with scope \${input:args}.`}</CodeBlock>
 
             <ul className="space-y-2 pl-5 text-sm text-ink/80 dark:text-white/80">
               <li className="list-disc">Only GitHub sources are tracked — local path imports are never sent.</li>
-              <li className="list-disc">Tracked entities: agents, skills, commands, and MCP servers.</li>
+              <li className="list-disc">Tracked entities: agents, skills, commands, rules, and MCP servers.</li>
               <li className="list-disc">
                 Opt out: <InlineCode>AGENTLOOM_DISABLE_TELEMETRY=1</InlineCode>
               </li>
@@ -500,7 +556,7 @@ Review active changes with scope \${input:args}.`}</CodeBlock>
               <Link href="/" className="text-ocean underline underline-offset-4 hover:text-ocean/80">
                 Agentloom Directory
               </Link>{" "}
-              surfaces the most popular agents, skills, commands, and MCP servers the community
+              surfaces the most popular agents, skills, commands, rules, and MCP servers the community
               is importing. Browse trending setups, discover what other teams are using,
               and add anything to your project in one command.
             </Prose>

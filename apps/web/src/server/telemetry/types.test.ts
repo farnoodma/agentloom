@@ -43,4 +43,22 @@ describe("installEventSchema", () => {
 
     expect(parsed.success).toBe(true);
   });
+
+  it("accepts rule entity payloads", () => {
+    const parsed = installEventSchema.safeParse({
+      eventId: "550e8400-e29b-41d4-a716-446655440000",
+      occurredAt: "2026-02-21T14:00:00.000Z",
+      cliVersion: "0.1.0",
+      source: { owner: "farnoodma", repo: "agents" },
+      items: [
+        {
+          entityType: "rule",
+          name: "always-test",
+          filePath: "rules/always-test.md",
+        },
+      ],
+    });
+
+    expect(parsed.success).toBe(true);
+  });
 });
