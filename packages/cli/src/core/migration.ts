@@ -15,12 +15,14 @@ import {
   getClaudeMcpPath,
   getCodexConfigPath,
   getCopilotMcpPath,
+  getCursorRulesDir,
   getCursorMcpPath,
   getGeminiSettingsPath,
   getOpenCodeConfigPath,
   getPiMcpPath,
   getProviderAgentsDir,
   getProviderCommandsDir,
+  getRuleInstructionPaths,
   getProviderSkillsPaths,
 } from "./provider-paths.js";
 import { readSettings, writeSettings } from "./settings.js";
@@ -30,6 +32,11 @@ import {
   parseSkillsDir,
   skillContentMatchesTarget,
 } from "./skills.js";
+import {
+  parseManagedRuleBlocks,
+  parseRuleMarkdown,
+  stripRuleFileExtension,
+} from "./rules.js";
 import { isProviderEntityFileName } from "./provider-entity-validation.js";
 import { ALL_PROVIDERS } from "../types.js";
 import type {
@@ -85,6 +92,7 @@ export function createEmptyMigrationSummary(
       agent: { detected: 0, imported: 0, conflicts: 0, skipped: 0 },
       command: { detected: 0, imported: 0, conflicts: 0, skipped: 0 },
       mcp: { detected: 0, imported: 0, conflicts: 0, skipped: 0 },
+      rule: { detected: 0, imported: 0, conflicts: 0, skipped: 0 },
       skill: { detected: 0, imported: 0, conflicts: 0, skipped: 0 },
     },
   };
@@ -97,6 +105,7 @@ export function initializeCanonicalLayout(
   ensureDir(paths.agentsRoot);
   ensureDir(paths.agentsDir);
   ensureDir(paths.commandsDir);
+  ensureDir(paths.rulesDir);
   ensureDir(paths.skillsDir);
 
   if (!fs.existsSync(paths.mcpPath)) {
@@ -162,6 +171,10 @@ export async function migrateProviderStateToCanonical(
     await migrateMcp(options, summary.entities.mcp);
   }
 
+  if (includesTarget(options.target, "rule")) {
+    await migrateRules(options, summary.entities.rule);
+  }
+
   if (includesTarget(options.target, "skill")) {
     await migrateSkills(options, summary.entities.skill);
   }
@@ -171,7 +184,7 @@ export async function migrateProviderStateToCanonical(
 
 export function formatMigrationSummary(summary: MigrationSummary): string {
   const lines = ["Migration summary (provider -> canonical):"];
-  for (const entity of ["agent", "command", "mcp", "skill"] as const) {
+  for (const entity of ["agent", "command", "mcp", "rule", "skill"] as const) {
     const row = summary.entities[entity];
     lines.push(
       `${entity}: detected=${row.detected}, imported=${row.imported}, conflicts=${row.conflicts}, skipped=${row.skipped}`,
@@ -1269,6 +1282,236 @@ function isCanonicalServerEqual(
     normalizeCanonicalServer(left),
     normalizeCanonicalServer(right),
   );
+}
+
+async function migrateRules(
+  options: MigrationOptions,
+  summary: MigrationEntitySummary,
+): Promise<void> {
+  const detectedEntries = [
+    ...getCursorRuleMigrationEntries(options),
+    ...getManagedInstructionRuleMigrationEntries(options),
+  ];
+  const entries = dedupeRuleMigrationEntries(detectedEntries);
+
+  summary.detected += detectedEntries.length;
+  for (const entry of entries) {
+    const targetPath = path.join(
+      options.paths.rulesDir,
+      `${entry.targetStem}.md`,
+    );
+
+    if (!fs.existsSync(targetPath)) {
+      if (shouldWriteCanonical(options)) {
+        ensureDir(options.paths.rulesDir);
+        fs.writeFileSync(targetPath, entry.canonicalContent, "utf8");
+      }
+      summary.imported += 1;
+      continue;
+    }
+
+    const existing = fs.readFileSync(targetPath, "utf8");
+    if (existing === entry.canonicalContent) {
+      summary.skipped += 1;
+      continue;
+    }
+
+    summary.conflicts += 1;
+    const decision = await resolveCanonicalConflict({
+      conflictLabel: entry.conflictLabel,
+      yes: Boolean(options.yes),
+      nonInteractive: Boolean(options.nonInteractive),
+    });
+
+    if (decision === "canonical") {
+      summary.skipped += 1;
+      continue;
+    }
+
+    if (shouldWriteCanonical(options)) {
+      ensureDir(options.paths.rulesDir);
+      fs.writeFileSync(targetPath, entry.canonicalContent, "utf8");
+    }
+    summary.imported += 1;
+  }
+}
+
+interface RuleMigrationEntry {
+  canonicalContent: string;
+  conflictLabel: string;
+  sourceKind: "cursor" | "managed";
+  targetStem: string;
+}
+
+function dedupeRuleMigrationEntries(
+  entries: RuleMigrationEntry[],
+): RuleMigrationEntry[] {
+  const deduped: RuleMigrationEntry[] = [];
+
+  for (const entry of entries) {
+    const existingIndex = deduped.findIndex(
+      (item) => item.targetStem === entry.targetStem,
+    );
+    if (existingIndex < 0) {
+      deduped.push(entry);
+      continue;
+    }
+
+    const existing = deduped[existingIndex];
+    if (existing.canonicalContent === entry.canonicalContent) {
+      continue;
+    }
+
+    const preferred = choosePreferredRuleMigrationEntry(existing, entry);
+    if (preferred === existing) {
+      continue;
+    }
+    if (preferred === entry) {
+      deduped[existingIndex] = entry;
+      continue;
+    }
+
+    deduped.push(entry);
+  }
+
+  return deduped;
+}
+
+function choosePreferredRuleMigrationEntry(
+  left: RuleMigrationEntry,
+  right: RuleMigrationEntry,
+): RuleMigrationEntry | undefined {
+  const hasCursor =
+    left.sourceKind === "cursor" || right.sourceKind === "cursor";
+  const hasManaged =
+    left.sourceKind === "managed" || right.sourceKind === "managed";
+  if (!hasCursor || !hasManaged) {
+    return undefined;
+  }
+
+  try {
+    const leftParsed = parseRuleMarkdown(
+      left.canonicalContent,
+      left.conflictLabel,
+    );
+    const rightParsed = parseRuleMarkdown(
+      right.canonicalContent,
+      right.conflictLabel,
+    );
+    if (leftParsed.name !== rightParsed.name) {
+      return undefined;
+    }
+    if (!sameNormalizedBody(leftParsed.body, rightParsed.body)) {
+      return undefined;
+    }
+  } catch {
+    return undefined;
+  }
+
+  return left.sourceKind === "cursor" ? left : right;
+}
+
+function getCursorRuleMigrationEntries(
+  options: MigrationOptions,
+): RuleMigrationEntry[] {
+  if (!options.providers.includes("cursor")) {
+    return [];
+  }
+  if (options.paths.scope !== "local") {
+    return [];
+  }
+
+  const cursorRulesDir = getCursorRulesDir(options.paths);
+  if (
+    !fs.existsSync(cursorRulesDir) ||
+    !fs.statSync(cursorRulesDir).isDirectory()
+  ) {
+    return [];
+  }
+
+  return fs
+    .readdirSync(cursorRulesDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+    .filter((name) => /\.(md|mdc)$/i.test(name))
+    .filter((name) => stripRuleFileExtension(name).toLowerCase() !== "readme")
+    .sort((a, b) => a.localeCompare(b))
+    .map((fileName) => {
+      const sourcePath = path.join(cursorRulesDir, fileName);
+      const raw = fs.readFileSync(sourcePath, "utf8");
+      const targetStem = slugify(stripRuleFileExtension(fileName)) || "rule";
+
+      return {
+        canonicalContent: toCanonicalRuleMarkdown(raw, fileName, sourcePath),
+        conflictLabel: `rule "${targetStem}" from cursor`,
+        sourceKind: "cursor",
+        targetStem,
+      };
+    });
+}
+
+function getManagedInstructionRuleMigrationEntries(
+  options: MigrationOptions,
+): RuleMigrationEntry[] {
+  const instructionPaths = getRuleInstructionPaths(
+    options.paths,
+    options.providers,
+  ).sort((left, right) => left.localeCompare(right));
+  const entries: RuleMigrationEntry[] = [];
+
+  for (const instructionPath of instructionPaths) {
+    if (
+      !fs.existsSync(instructionPath) ||
+      !fs.statSync(instructionPath).isFile()
+    ) {
+      continue;
+    }
+
+    const raw = fs.readFileSync(instructionPath, "utf8");
+    for (const block of parseManagedRuleBlocks(raw)) {
+      const targetStem = slugify(block.id) || "rule";
+      entries.push({
+        canonicalContent: toCanonicalRuleMarkdownFromManagedBlock(block),
+        conflictLabel: `rule "${targetStem}" from ${path.basename(instructionPath)}`,
+        sourceKind: "managed",
+        targetStem,
+      });
+    }
+  }
+
+  return entries;
+}
+
+function toCanonicalRuleMarkdown(
+  raw: string,
+  fileName: string,
+  sourcePath: string,
+): string {
+  try {
+    const parsed = parseRuleMarkdown(raw, sourcePath);
+    const fm = YAML.stringify(parsed.frontmatter, { lineWidth: 0 }).trimEnd();
+    return `---\n${fm}\n---\n\n${parsed.body}${parsed.body.endsWith("\n") ? "" : "\n"}`;
+  } catch {
+    const parsed = matter(raw);
+    const data = isObject(parsed.data)
+      ? (cloneRecord(parsed.data) as Record<string, unknown>)
+      : {};
+    if (typeof data.name !== "string" || data.name.trim() === "") {
+      data.name = stripRuleFileExtension(fileName);
+    }
+    const fm = YAML.stringify(data, { lineWidth: 0 }).trimEnd();
+    const body = parsed.content.trimStart();
+    return `---\n${fm}\n---\n\n${body}${body.endsWith("\n") ? "" : "\n"}`;
+  }
+}
+
+function toCanonicalRuleMarkdownFromManagedBlock(block: {
+  name: string;
+  body: string;
+}): string {
+  const fm = YAML.stringify({ name: block.name }, { lineWidth: 0 }).trimEnd();
+  const body = block.body.trim();
+  return `---\n${fm}\n---\n\n${body}${body.endsWith("\n") ? "" : "\n"}`;
 }
 
 async function migrateSkills(

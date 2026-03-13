@@ -14,7 +14,14 @@ const summary: ImportSummary = {
   importedAgents: ["agents/reviewer.md"],
   importedCommands: ["commands/release.md"],
   importedMcpServers: ["browser"],
+  importedRules: ["rules/always-test.md"],
   importedSkills: ["release-gate"],
+  telemetryRules: [
+    {
+      name: "always-test",
+      filePath: "nested/rules/always-test.md",
+    },
+  ],
   telemetrySkills: [
     {
       name: "release-check",
@@ -53,7 +60,7 @@ describe("parseGitHubSource", () => {
 });
 
 describe("buildTelemetryItems", () => {
-  it("includes agents, skills, commands, and mcp", () => {
+  it("includes agents, skills, rules, commands, and mcp", () => {
     expect(buildTelemetryItems(summary)).toEqual([
       { entityType: "agent", name: "reviewer", filePath: "agents/reviewer.md" },
       {
@@ -62,6 +69,11 @@ describe("buildTelemetryItems", () => {
         filePath: "commands/release.md",
       },
       { entityType: "mcp", name: "browser", filePath: "mcp.json" },
+      {
+        entityType: "rule",
+        name: "always-test",
+        filePath: "nested/rules/always-test.md",
+      },
       {
         entityType: "skill",
         name: "release-check",
@@ -74,7 +86,22 @@ describe("buildTelemetryItems", () => {
     expect(
       buildTelemetryItems({
         ...summary,
+        telemetryRules: undefined,
         telemetrySkills: undefined,
+        importedRules: ["rules/always-test.md"],
+        importedSkills: ["release-gate"],
+      }),
+    ).toContainEqual({
+      entityType: "rule",
+      name: "always-test",
+      filePath: "rules/always-test.md",
+    });
+    expect(
+      buildTelemetryItems({
+        ...summary,
+        telemetryRules: undefined,
+        telemetrySkills: undefined,
+        importedRules: ["rules/always-test.md"],
         importedSkills: ["release-gate"],
       }),
     ).toContainEqual({
@@ -91,7 +118,7 @@ describe("buildTelemetryItems", () => {
     });
 
     expect(payload.source).toEqual({ owner: "farnoodma", repo: "agents" });
-    expect(payload.items).toHaveLength(4);
+    expect(payload.items).toHaveLength(5);
     expect(payload.eventId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
     );

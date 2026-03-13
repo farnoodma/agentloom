@@ -38,6 +38,7 @@ describe("manifest helpers", () => {
       generatedByEntity: {
         command: [workspaceOutput],
         mcp: [homeOutput],
+        rule: [path.join(workspaceRoot, ".cursor", "rules", "always-test.mdc")],
       },
       codex: {
         roles: ["reviewer"],
@@ -50,6 +51,7 @@ describe("manifest helpers", () => {
       generatedByEntity?: {
         command?: string[];
         mcp?: string[];
+        rule?: string[];
       };
     };
 
@@ -62,6 +64,9 @@ describe("manifest helpers", () => {
     ]);
     expect(onDisk.generatedByEntity?.mcp).toEqual([
       "~/.codex/prompts/review.md",
+    ]);
+    expect(onDisk.generatedByEntity?.rule).toEqual([
+      ".cursor/rules/always-test.mdc",
     ]);
   });
 
@@ -86,6 +91,7 @@ describe("manifest helpers", () => {
           generatedByEntity: {
             command: [".cursor/commands/review.md"],
             mcp: ["~/.codex/prompts/review.md"],
+            rule: [".cursor/rules/always-test.mdc"],
           },
         },
         null,
@@ -105,6 +111,9 @@ describe("manifest helpers", () => {
     ]);
     expect(manifest.generatedByEntity?.mcp).toEqual([
       path.join(homeDir, ".codex", "prompts", "review.md"),
+    ]);
+    expect(manifest.generatedByEntity?.rule).toEqual([
+      path.join(workspaceRoot, ".cursor", "rules", "always-test.mdc"),
     ]);
   });
 

@@ -112,10 +112,17 @@ function createDryRunCanonicalPaths(paths: ScopePaths): {
     fs.existsSync(paths.agentsRoot) &&
     fs.statSync(paths.agentsRoot).isDirectory()
   ) {
-    fs.cpSync(paths.agentsRoot, tempAgentsRoot, {
-      recursive: true,
-      force: true,
-    });
+    try {
+      fs.cpSync(paths.agentsRoot, tempAgentsRoot, {
+        recursive: true,
+        force: true,
+      });
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "ENOENT") {
+        throw error;
+      }
+    }
   }
 
   return {
@@ -124,6 +131,7 @@ function createDryRunCanonicalPaths(paths: ScopePaths): {
       agentsRoot: tempAgentsRoot,
       agentsDir: path.join(tempAgentsRoot, "agents"),
       commandsDir: path.join(tempAgentsRoot, "commands"),
+      rulesDir: path.join(tempAgentsRoot, "rules"),
       skillsDir: path.join(tempAgentsRoot, "skills"),
       mcpPath: path.join(tempAgentsRoot, "mcp.json"),
       lockPath: path.join(tempAgentsRoot, "agents.lock.json"),

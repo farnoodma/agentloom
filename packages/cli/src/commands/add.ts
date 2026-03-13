@@ -71,11 +71,13 @@ async function runEntityAwareAdd(options: {
   const importCommands =
     options.target === "all" || options.target === "command";
   const importMcp = options.target === "all" || options.target === "mcp";
+  const importRules = options.target === "all" || options.target === "rule";
   const importSkills = options.target === "all" || options.target === "skill";
 
   const agentSelectors = getEntitySelectors(options.argv, "agent");
   const commandSelectors = getEntitySelectors(options.argv, "command");
   const mcpSelectors = getEntitySelectors(options.argv, "mcp");
+  const ruleSelectors = getEntitySelectors(options.argv, "rule");
   const skillSelectors = getEntitySelectors(options.argv, "skill");
   let resolvedSkillProviders: Provider[] | undefined;
 
@@ -120,6 +122,10 @@ async function runEntityAwareAdd(options: {
       requireMcp: options.target === "mcp",
       mcpSelectors,
       promptForMcp: mcpSelectors.length === 0,
+      importRules,
+      requireRules: options.target === "rule",
+      ruleSelectors,
+      promptForRules: ruleSelectors.length === 0,
       importSkills,
       requireSkills: options.target === "skill",
       skillSelectors,
@@ -135,12 +141,15 @@ async function runEntityAwareAdd(options: {
       selectionMode,
     });
 
+    const importedRules = summary.importedRules ?? [];
+
     console.log(`Imported source: ${summary.source}`);
     console.log(`Source type: ${summary.sourceType}`);
     console.log(`Resolved commit: ${summary.resolvedCommit}`);
     console.log(`Imported agents: ${summary.importedAgents.length}`);
     console.log(`Imported commands: ${summary.importedCommands.length}`);
     console.log(`Imported MCP servers: ${summary.importedMcpServers.length}`);
+    console.log(`Imported rules: ${importedRules.length}`);
     console.log(`Imported skills: ${summary.importedSkills.length}`);
 
     await sendAddTelemetryEvent({
@@ -173,6 +182,9 @@ function buildAddUsage(target: EntityType | "all"): string {
   if (target === "mcp") {
     return "agentloom mcp add <source> [--ref <ref>] [--subdir <path>] [--mcps <name>] [options]";
   }
+  if (target === "rule") {
+    return "agentloom rule add <source> [--ref <ref>] [--subdir <path>] [--rules <name>] [options]";
+  }
   if (target === "skill") {
     return "agentloom skill add <source> [--ref <ref>] [--subdir <path>] [--skills <name>] [options]";
   }
@@ -188,6 +200,9 @@ function buildAddExample(target: EntityType | "all"): string {
   }
   if (target === "mcp") {
     return "agentloom mcp add farnoodma/agents --mcps browser";
+  }
+  if (target === "rule") {
+    return "agentloom rule add farnoodma/agents --rules always-test";
   }
   if (target === "skill") {
     return "agentloom skill add farnoodma/agents --skills code-review";

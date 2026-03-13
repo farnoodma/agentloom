@@ -17,6 +17,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
       "commands",
       "mcp",
       "mcps",
+      "rule",
+      "rules",
       "skill",
       "skills",
       "url",

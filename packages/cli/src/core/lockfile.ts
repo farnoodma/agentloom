@@ -34,6 +34,13 @@ export function readLockfile(paths: ScopePaths): AgentsLockFile {
         selectedSourceMcpServers: Array.isArray(entry.selectedSourceMcpServers)
           ? entry.selectedSourceMcpServers
           : undefined,
+        importedRules: Array.isArray(entry.importedRules)
+          ? entry.importedRules
+          : [],
+        selectedSourceRules: Array.isArray(entry.selectedSourceRules)
+          ? entry.selectedSourceRules
+          : undefined,
+        ruleRenameMap: normalizeRenameMap(entry.ruleRenameMap),
         importedSkills: Array.isArray(entry.importedSkills)
           ? entry.importedSkills
           : [],
@@ -111,6 +118,7 @@ export function upsertLockEntry(
         item.selectedSourceMcpServers,
         entry.selectedSourceMcpServers,
       ) &&
+      sameSelection(item.selectedSourceRules, entry.selectedSourceRules) &&
       sameSelection(item.selectedSourceSkills, entry.selectedSourceSkills) &&
       sameSelection(item.skillsProviders, entry.skillsProviders),
   );

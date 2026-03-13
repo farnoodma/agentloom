@@ -40,6 +40,7 @@ function createScopePaths(root = "/tmp/agentloom"): ScopePaths {
     agentsRoot: `${root}/.agents`,
     agentsDir: `${root}/.agents/agents`,
     commandsDir: `${root}/.agents/commands`,
+    rulesDir: `${root}/.agents/rules`,
     skillsDir: `${root}/.agents/skills`,
     mcpPath: `${root}/.agents/mcp.json`,
     lockPath: `${root}/.agents/agents.lock.json`,
@@ -68,6 +69,7 @@ beforeEach(() => {
       agent: { detected: 0, imported: 0, conflicts: 0, skipped: 0 },
       command: { detected: 0, imported: 0, conflicts: 0, skipped: 0 },
       mcp: { detected: 0, imported: 0, conflicts: 0, skipped: 0 },
+      rule: { detected: 0, imported: 0, conflicts: 0, skipped: 0 },
       skill: { detected: 0, imported: 0, conflicts: 0, skipped: 0 },
     },
   });

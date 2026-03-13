@@ -57,6 +57,12 @@ export function getEntitySelectors(
       getStringArrayFlag(argsRecord.mcp),
     );
   }
+  if (entity === "rule") {
+    return getStringArrayFlag(
+      argsRecord.rules,
+      getStringArrayFlag(argsRecord.rule),
+    );
+  }
   return getStringArrayFlag(
     argsRecord.skills,
     getStringArrayFlag(argsRecord.skill),

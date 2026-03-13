@@ -10,6 +10,7 @@ import {
 } from "../../src/core/migration.js";
 import { parseAgentsDir } from "../../src/core/agents.js";
 import { parseCommandContent } from "../../src/core/commands.js";
+import { parseRulesDir } from "../../src/core/rules.js";
 import {
   ensureDir,
   writeJsonAtomic,
@@ -49,6 +50,7 @@ describe("canonical layout initialization", () => {
 
     expect(fs.existsSync(paths.agentsDir)).toBe(true);
     expect(fs.existsSync(paths.commandsDir)).toBe(true);
+    expect(fs.existsSync(paths.rulesDir)).toBe(true);
     expect(fs.existsSync(paths.skillsDir)).toBe(true);
     expect(fs.existsSync(paths.mcpPath)).toBe(true);
     expect(fs.existsSync(paths.lockPath)).toBe(true);
@@ -133,6 +135,164 @@ describe("provider migration", () => {
     expect(
       fs.existsSync(path.join(paths.skillsDir, "release-check", "SKILL.md")),
     ).toBe(true);
+  });
+
+  it("migrates cursor rules into canonical .agents/rules", async () => {
+    const paths = createPaths();
+    initializeCanonicalLayout(paths, ["cursor"]);
+
+    ensureDir(path.join(paths.workspaceRoot, ".cursor", "rules"));
+    writeTextAtomic(
+      path.join(paths.workspaceRoot, ".cursor", "rules", "always-test.mdc"),
+      `---
+name: Always Test
+alwaysApply: true
+---
+
+Run tests before merge.
+`,
+    );
+
+    const summary = await migrateProviderStateToCanonical({
+      paths,
+      providers: ["cursor"],
+      target: "rule",
+      nonInteractive: true,
+    });
+
+    expect(summary.entities.rule.detected).toBe(1);
+    expect(summary.entities.rule.imported).toBe(1);
+    expect(fs.existsSync(path.join(paths.rulesDir, "always-test.md"))).toBe(
+      true,
+    );
+
+    const rules = parseRulesDir(paths.rulesDir);
+    expect(rules.map((rule) => rule.id)).toEqual(["always-test"]);
+    expect(rules[0]?.name).toBe("Always Test");
+    expect(rules[0]?.frontmatter.alwaysApply).toBe(true);
+  });
+
+  it("migrates managed instruction rule blocks when cursor rules are absent", async () => {
+    const paths = createPaths();
+    initializeCanonicalLayout(paths, ["claude"]);
+
+    writeTextAtomic(
+      path.join(paths.workspaceRoot, "CLAUDE.md"),
+      `# Team Guide
+
+<!-- agentloom:always-test:start -->
+## Always Test
+
+Run tests before merge.
+<!-- agentloom:always-test:end -->
+`,
+    );
+
+    const summary = await migrateProviderStateToCanonical({
+      paths,
+      providers: ["claude"],
+      target: "rule",
+      nonInteractive: true,
+    });
+
+    expect(summary.entities.rule.detected).toBe(1);
+    expect(summary.entities.rule.imported).toBe(1);
+
+    const rules = parseRulesDir(paths.rulesDir);
+    expect(rules.map((rule) => rule.id)).toEqual(["always-test"]);
+    expect(rules[0]?.name).toBe("Always Test");
+    expect(rules[0]?.body).toContain("Run tests before merge.");
+  });
+
+  it("merges cursor rules with managed instruction rule blocks from other providers", async () => {
+    const paths = createPaths();
+    initializeCanonicalLayout(paths, ["cursor", "claude"]);
+
+    ensureDir(path.join(paths.workspaceRoot, ".cursor", "rules"));
+    writeTextAtomic(
+      path.join(paths.workspaceRoot, ".cursor", "rules", "always-test.mdc"),
+      `---
+name: Always Test
+alwaysApply: true
+---
+
+Run tests before merge.
+`,
+    );
+
+    writeTextAtomic(
+      path.join(paths.workspaceRoot, "CLAUDE.md"),
+      `# Team Guide
+
+<!-- agentloom:keep-small:start -->
+## Keep It Small
+
+Prefer smaller changes.
+<!-- agentloom:keep-small:end -->
+`,
+    );
+
+    const summary = await migrateProviderStateToCanonical({
+      paths,
+      providers: ["cursor", "claude"],
+      target: "rule",
+      nonInteractive: true,
+    });
+
+    expect(summary.entities.rule.detected).toBe(2);
+    expect(summary.entities.rule.imported).toBe(2);
+
+    const rules = parseRulesDir(paths.rulesDir);
+    expect(rules.map((rule) => rule.id)).toEqual(["always-test", "keep-small"]);
+    expect(rules[1]?.name).toBe("Keep It Small");
+    expect(rules[1]?.body).toContain("Prefer smaller changes.");
+  });
+
+  it("prefers cursor rule frontmatter when AGENTS contains the same rule block", async () => {
+    const paths = createPaths();
+    initializeCanonicalLayout(paths, ["cursor", "codex"]);
+
+    ensureDir(path.join(paths.workspaceRoot, ".cursor", "rules"));
+    writeTextAtomic(
+      path.join(paths.workspaceRoot, ".cursor", "rules", "always-test.mdc"),
+      `---
+name: Always Test
+alwaysApply: true
+globs:
+  - "**/*.ts"
+---
+
+Run tests before merge.
+`,
+    );
+
+    writeTextAtomic(
+      path.join(paths.workspaceRoot, "AGENTS.md"),
+      `# Team Guide
+
+<!-- agentloom:always-test:start -->
+## Always Test
+
+Run tests before merge.
+<!-- agentloom:always-test:end -->
+`,
+    );
+
+    const summary = await migrateProviderStateToCanonical({
+      paths,
+      providers: ["cursor", "codex"],
+      target: "rule",
+      nonInteractive: true,
+    });
+
+    expect(summary.entities.rule.detected).toBe(2);
+    expect(summary.entities.rule.imported).toBe(1);
+    expect(summary.entities.rule.conflicts).toBe(0);
+
+    const rules = parseRulesDir(paths.rulesDir);
+    expect(rules).toHaveLength(1);
+    expect(rules[0]?.frontmatter.alwaysApply).toBe(true);
+    expect(rules[0]?.frontmatter.globs).toEqual(["**/*.ts"]);
   });
 
   it("fails fast for canonical-vs-provider conflicts in non-interactive mode", async () => {

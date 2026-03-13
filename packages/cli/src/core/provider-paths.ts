@@ -82,7 +82,7 @@ export function getProviderCommandsDir(
 
 export function getProviderSkillsPaths(
   paths: ScopePaths,
-  providers: Provider[],
+  providers: readonly Provider[],
 ): string[] {
   const targets = new Set<string>();
   const hasClaudeStyleProvider =
@@ -110,6 +110,79 @@ export function getProviderSkillsPaths(
         ? path.join(paths.workspaceRoot, ".pi", "skills")
         : path.join(paths.homeDir, ".pi", "agent", "skills"),
     );
+  }
+
+  return [...targets];
+}
+
+export function getCursorRulesDir(paths: ScopePaths): string {
+  return paths.scope === "local"
+    ? path.join(paths.workspaceRoot, ".cursor", "rules")
+    : path.join(paths.homeDir, ".cursor", "rules");
+}
+
+export function getAgentsInstructionPath(paths: ScopePaths): string {
+  return path.join(paths.workspaceRoot, "AGENTS.md");
+}
+
+export function getClaudeInstructionPath(paths: ScopePaths): string {
+  return paths.scope === "local"
+    ? path.join(paths.workspaceRoot, "CLAUDE.md")
+    : path.join(paths.homeDir, ".claude", "CLAUDE.md");
+}
+
+export function getGeminiInstructionPath(paths: ScopePaths): string {
+  return paths.scope === "local"
+    ? path.join(paths.workspaceRoot, "GEMINI.md")
+    : path.join(paths.homeDir, ".gemini", "GEMINI.md");
+}
+
+export function getCopilotInstructionPath(paths: ScopePaths): string {
+  return paths.scope === "local"
+    ? path.join(paths.workspaceRoot, ".github", "copilot-instructions.md")
+    : path.join(paths.homeDir, ".github", "copilot-instructions.md");
+}
+
+export function getOpenCodeInstructionPath(paths: ScopePaths): string {
+  return paths.scope === "local"
+    ? path.join(paths.workspaceRoot, "AGENTS.md")
+    : path.join(paths.homeDir, ".config", "opencode", "AGENTS.md");
+}
+
+export function getRuleInstructionPaths(
+  paths: ScopePaths,
+  providers: readonly Provider[],
+): string[] {
+  const targets = new Set<string>();
+
+  if (paths.scope === "local") {
+    targets.add(getAgentsInstructionPath(paths));
+  }
+
+  for (const provider of providers) {
+    if (provider === "claude") {
+      targets.add(getClaudeInstructionPath(paths));
+      continue;
+    }
+    if (provider === "gemini") {
+      targets.add(getGeminiInstructionPath(paths));
+      continue;
+    }
+    if (provider === "copilot") {
+      targets.add(getCopilotInstructionPath(paths));
+      continue;
+    }
+    if (provider === "opencode") {
+      targets.add(getOpenCodeInstructionPath(paths));
+      continue;
+    }
+    if (provider === "codex" && paths.scope === "local") {
+      targets.add(getAgentsInstructionPath(paths));
+      continue;
+    }
+    if (provider === "pi" && paths.scope === "local") {
+      targets.add(getAgentsInstructionPath(paths));
+    }
   }
 
   return [...targets];

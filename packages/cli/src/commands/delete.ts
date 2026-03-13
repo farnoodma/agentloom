@@ -7,6 +7,12 @@ import { parseCommandsDir } from "../core/commands.js";
 import { formatUsageError } from "../core/copy.js";
 import { readLockfile, writeLockfile } from "../core/lockfile.js";
 import { readCanonicalMcp, writeCanonicalMcp } from "../core/mcp.js";
+import {
+  normalizeRuleSelector,
+  parseRulesDir,
+  stripRuleFileExtension,
+  type CanonicalRuleFile,
+} from "../core/rules.js";
 import { parseSourceSpec } from "../core/sources.js";
 import { parseSkillsDir } from "../core/skills.js";
 import type { AgentsLockFile, EntityType, LockEntry } from "../types.js";
@@ -16,7 +22,7 @@ import {
   runPostMutationSync,
 } from "./entity-utils.js";
 
-const ALL_ENTITIES: EntityType[] = ["agent", "command", "mcp", "skill"];
+const ALL_ENTITIES: EntityType[] = ["agent", "command", "mcp", "rule", "skill"];
 const MULTISELECT_HELP_TEXT = "↑↓ move, space select, enter confirm";
 
 function withMultiselectHelp(message: string): string {
@@ -234,6 +240,12 @@ async function deleteBySource(options: {
       }
     }
 
+    if (options.entities.includes("rule")) {
+      for (const imported of entry.importedRules) {
+        removeIfExists(path.join(options.paths.agentsRoot, imported));
+      }
+    }
+
     if (options.entities.includes("skill")) {
       for (const skill of entry.importedSkills) {
         removeIfExists(path.join(options.paths.skillsDir, skill));
@@ -262,6 +274,7 @@ async function deleteByName(options: {
   nonInteractive: boolean;
 }): Promise<void> {
   let selectedEntities = options.entities;
+  let deletedRuleIdentifiers: string[] | undefined;
 
   if (selectedEntities.length > 1) {
     const matches = detectNameMatches(options.paths, options.candidate);
@@ -315,6 +328,13 @@ async function deleteByName(options: {
         throw new Error(`MCP server "${options.candidate}" was not found.`);
       }
       delete mcp.mcpServers[existing];
+    } else if (entity === "rule") {
+      const deletedRule = deleteRuleByName(options.paths, options.candidate);
+      deletedRuleIdentifiers = [
+        deletedRule.name,
+        deletedRule.fileName,
+        stripRuleFileExtension(deletedRule.fileName),
+      ];
     } else if (entity === "skill") {
       deleteSkillByName(options.paths, options.candidate);
     }
@@ -327,7 +347,12 @@ async function deleteByName(options: {
   const lockfile = readLockfile(options.paths);
   lockfile.entries = lockfile.entries
     .map((entry) =>
-      removeNameFromEntry(entry, selectedEntities, options.candidate),
+      removeNameFromEntry(
+        entry,
+        selectedEntities,
+        options.candidate,
+        deletedRuleIdentifiers,
+      ),
     )
     .filter((entry): entry is LockEntry => Boolean(entry));
   writeLockfile(options.paths, lockfile);
@@ -383,6 +408,19 @@ function deleteSkillByName(
   removeIfExists(target.sourcePath);
 }
 
+function deleteRuleByName(
+  paths: Awaited<ReturnType<typeof resolvePathsForCommand>>,
+  name: string,
+): CanonicalRuleFile {
+  const rules = parseRulesDir(paths.rulesDir);
+  const target = rules.find((rule) => ruleMatchesCandidate(rule, name));
+  if (!target) {
+    throw new Error(`Rule "${name}" was not found in canonical rules.`);
+  }
+  removeIfExists(target.sourcePath);
+  return target;
+}
+
 function removeIfExists(filePath: string): void {
   if (!fs.existsSync(filePath)) return;
   fs.rmSync(filePath, { recursive: true, force: true });
@@ -419,6 +457,11 @@ function detectNameMatches(
     (name) => normalizeName(name) === normalized,
   );
   if (hasMcp) matches.push("mcp");
+
+  const hasRule = parseRulesDir(paths.rulesDir).some((rule) =>
+    ruleMatchesCandidate(rule, candidate),
+  );
+  if (hasRule) matches.push("rule");
 
   const hasSkill = parseSkillsDir(paths.skillsDir).some(
     (skill) => normalizeName(skill.name) === normalized,
@@ -459,6 +502,15 @@ function removeEntityDataFromEntry(
     };
   }
 
+  if (entities.includes("rule")) {
+    next = {
+      ...next,
+      importedRules: [],
+      selectedSourceRules: undefined,
+      ruleRenameMap: undefined,
+    };
+  }
+
   if (entities.includes("skill")) {
     next = {
       ...next,
@@ -476,6 +528,7 @@ function removeNameFromEntry(
   entry: LockEntry,
   entities: EntityType[],
   candidate: string,
+  deletedRuleIdentifiers?: string[],
 ): LockEntry | null {
   let next = { ...entry };
   const normalized = normalizeName(candidate);
@@ -531,6 +584,55 @@ function removeNameFromEntry(
     }
   }
 
+  if (entities.includes("rule")) {
+    const before = [...next.importedRules];
+    const ruleMatchKeys = new Set(
+      [candidate, ...(deletedRuleIdentifiers ?? [])].flatMap(getRuleMatchKeys),
+    );
+    const matchesDeletedRule = (value: string) =>
+      getRuleMatchKeys(value).some((key) => ruleMatchKeys.has(key));
+    next.importedRules = next.importedRules.filter((item) => {
+      const base = path.basename(item).replace(/\.(md|mdc)$/i, "");
+      return !matchesDeletedRule(base);
+    });
+
+    if (next.importedRules.length !== before.length) {
+      const remainingImportedNames = new Set(
+        next.importedRules.map((item) => path.basename(item)),
+      );
+
+      if (next.ruleRenameMap) {
+        const filteredRenameEntries = Object.entries(next.ruleRenameMap).filter(
+          ([, importedName]) =>
+            remainingImportedNames.has(path.basename(importedName)),
+        );
+        next.ruleRenameMap =
+          filteredRenameEntries.length > 0
+            ? Object.fromEntries(filteredRenameEntries)
+            : undefined;
+      }
+
+      const selectorsFromRenameMap = next.ruleRenameMap
+        ? Object.keys(next.ruleRenameMap)
+        : [];
+      const renamedRuleTargets = new Set(
+        Object.values(next.ruleRenameMap ?? {}).map((importedName) =>
+          normalizeName(path.basename(importedName)),
+        ),
+      );
+      const selectorsFromUnrenamedRules = next.importedRules
+        .map((item) => path.basename(item))
+        .filter(
+          (item) => !renamedRuleTargets.has(normalizeName(path.basename(item))),
+        );
+      next.selectedSourceRules =
+        selectorsFromRenameMap.length > 0 ||
+        selectorsFromUnrenamedRules.length > 0
+          ? [...selectorsFromRenameMap, ...selectorsFromUnrenamedRules]
+          : [];
+    }
+  }
+
   if (entities.includes("skill")) {
     const renameEntriesBeforeRemoval = Object.entries(
       next.skillRenameMap ?? {},
@@ -576,10 +678,27 @@ function removeNameFromEntry(
   return finalizeEntry(next);
 }
 
+function ruleMatchesCandidate(
+  rule: CanonicalRuleFile,
+  candidate: string,
+): boolean {
+  const candidateKeys = new Set(getRuleMatchKeys(candidate));
+  return [rule.name, rule.fileName, stripRuleFileExtension(rule.fileName)].some(
+    (value) => getRuleMatchKeys(value).some((key) => candidateKeys.has(key)),
+  );
+}
+
+function getRuleMatchKeys(value: string): string[] {
+  const normalized = normalizeName(value);
+  const selector = normalizeRuleSelector(value);
+  return [...new Set([normalized, selector].filter(Boolean))];
+}
+
 function finalizeEntry(entry: LockEntry): LockEntry | null {
   const hasOtherEntities =
     entry.importedAgents.length > 0 ||
     entry.importedMcpServers.length > 0 ||
+    entry.importedRules.length > 0 ||
     entry.importedSkills.length > 0;
 
   if (entry.importedCommands.length === 0) {
@@ -589,6 +708,10 @@ function finalizeEntry(entry: LockEntry): LockEntry | null {
   if (entry.importedSkills.length === 0) {
     entry.skillRenameMap = undefined;
     entry.skillsProviders = undefined;
+  }
+  if (entry.importedRules.length === 0) {
+    entry.ruleRenameMap = undefined;
+    entry.selectedSourceRules = hasOtherEntities ? [] : undefined;
   }
 
   const trackedEntities = (entry.trackedEntities ?? []).filter((entity) => {
@@ -608,6 +731,13 @@ function finalizeEntry(entry: LockEntry): LockEntry | null {
         Boolean(entry.selectedSourceMcpServers)
       );
     }
+    if (entity === "rule") {
+      return (
+        entry.importedRules.length > 0 ||
+        Boolean(entry.selectedSourceRules) ||
+        Boolean(entry.ruleRenameMap)
+      );
+    }
     return (
       entry.importedSkills.length > 0 ||
       Boolean(entry.selectedSourceSkills) ||
@@ -625,6 +755,7 @@ function finalizeEntry(entry: LockEntry): LockEntry | null {
     next.importedAgents.length === 0 &&
     next.importedCommands.length === 0 &&
     next.importedMcpServers.length === 0 &&
+    next.importedRules.length === 0 &&
     next.importedSkills.length === 0
   ) {
     return null;

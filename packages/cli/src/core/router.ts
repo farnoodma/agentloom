@@ -36,7 +36,13 @@ const AGGREGATE_VERBS = new Set<AggregateVerb>([
   "init",
 ]);
 
-const ENTITY_NOUNS = new Set<EntityType>(["agent", "command", "mcp", "skill"]);
+const ENTITY_NOUNS = new Set<EntityType>([
+  "agent",
+  "command",
+  "mcp",
+  "rule",
+  "skill",
+]);
 
 const ENTITY_VERBS = new Set<EntityVerb>([
   "add",

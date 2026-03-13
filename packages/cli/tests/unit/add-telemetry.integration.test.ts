@@ -9,6 +9,7 @@ const summary: ImportSummary = {
   importedAgents: ["agents/reviewer.md"],
   importedCommands: ["commands/release.md"],
   importedMcpServers: ["browser"],
+  importedRules: [],
   importedSkills: [],
 };
 
@@ -29,6 +30,7 @@ vi.mock("../../src/commands/entity-utils.js", () => ({
     agentsRoot: "/tmp/.agents",
     agentsDir: "/tmp/.agents/agents",
     commandsDir: "/tmp/.agents/commands",
+    rulesDir: "/tmp/.agents/rules",
     skillsDir: "/tmp/.agents/skills",
     mcpPath: "/tmp/.agents/mcp.json",
     lockPath: "/tmp/.agents/agents.lock.json",

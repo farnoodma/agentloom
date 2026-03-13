@@ -7,6 +7,7 @@ import { parseAgentMarkdown, parseAgentsDir } from "../core/agents.js";
 import { parseCommandsDir } from "../core/commands.js";
 import { formatUsageError, getFindHelpText } from "../core/copy.js";
 import { readCanonicalMcp } from "../core/mcp.js";
+import { parseRulesDir } from "../core/rules.js";
 import { buildScopePaths } from "../core/scope.js";
 import { parseSkillsDir } from "../core/skills.js";
 import type { EntityType } from "../types.js";
@@ -47,6 +48,17 @@ interface FoundSkill {
   repo: string;
   skillName: string;
   installSkillSelector?: string;
+  filePath: string;
+  fileUrl: string;
+  source: string;
+  stars: number;
+  subdir?: string;
+}
+
+interface FoundRule {
+  repo: string;
+  ruleName: string;
+  installRuleSelector?: string;
   filePath: string;
   fileUrl: string;
   source: string;
@@ -156,6 +168,7 @@ export async function runScopedFindCommand(
   const shouldSearchAgents = target === "all" || target === "agent";
   const shouldSearchCommands = target === "all" || target === "command";
   const shouldSearchMcp = target === "all" || target === "mcp";
+  const shouldSearchRules = target === "all" || target === "rule";
   const shouldSearchSkills = target === "all" || target === "skill";
 
   const agentResult = shouldSearchAgents
@@ -170,6 +183,13 @@ export async function runScopedFindCommand(
     : { items: [], failures: [] };
   const mcpResult = shouldSearchMcp
     ? await searchMcpWithDiagnostics(query, DEFAULT_RESULT_LIMIT, FIND_API_BASE)
+    : { items: [], failures: [] };
+  const ruleResult = shouldSearchRules
+    ? await searchRulesWithDiagnostics(
+        query,
+        DEFAULT_RESULT_LIMIT,
+        FIND_API_BASE,
+      )
     : { items: [], failures: [] };
   const skillResult = shouldSearchSkills
     ? await searchSkillsWithDiagnostics(
@@ -230,6 +250,7 @@ export async function runScopedFindCommand(
     agentResult.agents.length +
     commandResult.items.length +
     mcpResult.items.length +
+    ruleResult.items.length +
     skillResult.items.length +
     local.total;
 
@@ -238,6 +259,7 @@ export async function runScopedFindCommand(
       agentResult.failures.length +
       commandResult.failures.length +
       mcpResult.failures.length +
+      ruleResult.failures.length +
       skillResult.failures.length;
     if (failureCount > 0) {
       throw new Error(
@@ -295,6 +317,18 @@ export async function runScopedFindCommand(
     console.log("");
   }
 
+  if (ruleResult.items.length > 0) {
+    console.log("Rule matches:");
+    for (const result of ruleResult.items) {
+      console.log(
+        `  - ${result.repo}@${result.ruleName}${formatStars(result.stars)} (${result.filePath})`,
+      );
+      console.log(`    ${result.fileUrl}`);
+      console.log(`    Install: ${buildRuleInstallCommand(result)}`);
+    }
+    console.log("");
+  }
+
   if (skillResult.items.length > 0) {
     console.log("Skill matches:");
     for (const result of skillResult.items) {
@@ -311,6 +345,7 @@ export async function runScopedFindCommand(
     ...agentResult.failures,
     ...commandResult.failures,
     ...mcpResult.failures,
+    ...ruleResult.failures,
     ...skillResult.failures,
   ];
   if (failures.length > 0) {
@@ -591,6 +626,56 @@ async function searchSkillsWithDiagnostics(
           repo: repo.fullName,
           skillName,
           installSkillSelector,
+          filePath,
+          fileUrl: `${repo.repoWebUrl}/blob/${repo.defaultBranch}/${filePath}`,
+          source: repo.installSource,
+          stars: repo.stars,
+          subdir: parsed.subdir,
+        });
+      }
+
+      return matches;
+    }),
+  );
+
+  return normalizeEntityScanResults(scanned, limit);
+}
+
+async function searchRulesWithDiagnostics(
+  query: string,
+  limit: number,
+  apiBase: string,
+): Promise<SearchEntityResult<FoundRule>> {
+  const tokens = tokenizeQuery(query);
+  const repos = await searchReposByQuery(query, apiBase);
+  const candidates = repos.slice(0, DEFAULT_REPO_SCAN_LIMIT);
+
+  const scanned = await Promise.allSettled(
+    candidates.map(async (repo) => {
+      const tree = await getRepoTree(repo, apiBase);
+      const matches: FoundRule[] = [];
+
+      for (const entry of tree) {
+        if (entry.type !== "blob") continue;
+        const filePath = toTrimmedString(entry.path);
+        if (!filePath) continue;
+
+        const parsed = parseRulePath(filePath);
+        if (!parsed) continue;
+
+        const haystack =
+          `${repo.fullName} ${filePath} ${parsed.ruleName}`.toLowerCase();
+        if (
+          tokens.length > 0 &&
+          !tokens.some((token) => haystack.includes(token))
+        ) {
+          continue;
+        }
+
+        matches.push({
+          repo: repo.fullName,
+          ruleName: parsed.ruleName,
+          installRuleSelector: parsed.installRuleSelector,
           filePath,
           fileUrl: `${repo.repoWebUrl}/blob/${repo.defaultBranch}/${filePath}`,
           source: repo.installSource,
@@ -897,6 +982,50 @@ function parseSkillPath(
   return null;
 }
 
+function parseRulePath(filePath: string): {
+  ruleName: string;
+  installRuleSelector?: string;
+  subdir?: string;
+} | null {
+  const directCanonical = filePath.match(/^\.agents\/rules\/([^/]+)\.md$/i);
+  if (directCanonical) {
+    return {
+      ruleName: directCanonical[1],
+      installRuleSelector: directCanonical[1],
+    };
+  }
+
+  const nestedCanonical = filePath.match(
+    /^(.+)\/\.agents\/rules\/([^/]+)\.md$/i,
+  );
+  if (nestedCanonical) {
+    return {
+      subdir: nestedCanonical[1],
+      ruleName: nestedCanonical[2],
+      installRuleSelector: nestedCanonical[2],
+    };
+  }
+
+  const directRules = filePath.match(/^rules\/([^/]+)\.md$/i);
+  if (directRules) {
+    return {
+      ruleName: directRules[1],
+      installRuleSelector: directRules[1],
+    };
+  }
+
+  const nestedRules = filePath.match(/^(.+)\/rules\/([^/]+)\.md$/i);
+  if (nestedRules) {
+    return {
+      subdir: nestedRules[1],
+      ruleName: nestedRules[2],
+      installRuleSelector: nestedRules[2],
+    };
+  }
+
+  return null;
+}
+
 function isMcpPath(filePath: string): boolean {
   return (
     /^mcp\.json$/i.test(filePath) ||
@@ -1124,6 +1253,22 @@ function buildSkillInstallCommand(result: FoundSkill): string {
   return `agentloom skill add ${repoArg} --skills ${quoteShellArg(selector)}`;
 }
 
+function buildRuleInstallCommand(result: FoundRule): string {
+  const source = result.source?.trim() || result.repo;
+  const repoArg = quoteShellArg(source);
+  const selector = result.installRuleSelector?.trim();
+  if (result.subdir && result.subdir.trim()) {
+    if (!selector) {
+      return `agentloom rule add ${repoArg} --subdir ${quoteShellArg(result.subdir)}`;
+    }
+    return `agentloom rule add ${repoArg} --subdir ${quoteShellArg(result.subdir)} --rules ${quoteShellArg(selector)}`;
+  }
+  if (!selector) {
+    return `agentloom rule add ${repoArg}`;
+  }
+  return `agentloom rule add ${repoArg} --rules ${quoteShellArg(selector)}`;
+}
+
 function tokenizeQuery(query: string): string[] {
   return query
     .toLowerCase()
@@ -1175,6 +1320,14 @@ function searchLocalMatches(
     for (const name of Object.keys(mcp.mcpServers)) {
       if (!matchesTokens(name, tokens)) continue;
       lines.push(`mcp: ${name}`);
+    }
+  }
+
+  if ((target === "all" || target === "rule") && fsExists(paths.rulesDir)) {
+    const rules = parseRulesDir(paths.rulesDir);
+    for (const rule of rules) {
+      if (!matchesTokens(`${rule.name} ${rule.fileName}`, tokens)) continue;
+      lines.push(`rule: ${rule.name} (${rule.fileName})`);
     }
   }
 
