@@ -569,15 +569,20 @@ function readCodexProviderAgents(paths: ScopePaths): ProviderAgentRecord[] {
     const roleToml = roleTomlRaw.trim()
       ? (TOML.parse(roleTomlRaw) as Record<string, unknown>)
       : {};
+    const inlineInstructions =
+      typeof roleToml.developer_instructions === "string"
+        ? roleToml.developer_instructions.trim()
+        : "";
     const instructionRef = roleToml.model_instructions_file;
     const instructionPath =
       typeof instructionRef === "string" && instructionRef.trim().length > 0
         ? resolveCodexPath(path.dirname(roleTomlPath), instructionRef)
         : null;
-    const body =
+    const fileInstructions =
       instructionPath && fs.existsSync(instructionPath)
-        ? fs.readFileSync(instructionPath, "utf8").trimStart()
+        ? fs.readFileSync(instructionPath, "utf8").trimStart().trimEnd()
         : "";
+    const body = inlineInstructions || fileInstructions;
 
     const description =
       isObject(roleEntry) && typeof roleEntry.description === "string"
@@ -591,13 +596,23 @@ function readCodexProviderAgents(paths: ScopePaths): ProviderAgentRecord[] {
     if (typeof roleToml.model_reasoning_effort === "string") {
       providerConfig.reasoningEffort = roleToml.model_reasoning_effort;
     }
+    if (typeof roleToml.model_reasoning_summary === "string") {
+      providerConfig.reasoningSummary = roleToml.model_reasoning_summary;
+    }
+    if (typeof roleToml.model_verbosity === "string") {
+      providerConfig.verbosity = roleToml.model_verbosity;
+    }
     if (typeof roleToml.approval_policy === "string") {
       providerConfig.approvalPolicy = roleToml.approval_policy;
     }
     if (typeof roleToml.sandbox_mode === "string") {
       providerConfig.sandboxMode = roleToml.sandbox_mode;
     }
+    if (typeof roleToml.web_search === "boolean") {
+      providerConfig.webSearch = roleToml.web_search;
+    }
     if (
+      typeof providerConfig.webSearch !== "boolean" &&
       isObject(roleToml.tools) &&
       typeof roleToml.tools.web_search === "boolean"
     ) {

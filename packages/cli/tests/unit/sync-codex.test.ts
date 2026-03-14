@@ -29,7 +29,7 @@ describe("codex sync", () => {
 
     writeTextAtomic(
       path.join(agentsDir, "researcher.md"),
-      `---\nname: researcher\ndescription: Research specialist\ncodex:\n  model: gpt-5.3-codex\n  reasoningEffort: low\n  webSearch: true\n---\n\nInvestigate and summarize findings.\n`,
+      `---\nname: researcher\ndescription: Research specialist\ncodex:\n  model: gpt-5.3-codex\n  reasoningEffort: low\n  reasoningSummary: auto\n  verbosity: high\n  webSearch: true\n---\n\nInvestigate and summarize findings.\n`,
     );
 
     writeJsonAtomic(path.join(root, ".agents", "mcp.json"), {
@@ -69,16 +69,51 @@ describe("codex sync", () => {
     const roleTomlPath = path.join(root, ".codex", "agents", "researcher.toml");
     const roleToml = TOML.parse(fs.readFileSync(roleTomlPath, "utf8")) as {
       model?: string;
+      developer_instructions?: string;
       model_reasoning_effort?: string;
-      tools?: { web_search?: boolean };
-      model_instructions_file?: string;
+      model_reasoning_summary?: string;
+      model_verbosity?: string;
+      web_search?: boolean;
     };
 
     expect(roleToml.model).toBe("gpt-5.3-codex");
+    expect(roleToml.developer_instructions).toBe(
+      "Investigate and summarize findings.",
+    );
     expect(roleToml.model_reasoning_effort).toBe("low");
-    expect(roleToml.tools?.web_search).toBe(true);
-    expect(roleToml.model_instructions_file).toBe(
-      "./researcher.instructions.md",
+    expect(roleToml.model_reasoning_summary).toBe("auto");
+    expect(roleToml.model_verbosity).toBe("high");
+    expect(roleToml.web_search).toBe(true);
+  });
+
+  it("prefers explicit codex developer instructions overrides", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-sync-"));
+    tempDirs.push(root);
+
+    const agentsDir = path.join(root, ".agents", "agents");
+    ensureDir(agentsDir);
+
+    writeTextAtomic(
+      path.join(agentsDir, "researcher.md"),
+      `---\nname: researcher\ndescription: Research specialist\ncodex:\n  developerInstructions: Use structured bullet points.\n---\n\nInvestigate and summarize findings.\n`,
+    );
+
+    const paths = buildScopePaths(root, "local");
+
+    await syncFromCanonical({
+      paths,
+      providers: ["codex"],
+      yes: true,
+      nonInteractive: true,
+    });
+
+    const roleTomlPath = path.join(root, ".codex", "agents", "researcher.toml");
+    const roleToml = TOML.parse(fs.readFileSync(roleTomlPath, "utf8")) as {
+      developer_instructions?: string;
+    };
+
+    expect(roleToml.developer_instructions).toBe(
+      "Use structured bullet points.",
     );
   });
 

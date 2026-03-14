@@ -1158,4 +1158,42 @@ Review changed files and summarize findings.
     expect(summary.entities.command.imported).toBe(1);
     expect(fs.existsSync(path.join(paths.commandsDir, "review.md"))).toBe(true);
   });
+
+  it("imports current codex role fields into canonical agents", async () => {
+    const paths = createPaths();
+    initializeCanonicalLayout(paths, ["codex"]);
+
+    ensureDir(path.join(paths.workspaceRoot, ".codex", "agents"));
+    writeTextAtomic(
+      path.join(paths.workspaceRoot, ".codex", "config.toml"),
+      `[agents.researcher]\ndescription = "Research specialist"\nconfig_file = "./agents/researcher.toml"\n\n[features]\nmulti_agent = true\n`,
+    );
+    writeTextAtomic(
+      path.join(paths.workspaceRoot, ".codex", "agents", "researcher.toml"),
+      `model = "gpt-5.4"\ndeveloper_instructions = "Use concise bullets."\nmodel_reasoning_effort = "low"\nmodel_reasoning_summary = "auto"\nmodel_verbosity = "high"\napproval_policy = "never"\nsandbox_mode = "workspace-write"\nweb_search = true\n`,
+    );
+
+    const summary = await migrateProviderStateToCanonical({
+      paths,
+      providers: ["codex"],
+      target: "agent",
+      nonInteractive: true,
+    });
+
+    expect(summary.entities.agent.detected).toBe(1);
+    expect(summary.entities.agent.imported).toBe(1);
+
+    const canonical = fs.readFileSync(
+      path.join(paths.agentsDir, "researcher.md"),
+      "utf8",
+    );
+    expect(canonical).toContain("model: gpt-5.4");
+    expect(canonical).toContain("reasoningEffort: low");
+    expect(canonical).toContain("reasoningSummary: auto");
+    expect(canonical).toContain("verbosity: high");
+    expect(canonical).toContain("approvalPolicy: never");
+    expect(canonical).toContain("sandboxMode: workspace-write");
+    expect(canonical).toContain("webSearch: true");
+    expect(canonical).toContain("\n\nUse concise bullets.\n");
+  });
 });
