@@ -6,7 +6,11 @@ import TOML from "@iarna/toml";
 import matter from "gray-matter";
 import YAML from "yaml";
 import { buildAgentMarkdown, parseAgentsDir } from "./agents.js";
-import { parseCommandsDir } from "./commands.js";
+import {
+  normalizeCommandArgumentsForCanonical,
+  parseCommandsDir,
+} from "./commands.js";
+import type { CanonicalCommandFile } from "./commands.js";
 import { ensureDir, isObject, readJsonIfExists, slugify } from "./fs.js";
 import { readLockfile, writeLockfile } from "./lockfile.js";
 import { readManifest, writeManifest } from "./manifest.js";
@@ -29,6 +33,7 @@ import { readSettings, writeSettings } from "./settings.js";
 import {
   applySkillProviderSideEffects,
   copySkillArtifacts,
+  getLegacyCopilotSkillDirs,
   parseSkillsDir,
   skillContentMatchesTarget,
 } from "./skills.js";
@@ -389,8 +394,13 @@ function readMarkdownProviderAgents(
   // Keep backward compatibility with historical global Copilot output.
   if (provider === "copilot" && paths.scope === "global") {
     candidateDirs.push({
-      path: path.join(paths.homeDir, ".vscode", "chatmodes"),
+      path: path.join(paths.homeDir, ".github", "agents"),
       sourcePriority: 1,
+      fallback: true,
+    });
+    candidateDirs.push({
+      path: path.join(paths.homeDir, ".vscode", "chatmodes"),
+      sourcePriority: 2,
       fallback: true,
     });
   }
@@ -403,14 +413,7 @@ function readMarkdownProviderAgents(
     );
   }
 
-  const primaryEntries = entriesByPath.get(candidateDirs[0]?.path ?? "") ?? [];
-  const useFallbackDirs =
-    !(provider === "copilot" && paths.scope === "global") ||
-    primaryEntries.length === 0;
-
   for (const candidateDir of candidateDirs) {
-    if (candidateDir.fallback && !useFallbackDirs) continue;
-
     const dirPath = candidateDir.path;
     const entries = entriesByPath.get(dirPath) ?? [];
 
@@ -790,6 +793,7 @@ function sameNormalizedBody(left: string, right: string): boolean {
 interface ProviderCommandRecord {
   provider: Provider;
   sourcePath: string;
+  sourcePriority: number;
   targetFileName: string;
   content: string;
   body: string;
@@ -1013,34 +1017,185 @@ function readProviderCommands(
     return [];
   }
 
-  const commandsDir = getProviderCommandsDir(paths, provider);
+  const candidateDirs: Array<{
+    path: string;
+    sourcePriority: number;
+  }> = [
+    {
+      path: getProviderCommandsDir(paths, provider),
+      sourcePriority: 0,
+    },
+  ];
+
+  if (provider === "copilot" && paths.scope === "global") {
+    candidateDirs.push({
+      path: path.join(paths.homeDir, ".github", "prompts"),
+      sourcePriority: 1,
+    });
+  }
+
+  const records: ProviderCommandRecord[] = [];
+  for (const candidateDir of candidateDirs) {
+    records.push(
+      ...readProviderCommandsFromDir(
+        candidateDir.path,
+        provider,
+        candidateDir.sourcePriority,
+      ),
+    );
+  }
+
+  return dedupeProviderCommandRecords(records);
+}
+
+function readProviderCommandsFromDir(
+  commandsDir: string,
+  provider: Provider,
+  sourcePriority: number,
+): ProviderCommandRecord[] {
   if (!fs.existsSync(commandsDir) || !fs.statSync(commandsDir).isDirectory()) {
     return [];
   }
 
-  const files = parseCommandsDir(commandsDir);
-  return files
-    .filter((file) =>
+  const markdownFiles = parseCommandsDir(commandsDir).filter((file) =>
+    isProviderEntityFileName({
+      provider,
+      entity: "command",
+      fileName: file.fileName,
+    }),
+  );
+
+  const files =
+    provider === "gemini"
+      ? [...parseGeminiTomlCommandsForMigration(commandsDir), ...markdownFiles]
+      : markdownFiles;
+
+  const dedupedByTargetFile = new Map<string, (typeof files)[number]>();
+  for (const file of files) {
+    const targetFileName = toCanonicalCommandFileName(file.fileName);
+    if (!dedupedByTargetFile.has(targetFileName)) {
+      dedupedByTargetFile.set(targetFileName, file);
+    }
+  }
+
+  return [...dedupedByTargetFile.entries()].map(([targetFileName, file]) => ({
+    provider,
+    sourcePath: file.sourcePath,
+    sourcePriority,
+    targetFileName,
+    content: file.content,
+    body:
+      provider === "gemini"
+        ? normalizeCommandArgumentsForCanonical(file.body, provider)
+        : file.body,
+    frontmatter: file.frontmatter,
+  }));
+}
+
+function dedupeProviderCommandRecords(
+  records: ProviderCommandRecord[],
+): ProviderCommandRecord[] {
+  const recordsByTarget = new Map<string, ProviderCommandRecord[]>();
+
+  for (const record of records) {
+    const next = recordsByTarget.get(record.targetFileName) ?? [];
+    next.push(record);
+    recordsByTarget.set(record.targetFileName, next);
+  }
+
+  const deduped: ProviderCommandRecord[] = [];
+  for (const [targetFileName, bucket] of recordsByTarget.entries()) {
+    if (bucket.length === 1) {
+      deduped.push(bucket[0]);
+      continue;
+    }
+
+    const ranked = [...bucket].sort(compareProviderCommandCollisionPriority);
+    const winner = ranked[0];
+    const ignored = ranked.slice(1).map((record) => record.sourcePath);
+    console.warn(
+      `Warning: Duplicate ${winner.provider} commands map to "${targetFileName}". Keeping ${winner.sourcePath} and ignoring ${ignored.join(", ")}.`,
+    );
+    deduped.push(winner);
+  }
+
+  return deduped.sort((left, right) =>
+    left.targetFileName.localeCompare(right.targetFileName),
+  );
+}
+
+function compareProviderCommandCollisionPriority(
+  left: ProviderCommandRecord,
+  right: ProviderCommandRecord,
+): number {
+  if (left.sourcePriority !== right.sourcePriority) {
+    return left.sourcePriority - right.sourcePriority;
+  }
+
+  return left.sourcePath.localeCompare(right.sourcePath);
+}
+
+function parseGeminiTomlCommandsForMigration(
+  commandsDir: string,
+): CanonicalCommandFile[] {
+  return fs
+    .readdirSync(commandsDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+    .filter((fileName) =>
       isProviderEntityFileName({
-        provider,
+        provider: "gemini",
         entity: "command",
-        fileName: file.fileName,
+        fileName,
       }),
     )
-    .map((file) => ({
-      provider,
-      sourcePath: file.sourcePath,
-      targetFileName: toCanonicalCommandFileName(file.fileName),
-      content: file.content,
-      body: file.body,
-      frontmatter: file.frontmatter,
-    }));
+    .filter((fileName) => fileName.toLowerCase().endsWith(".toml"))
+    .sort((a, b) => a.localeCompare(b))
+    .map((fileName) =>
+      parseGeminiTomlCommandForMigration(path.join(commandsDir, fileName)),
+    )
+    .filter((command): command is CanonicalCommandFile => command !== null);
+}
+
+function parseGeminiTomlCommandForMigration(
+  sourcePath: string,
+): CanonicalCommandFile | null {
+  const raw = fs.readFileSync(sourcePath, "utf8");
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = TOML.parse(raw) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+
+  if (!isObject(parsed) || typeof parsed.prompt !== "string") {
+    return null;
+  }
+
+  const body = normalizeCommandArgumentsForCanonical(parsed.prompt, "gemini");
+  const frontmatter = cloneRecord(parsed);
+  delete frontmatter.prompt;
+  const normalizedFrontmatter =
+    Object.keys(frontmatter).length > 0 ? frontmatter : undefined;
+  const fileName = path.basename(sourcePath);
+  const content = buildCommandMarkdown(normalizedFrontmatter, body);
+
+  return {
+    fileName,
+    sourcePath,
+    content,
+    body,
+    frontmatter: normalizedFrontmatter,
+  };
 }
 
 function toCanonicalCommandFileName(fileName: string): string {
   const lower = fileName.toLowerCase();
   if (lower.endsWith(".prompt.md")) {
     return `${fileName.slice(0, -".prompt.md".length)}.md`;
+  }
+  if (lower.endsWith(".toml")) {
+    return `${fileName.slice(0, -".toml".length)}.md`;
   }
   if (lower.endsWith(".mdc")) {
     return `${fileName.slice(0, -".mdc".length)}.md`;
@@ -1468,10 +1623,9 @@ function getCursorRuleMigrationEntries(
 function getManagedInstructionRuleMigrationEntries(
   options: MigrationOptions,
 ): RuleMigrationEntry[] {
-  const instructionPaths = getRuleInstructionPaths(
-    options.paths,
-    options.providers,
-  ).sort((left, right) => left.localeCompare(right));
+  const instructionPaths = getManagedInstructionRulePaths(options).sort(
+    (left, right) => left.localeCompare(right),
+  );
   const entries: RuleMigrationEntry[] = [];
 
   for (const instructionPath of instructionPaths) {
@@ -1495,6 +1649,32 @@ function getManagedInstructionRuleMigrationEntries(
   }
 
   return entries;
+}
+
+function getManagedInstructionRulePaths(options: MigrationOptions): string[] {
+  const instructionPaths = getRuleInstructionPaths(
+    options.paths,
+    options.providers,
+  );
+
+  if (
+    options.paths.scope === "global" &&
+    options.providers.includes("copilot")
+  ) {
+    const legacyCopilotInstructionPath = path.join(
+      options.paths.homeDir,
+      ".github",
+      "copilot-instructions.md",
+    );
+    if (
+      fs.existsSync(legacyCopilotInstructionPath) &&
+      fs.statSync(legacyCopilotInstructionPath).isFile()
+    ) {
+      instructionPaths.push(legacyCopilotInstructionPath);
+    }
+  }
+
+  return [...new Set(instructionPaths)];
 }
 
 function toCanonicalRuleMarkdown(
@@ -1536,7 +1716,16 @@ async function migrateSkills(
   const providerSkillDirs = getProviderSkillsPaths(
     options.paths,
     options.providers,
-  )
+  );
+  if (options.providers.includes("copilot")) {
+    providerSkillDirs.push(...getLegacyCopilotSkillDirs(options.paths));
+  }
+
+  const legacyCopilotSkillDirs = new Set(
+    getLegacyCopilotSkillDirs(options.paths),
+  );
+
+  const existingProviderSkillDirs = [...new Set(providerSkillDirs)]
     .filter((dirPath) => fs.existsSync(dirPath))
     .filter((dirPath) => {
       try {
@@ -1546,14 +1735,17 @@ async function migrateSkills(
       }
     });
 
-  for (const providerSkillsDir of providerSkillDirs) {
-    const providerLabel = providerSkillsDir.includes(
-      `${path.sep}.cursor${path.sep}`,
-    )
-      ? "cursor"
-      : providerSkillsDir.includes(`${path.sep}.pi${path.sep}`)
-        ? "pi"
-        : "claude";
+  for (const providerSkillsDir of existingProviderSkillDirs) {
+    const providerLabel = legacyCopilotSkillDirs.has(providerSkillsDir)
+      ? "copilot"
+      : providerSkillsDir.includes(`${path.sep}.cursor${path.sep}`)
+        ? "cursor"
+        : providerSkillsDir.includes(`${path.sep}.github${path.sep}`) ||
+            providerSkillsDir.includes(`${path.sep}.copilot${path.sep}`)
+          ? "copilot"
+          : providerSkillsDir.includes(`${path.sep}.pi${path.sep}`)
+            ? "pi"
+            : "claude";
     const skills = parseSkillsDir(providerSkillsDir);
     summary.detected += skills.length;
 

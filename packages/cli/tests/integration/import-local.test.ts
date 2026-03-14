@@ -320,6 +320,197 @@ Review code changes.
     expect(canonical.frontmatter).not.toHaveProperty("tools");
   });
 
+  it("imports .gemini commands from toml and canonicalizes prompt/frontmatter", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, ".gemini", "commands"));
+    writeTextAtomic(
+      path.join(sourceRoot, ".gemini", "commands", "review.toml"),
+      `description = "Gemini review command"
+model = "gemini-2.5-pro"
+prompt = """
+# /review
+
+Review active changes with scope {{args}}.
+"""
+`,
+    );
+    writeTextAtomic(
+      path.join(sourceRoot, ".gemini", "commands", "README.md"),
+      "# Gemini commands\n\nDocumentation only.\n",
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    await importSource({
+      source: sourceRoot,
+      paths,
+      importAgents: false,
+      importMcp: false,
+      importSkills: false,
+      yes: true,
+      nonInteractive: true,
+    });
+
+    const canonical = parseCommandContent(
+      fs.readFileSync(path.join(paths.commandsDir, "review.md"), "utf8"),
+    );
+    expect(fs.readdirSync(paths.commandsDir).sort()).toEqual(["review.md"]);
+    expect(canonical.frontmatter).toEqual({
+      description: "Gemini review command",
+      gemini: {
+        model: "gemini-2.5-pro",
+      },
+    });
+    expect(canonical.body).toContain("scope $ARGUMENTS.");
+    expect(canonical.body).not.toContain("{{args}}");
+  });
+
+  it("merges .github prompts with .gemini commands when only provider dirs exist", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, ".github", "prompts"));
+    ensureDir(path.join(sourceRoot, ".gemini", "commands"));
+
+    writeTextAtomic(
+      path.join(sourceRoot, ".github", "prompts", "review.prompt.md"),
+      `---
+description: Review changed files
+copilot:
+  model: gpt-5
+---
+
+# /review
+
+Review active changes with scope \${input:args}.
+`,
+    );
+    writeTextAtomic(
+      path.join(sourceRoot, ".gemini", "commands", "review.toml"),
+      `description = "Review changed files"
+model = "gemini-2.5-pro"
+temperature = 0.2
+prompt = """
+# /review
+
+Review active changes with scope {{args}}.
+"""
+`,
+    );
+    writeTextAtomic(
+      path.join(sourceRoot, ".github", "prompts", "fix.prompt.md"),
+      `---
+description: Fix changed files
+copilot:
+  model: gpt-5-mini
+gemini: false
+---
+
+# /fix
+
+Fix active changes with scope \${input:args}.
+`,
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    await importSource({
+      source: sourceRoot,
+      paths,
+      importAgents: false,
+      importMcp: false,
+      importSkills: false,
+      yes: true,
+      nonInteractive: true,
+    });
+
+    const reviewCanonical = parseCommandContent(
+      fs.readFileSync(path.join(paths.commandsDir, "review.md"), "utf8"),
+    );
+    expect(reviewCanonical.frontmatter?.description).toBe(
+      "Review changed files",
+    );
+    expect(reviewCanonical.frontmatter?.copilot).toEqual(
+      expect.objectContaining({
+        model: "gpt-5",
+      }),
+    );
+    expect(reviewCanonical.frontmatter?.gemini).toEqual({
+      model: "gemini-2.5-pro",
+      temperature: 0.2,
+    });
+    expect(reviewCanonical.body).toContain("scope $ARGUMENTS.");
+
+    const fixCanonical = parseCommandContent(
+      fs.readFileSync(path.join(paths.commandsDir, "fix.md"), "utf8"),
+    );
+    expect(fixCanonical.frontmatter?.copilot).toEqual(
+      expect.objectContaining({
+        description: "Fix changed files",
+        model: "gpt-5-mini",
+      }),
+    );
+    expect(fixCanonical.frontmatter?.gemini).toBe(false);
+  });
+
+  it("fails when provider fallback command bodies disagree", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, ".github", "prompts"));
+    ensureDir(path.join(sourceRoot, ".gemini", "commands"));
+
+    writeTextAtomic(
+      path.join(sourceRoot, ".github", "prompts", "review.prompt.md"),
+      `---
+description: Review changed files
+---
+
+# /review
+
+Review active changes with scope \${input:args}.
+`,
+    );
+    writeTextAtomic(
+      path.join(sourceRoot, ".gemini", "commands", "review.toml"),
+      `description = "Review changed files"
+prompt = """
+# /review
+
+Audit deployment safety for {{args}} before approving.
+"""
+`,
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    await expect(
+      importSource({
+        source: sourceRoot,
+        paths,
+        importAgents: false,
+        importMcp: false,
+        importSkills: false,
+        yes: true,
+        nonInteractive: true,
+      }),
+    ).rejects.toThrow(/Conflicting command bodies found for "review.md"/);
+  });
+
   it("applies --rename for single-agent imports even when commands are present", async () => {
     const sourceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "agentloom-source-"),

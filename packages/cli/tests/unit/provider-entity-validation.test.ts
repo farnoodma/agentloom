@@ -59,4 +59,21 @@ describe("provider entity file validation", () => {
       }),
     ).toBe(false);
   });
+
+  it("accepts gemini command toml files", () => {
+    expect(
+      isProviderEntityFileName({
+        provider: "gemini",
+        entity: "command",
+        fileName: "review.toml",
+      }),
+    ).toBe(true);
+    expect(
+      isProviderEntityFileName({
+        provider: "gemini",
+        entity: "command",
+        fileName: "README.toml",
+      }),
+    ).toBe(false);
+  });
 });

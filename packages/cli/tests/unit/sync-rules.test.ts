@@ -269,7 +269,7 @@ Run tests before merge.
 
     const instructionPath = path.join(
       homeDir,
-      ".github",
+      ".copilot",
       "copilot-instructions.md",
     );
     expect(fs.existsSync(instructionPath)).toBe(true);

@@ -248,6 +248,81 @@ Prefer smaller changes.
     expect(rules[1]?.body).toContain("Prefer smaller changes.");
   });
 
+  it("migrates legacy global copilot instruction rule blocks when new path is absent", async () => {
+    const paths = createGlobalPaths();
+    initializeCanonicalLayout(paths, ["copilot"]);
+
+    writeTextAtomic(
+      path.join(paths.homeDir, ".github", "copilot-instructions.md"),
+      `# Copilot Guide
+
+<!-- agentloom:always-test:start -->
+## Always Test
+
+Run tests before merge.
+<!-- agentloom:always-test:end -->
+`,
+    );
+
+    const summary = await migrateProviderStateToCanonical({
+      paths,
+      providers: ["copilot"],
+      target: "rule",
+      nonInteractive: true,
+    });
+
+    expect(summary.entities.rule.detected).toBe(1);
+    expect(summary.entities.rule.imported).toBe(1);
+
+    const rules = parseRulesDir(paths.rulesDir);
+    expect(rules.map((rule) => rule.id)).toEqual(["always-test"]);
+    expect(rules[0]?.body).toContain("Run tests before merge.");
+  });
+
+  it("merges legacy global copilot instruction rule blocks when the new path also exists", async () => {
+    const paths = createGlobalPaths();
+    initializeCanonicalLayout(paths, ["copilot"]);
+
+    writeTextAtomic(
+      path.join(paths.homeDir, ".copilot", "copilot-instructions.md"),
+      `# Copilot Guide
+
+<!-- agentloom:new-review:start -->
+## New Review
+
+Use the new global path.
+<!-- agentloom:new-review:end -->
+`,
+    );
+    writeTextAtomic(
+      path.join(paths.homeDir, ".github", "copilot-instructions.md"),
+      `# Copilot Guide
+
+<!-- agentloom:legacy-review:start -->
+## Legacy Review
+
+Keep importing the legacy path too.
+<!-- agentloom:legacy-review:end -->
+`,
+    );
+
+    const summary = await migrateProviderStateToCanonical({
+      paths,
+      providers: ["copilot"],
+      target: "rule",
+      nonInteractive: true,
+    });
+
+    expect(summary.entities.rule.detected).toBe(2);
+    expect(summary.entities.rule.imported).toBe(2);
+
+    const rules = parseRulesDir(paths.rulesDir);
+    expect(rules.map((rule) => rule.id)).toEqual([
+      "legacy-review",
+      "new-review",
+    ]);
+  });
+
   it("prefers cursor rule frontmatter when AGENTS contains the same rule block", async () => {
     const paths = createPaths();
     initializeCanonicalLayout(paths, ["cursor", "codex"]);
@@ -430,6 +505,50 @@ Review changed files and summarize findings.
     expect(summary.entities.command.detected).toBe(1);
     expect(summary.entities.command.imported).toBe(1);
     expect(fs.readdirSync(paths.commandsDir)).toEqual(["review.md"]);
+  });
+
+  it("imports gemini toml commands and canonicalizes args placeholders", async () => {
+    const paths = createPaths();
+    initializeCanonicalLayout(paths, ["gemini"]);
+
+    ensureDir(path.join(paths.workspaceRoot, ".gemini", "commands"));
+    writeTextAtomic(
+      path.join(paths.workspaceRoot, ".gemini", "commands", "review.toml"),
+      `description = "Gemini review command"
+model = "gemini-2.5-pro"
+prompt = """
+# /review
+
+Review active changes with scope {{args}}.
+"""
+`,
+    );
+    writeTextAtomic(
+      path.join(paths.workspaceRoot, ".gemini", "commands", "README.toml"),
+      'description = "ignore"\n',
+    );
+
+    const summary = await migrateProviderStateToCanonical({
+      paths,
+      providers: ["gemini"],
+      target: "command",
+      nonInteractive: true,
+    });
+
+    expect(summary.entities.command.detected).toBe(1);
+    expect(summary.entities.command.imported).toBe(1);
+
+    const canonical = parseCommandContent(
+      fs.readFileSync(path.join(paths.commandsDir, "review.md"), "utf8"),
+    );
+    expect(canonical.frontmatter).toEqual({
+      description: "Gemini review command",
+      gemini: {
+        model: "gemini-2.5-pro",
+      },
+    });
+    expect(canonical.body).toContain("scope $ARGUMENTS.");
+    expect(canonical.body).not.toContain("{{args}}");
   });
 
   it("does not conflict when canonical command metadata maps to provider-specific outputs", async () => {
@@ -907,18 +1026,31 @@ Review changed files and summarize findings.
     });
   });
 
-  it("prefers global .github copilot agents over legacy chatmodes duplicates", async () => {
+  it("prefers global .copilot agents over legacy directories", async () => {
     const paths = createGlobalPaths();
     initializeCanonicalLayout(paths, ["copilot"]);
+
+    ensureDir(path.join(paths.homeDir, ".copilot", "agents"));
+    writeTextAtomic(
+      path.join(paths.homeDir, ".copilot", "agents", "reviewer.agent.md"),
+      `---
+name: reviewer
+description: New global description
+tools:
+  - changes
+---
+
+Review changed files and summarize findings.
+`,
+    );
 
     ensureDir(path.join(paths.homeDir, ".github", "agents"));
     writeTextAtomic(
       path.join(paths.homeDir, ".github", "agents", "reviewer.agent.md"),
       `---
 name: reviewer
-description: New global description
-tools:
-  - changes
+description: Legacy GitHub description
+model: legacy-github
 ---
 
 Review changed files and summarize findings.
@@ -955,7 +1087,41 @@ Review changed files and summarize findings.
     });
   });
 
-  it("uses legacy global copilot agents when .github agents are absent", async () => {
+  it("uses legacy global copilot agents from .github when .copilot agents are absent", async () => {
+    const paths = createGlobalPaths();
+    initializeCanonicalLayout(paths, ["copilot"]);
+
+    ensureDir(path.join(paths.homeDir, ".github", "agents"));
+    writeTextAtomic(
+      path.join(paths.homeDir, ".github", "agents", "reviewer.agent.md"),
+      `---
+name: reviewer
+description: Legacy GitHub description
+model: legacy-github
+---
+
+Review changed files and summarize findings.
+`,
+    );
+
+    const summary = await migrateProviderStateToCanonical({
+      paths,
+      providers: ["copilot"],
+      target: "agent",
+      nonInteractive: true,
+    });
+
+    expect(summary.entities.agent.detected).toBe(1);
+    expect(summary.entities.agent.imported).toBe(1);
+
+    const canonicalAgent = parseAgentsDir(paths.agentsDir)[0]!;
+    expect(canonicalAgent.description).toBe("Legacy GitHub description");
+    expect(canonicalAgent.frontmatter.copilot).toEqual({
+      model: "legacy-github",
+    });
+  });
+
+  it("uses legacy global copilot agents from chatmodes when newer directories are absent", async () => {
     const paths = createGlobalPaths();
     initializeCanonicalLayout(paths, ["copilot"]);
 
@@ -989,13 +1155,13 @@ Review changed files and summarize findings.
     });
   });
 
-  it("ignores legacy global copilot agents when .github has importable agents", async () => {
+  it("merges legacy global copilot agents when .copilot has importable agents", async () => {
     const paths = createGlobalPaths();
     initializeCanonicalLayout(paths, ["copilot"]);
 
-    ensureDir(path.join(paths.homeDir, ".github", "agents"));
+    ensureDir(path.join(paths.homeDir, ".copilot", "agents"));
     writeTextAtomic(
-      path.join(paths.homeDir, ".github", "agents", "reviewer.agent.md"),
+      path.join(paths.homeDir, ".copilot", "agents", "reviewer.agent.md"),
       `---
 name: reviewer
 description: New global description
@@ -1027,9 +1193,73 @@ Plan work.
       nonInteractive: true,
     });
 
-    expect(summary.entities.agent.detected).toBe(1);
-    expect(summary.entities.agent.imported).toBe(1);
-    expect(fs.readdirSync(paths.agentsDir).sort()).toEqual(["reviewer.md"]);
+    expect(summary.entities.agent.detected).toBe(2);
+    expect(summary.entities.agent.imported).toBe(2);
+    expect(fs.readdirSync(paths.agentsDir).sort()).toEqual([
+      "planner.md",
+      "reviewer.md",
+    ]);
+  });
+
+  it("merges legacy global copilot prompts when .copilot prompts already exist", async () => {
+    const paths = createGlobalPaths();
+    initializeCanonicalLayout(paths, ["copilot"]);
+
+    ensureDir(path.join(paths.homeDir, ".copilot", "prompts"));
+    writeTextAtomic(
+      path.join(paths.homeDir, ".copilot", "prompts", "review.prompt.md"),
+      "# /review\n\nReview changed files from the new path.\n",
+    );
+
+    ensureDir(path.join(paths.homeDir, ".github", "prompts"));
+    writeTextAtomic(
+      path.join(paths.homeDir, ".github", "prompts", "plan.prompt.md"),
+      "# /plan\n\nPlan work from the legacy path.\n",
+    );
+
+    const summary = await migrateProviderStateToCanonical({
+      paths,
+      providers: ["copilot"],
+      target: "command",
+      nonInteractive: true,
+    });
+
+    expect(summary.entities.command.detected).toBe(2);
+    expect(summary.entities.command.imported).toBe(2);
+    expect(fs.readdirSync(paths.commandsDir).sort()).toEqual([
+      "plan.md",
+      "review.md",
+    ]);
+  });
+
+  it("migrates legacy copilot skills from the previous claude-style path", async () => {
+    const paths = createGlobalPaths();
+    initializeCanonicalLayout(paths, ["copilot"]);
+
+    ensureDir(path.join(paths.homeDir, ".claude", "skills", "release-check"));
+    writeTextAtomic(
+      path.join(
+        paths.homeDir,
+        ".claude",
+        "skills",
+        "release-check",
+        "SKILL.md",
+      ),
+      "# release-check\n",
+    );
+
+    const summary = await migrateProviderStateToCanonical({
+      paths,
+      providers: ["copilot"],
+      target: "skill",
+      nonInteractive: true,
+    });
+
+    expect(summary.entities.skill.detected).toBe(1);
+    expect(summary.entities.skill.imported).toBe(1);
+    expect(
+      fs.existsSync(path.join(paths.skillsDir, "release-check", "SKILL.md")),
+    ).toBe(true);
   });
 
   it("deduplicates same-provider agent name collisions deterministically", async () => {

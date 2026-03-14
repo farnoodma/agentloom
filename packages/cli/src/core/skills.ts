@@ -183,14 +183,24 @@ export function applySkillProviderSideEffects(options: {
     options.paths,
     options.providers,
   );
-  if (pathsToSymlink.length === 0) return;
+  if (options.providers.includes("copilot")) {
+    const copilotTargets = getProviderSkillsPaths(options.paths, ["copilot"]);
+    const hasCurrentCopilotTarget = copilotTargets.some((targetPath) =>
+      fs.existsSync(targetPath),
+    );
+    if (!hasCurrentCopilotTarget) {
+      pathsToSymlink.push(...getLegacyCopilotSkillDirs(options.paths));
+    }
+  }
+  const uniquePathsToSymlink = [...new Set(pathsToSymlink)];
+  if (uniquePathsToSymlink.length === 0) return;
 
   const canonicalSkillsDir = options.paths.skillsDir;
   if (!options.dryRun) {
     ensureDir(canonicalSkillsDir);
   }
 
-  for (const targetSkillsDir of pathsToSymlink) {
+  for (const targetSkillsDir of uniquePathsToSymlink) {
     enforceProviderSkillsSymlink({
       targetSkillsDir,
       canonicalSkillsDir,
@@ -198,6 +208,20 @@ export function applySkillProviderSideEffects(options: {
       warn: options.warn,
     });
   }
+}
+
+export function getLegacyCopilotSkillDirs(paths: ScopePaths): string[] {
+  const legacyDirs = [
+    paths.scope === "local"
+      ? path.join(paths.workspaceRoot, ".claude", "skills")
+      : path.join(paths.homeDir, ".claude", "skills"),
+  ];
+
+  if (paths.scope === "global") {
+    legacyDirs.push(path.join(paths.homeDir, ".github", "skills"));
+  }
+
+  return legacyDirs;
 }
 
 function enforceProviderSkillsSymlink(options: {

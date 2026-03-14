@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import TOML from "@iarna/toml";
 import { afterEach, describe, expect, it } from "vitest";
 import { ensureDir, writeTextAtomic } from "../../src/core/fs.js";
 import { buildScopePaths } from "../../src/core/scope.js";
@@ -58,7 +59,7 @@ describe("command sync", () => {
     ).toBe(true);
     expect(
       fs.existsSync(
-        path.join(workspaceRoot, ".gemini", "commands", "review.md"),
+        path.join(workspaceRoot, ".gemini", "commands", "review.toml"),
       ),
     ).toBe(true);
     expect(
@@ -138,7 +139,7 @@ describe("command sync", () => {
     ).toBe(false);
     expect(
       fs.existsSync(
-        path.join(workspaceRoot, ".gemini", "commands", "review.md"),
+        path.join(workspaceRoot, ".gemini", "commands", "review.toml"),
       ),
     ).toBe(false);
     expect(
@@ -310,5 +311,60 @@ Review active changes with scope $ARGUMENTS.
     );
     expect(copilotPrompt).toContain("${input:args}");
     expect(copilotPrompt).not.toContain("$ARGUMENTS");
+  });
+
+  it("writes gemini commands as toml with prompt and args placeholder translation", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-home-"));
+    tempDirs.push(workspaceRoot, homeDir);
+
+    const commandsDir = path.join(workspaceRoot, ".agents", "commands");
+    ensureDir(commandsDir);
+    writeTextAtomic(
+      path.join(commandsDir, "review.md"),
+      `---
+description: Review changed files
+gemini:
+  model: gemini-2.5-pro
+  temperature: 0.2
+---
+
+# /review
+
+Review active changes with scope $ARGUMENTS.
+`,
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local", homeDir);
+    await syncFromCanonical({
+      paths,
+      providers: ["gemini"],
+      yes: true,
+      nonInteractive: true,
+      target: "command",
+    });
+
+    const geminiPromptPath = path.join(
+      workspaceRoot,
+      ".gemini",
+      "commands",
+      "review.toml",
+    );
+    const geminiPrompt = TOML.parse(
+      fs.readFileSync(geminiPromptPath, "utf8"),
+    ) as {
+      description?: string;
+      model?: string;
+      prompt?: string;
+      temperature?: number;
+    };
+
+    expect(geminiPrompt.description).toBe("Review changed files");
+    expect(geminiPrompt.model).toBe("gemini-2.5-pro");
+    expect(geminiPrompt.prompt).toContain("scope {{args}}.");
+    expect(geminiPrompt.prompt).not.toContain("$ARGUMENTS");
+    expect(geminiPrompt.temperature).toBe(0.2);
   });
 });

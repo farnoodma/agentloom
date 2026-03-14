@@ -16,7 +16,7 @@ afterEach(() => {
 });
 
 describe("copilot sync", () => {
-  it("writes global copilot outputs to ~/.github and registers discovery settings", async () => {
+  it("writes global copilot outputs to ~/.copilot and registers discovery settings", async () => {
     const workspaceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "agentloom-workspace-"),
     );
@@ -66,12 +66,12 @@ Review active changes.
 
     expect(
       fs.existsSync(
-        path.join(homeDir, ".github", "agents", "reviewer.agent.md"),
+        path.join(homeDir, ".copilot", "agents", "reviewer.agent.md"),
       ),
     ).toBe(true);
     expect(
       fs.existsSync(
-        path.join(homeDir, ".github", "prompts", "review.prompt.md"),
+        path.join(homeDir, ".copilot", "prompts", "review.prompt.md"),
       ),
     ).toBe(true);
 
@@ -80,10 +80,10 @@ Review active changes.
       [key: string]: unknown;
     };
     expect(settings["chat.agentFilesLocations"]).toEqual(
-      expect.arrayContaining([path.join(homeDir, ".github", "agents")]),
+      expect.arrayContaining([path.join(homeDir, ".copilot", "agents")]),
     );
     expect(settings["chat.promptFilesLocations"]).toEqual(
-      expect.arrayContaining([path.join(homeDir, ".github", "prompts")]),
+      expect.arrayContaining([path.join(homeDir, ".copilot", "prompts")]),
     );
   });
 
@@ -168,7 +168,7 @@ Review changed files and report issues.
 
     expect(settings["workbench.colorTheme"]).toBe("Default Dark+");
     expect(settings["chat.agentFilesLocations"]).toEqual(
-      expect.arrayContaining([path.join(homeDir, ".github", "agents")]),
+      expect.arrayContaining([path.join(homeDir, ".copilot", "agents")]),
     );
   });
 
@@ -208,7 +208,7 @@ Review changed files and report issues.
       [key: string]: unknown;
     };
     expect(settings["chat.agentFilesLocations"]).toEqual(
-      expect.arrayContaining([path.join(homeDir, ".github", "agents")]),
+      expect.arrayContaining([path.join(homeDir, ".copilot", "agents")]),
     );
   });
 
@@ -252,7 +252,7 @@ Review changed files and report issues.
       [key: string]: unknown;
     };
     expect(settings["chat.agentFilesLocations"]).toEqual(
-      expect.arrayContaining([path.join(homeDir, ".github", "agents")]),
+      expect.arrayContaining([path.join(homeDir, ".copilot", "agents")]),
     );
   });
 });

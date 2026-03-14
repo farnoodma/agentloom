@@ -24,8 +24,8 @@ function makeTempDirs() {
   return { workspaceRoot, homeDir };
 }
 
-describe("cursor agent sync", () => {
-  it("writes cursor agents to .cursor/agents/ not .cursor/rules/", async () => {
+describe("cursor subagent sync", () => {
+  it("writes cursor subagents to .cursor/agents/ not .cursor/rules/", async () => {
     const { workspaceRoot, homeDir } = makeTempDirs();
 
     const agentsDir = path.join(workspaceRoot, ".agents", "agents");
@@ -61,7 +61,7 @@ describe("cursor agent sync", () => {
     ).toBe(false);
   });
 
-  it("writes cursor agents with .md extension not .mdc", async () => {
+  it("writes cursor subagents with .md extension not .mdc", async () => {
     const { workspaceRoot, homeDir } = makeTempDirs();
 
     const agentsDir = path.join(workspaceRoot, ".agents", "agents");
@@ -134,7 +134,7 @@ describe("cursor agent sync", () => {
     expect(fm.globs).toBeUndefined();
   });
 
-  it("preserves body content in cursor agent files", async () => {
+  it("preserves body content in cursor subagent files", async () => {
     const { workspaceRoot, homeDir } = makeTempDirs();
 
     const agentsDir = path.join(workspaceRoot, ".agents", "agents");
@@ -189,7 +189,7 @@ describe("cursor agent sync", () => {
     );
   });
 
-  it("syncs cursor agents to global scope under ~/.cursor/agents/", async () => {
+  it("syncs cursor subagents to global scope under ~/.cursor/agents/", async () => {
     const { workspaceRoot, homeDir } = makeTempDirs();
 
     const agentsDir = path.join(homeDir, ".agents", "agents");
@@ -244,7 +244,7 @@ describe("cursor agent sync", () => {
     expect(fm.model).toBe("fast");
   });
 
-  it("stale cursor agents in .cursor/rules/ are cleaned up after migration", async () => {
+  it("stale cursor subagents in .cursor/rules/ are cleaned up after migration", async () => {
     const { workspaceRoot, homeDir } = makeTempDirs();
 
     // Simulate a legacy .cursor/rules/ file written by the old sync behaviour
