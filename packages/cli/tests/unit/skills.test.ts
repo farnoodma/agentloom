@@ -125,6 +125,83 @@ describe("applySkillProviderSideEffects", () => {
     );
   });
 
+  it("creates .github/skills symlink for local copilot providers", () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-skills-sideeffects-"),
+    );
+    tempDirs.push(workspaceRoot);
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    ensureDir(paths.skillsDir);
+
+    applySkillProviderSideEffects({
+      paths,
+      providers: ["copilot"],
+    });
+
+    const copilotSkillsDir = path.join(workspaceRoot, ".github", "skills");
+    expect(fs.lstatSync(copilotSkillsDir).isSymbolicLink()).toBe(true);
+    expect(fs.realpathSync(copilotSkillsDir)).toBe(
+      fs.realpathSync(paths.skillsDir),
+    );
+  });
+
+  it("creates ~/.copilot/skills symlink for global copilot providers", () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-skills-sideeffects-"),
+    );
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-home-"));
+    tempDirs.push(workspaceRoot, homeDir);
+
+    const paths = buildScopePaths(workspaceRoot, "global", homeDir);
+    ensureDir(paths.skillsDir);
+
+    applySkillProviderSideEffects({
+      paths,
+      providers: ["copilot"],
+    });
+
+    const copilotSkillsDir = path.join(homeDir, ".copilot", "skills");
+    expect(fs.lstatSync(copilotSkillsDir).isSymbolicLink()).toBe(true);
+    expect(fs.realpathSync(copilotSkillsDir)).toBe(
+      fs.realpathSync(paths.skillsDir),
+    );
+  });
+
+  it("migrates legacy copilot skills from the old claude-style path", () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-skills-sideeffects-"),
+    );
+    tempDirs.push(workspaceRoot);
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    ensureDir(paths.skillsDir);
+
+    const legacyCopilotSkillsDir = path.join(
+      workspaceRoot,
+      ".claude",
+      "skills",
+    );
+    ensureDir(path.join(legacyCopilotSkillsDir, "release-check"));
+    writeTextAtomic(
+      path.join(legacyCopilotSkillsDir, "release-check", "SKILL.md"),
+      "# release-check\n",
+    );
+
+    applySkillProviderSideEffects({
+      paths,
+      providers: ["copilot"],
+    });
+
+    expect(
+      fs.existsSync(path.join(paths.skillsDir, "release-check", "SKILL.md")),
+    ).toBe(true);
+    expect(fs.lstatSync(legacyCopilotSkillsDir).isSymbolicLink()).toBe(true);
+    expect(fs.realpathSync(legacyCopilotSkillsDir)).toBe(
+      fs.realpathSync(paths.skillsDir),
+    );
+  });
+
   it("migrates provider skills into canonical path before replacing with symlink", () => {
     const workspaceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "agentloom-skills-sideeffects-"),

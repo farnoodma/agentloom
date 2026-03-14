@@ -84,7 +84,7 @@ export function getAddHelpText(): string {
 
 Source discovery:
   agents: .agents/agents -> agents
-  commands: .agents/commands -> commands -> prompts
+  commands: .agents/commands -> commands -> prompts -> (.github/prompts + .gemini/commands fallback)
   rules: .agents/rules -> rules
   skills: .agents/skills -> skills -> root SKILL.md
 

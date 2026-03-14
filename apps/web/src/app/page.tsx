@@ -128,7 +128,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
               One agent config.<br />Every AI tool.
             </h1>
             <p className="max-w-2xl text-sm text-ink/70 md:text-base dark:text-white/70">
-              Define agents, skills, commands, and MCP servers once — sync them to Cursor, Claude, Copilot, Codex, OpenCode, and Gemini instantly.
+              Define agents, skills, commands, and MCP servers once — sync them to Cursor, Claude, Copilot, Codex, OpenCode, Gemini, and Pi instantly.
               Import community setups from GitHub in a single command.
             </p>
           </div>

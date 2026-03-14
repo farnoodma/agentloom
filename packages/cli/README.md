@@ -70,7 +70,7 @@ Aggregate `add` imports discoverable entities from a source (agents, commands, r
 Source path resolution is additive and priority-ordered:
 
 - Agents: `.agents/agents` -> `agents`
-- Commands: `.agents/commands` -> `commands` -> `prompts`
+- Commands: `.agents/commands` -> `commands` -> `prompts` -> provider fallbacks `.github/prompts` + `.gemini/commands`
 - Rules: `.agents/rules` -> `rules`
 - Skills: `.agents/skills` -> `skills` -> root `SKILL.md` fallback
 - MCP: `.agents/mcp.json` -> `mcp.json`
@@ -198,8 +198,8 @@ description: Review changes and report issues.
 claude:
   model: sonnet
 codex:
-  model: gpt-5.3-codex
-  reasoningEffort: low
+  model: gpt-5-codex
+  reasoningEffort: medium
   webSearch: true
 ---
 
@@ -224,7 +224,7 @@ copilot:
 
 # /review
 
-Review active changes with scope ${input:args}.
+Review active changes with scope $ARGUMENTS.
 ```
 
 Notes:
@@ -234,7 +234,7 @@ Notes:
   - `provider: { ... }` to add provider-specific overrides
   - `provider: false` to disable output for that provider
 - Provider-specific frontmatter keys are passed through as-is to that provider output.
-- Canonical command bodies can use `$ARGUMENTS`; provider-specific placeholder translation is applied during sync (for example Copilot receives `${input:args}`).
+- Canonical command bodies can use `$ARGUMENTS`; provider-specific placeholder translation is applied during sync (for example Copilot receives `${input:args}` and Gemini receives `{{args}}`).
 
 ## Rule schema
 
@@ -309,9 +309,16 @@ Rule sync is additive on top of agent/command/MCP/skill sync:
 - Local + OpenCode/Codex/Pi use the same managed `AGENTS.md` baseline blocks.
 - Global + Claude writes `~/.claude/CLAUDE.md`.
 - Global + Gemini writes `~/.gemini/GEMINI.md`.
-- Global + Copilot writes `~/.github/copilot-instructions.md` and adds that location to VS Code `chat.instructionsFilesLocations`.
+- Global + Copilot writes `~/.copilot/copilot-instructions.md` and adds that location to VS Code `chat.instructionsFilesLocations`.
 - Global + OpenCode writes `~/.config/opencode/AGENTS.md`.
 - Global Cursor/Codex/Pi rule settings are no-op unless a stable provider settings key exists.
+
+## Provider contract notes
+
+- Cursor provider output uses Cursor subagents (`.cursor/agents/*.md`).
+- Gemini command sync writes TOML files (`.gemini/commands/*.toml`).
+- Copilot global output uses `~/.copilot/{agents,prompts,skills}` and `~/.copilot/copilot-instructions.md` (workspace output remains `.github/*`).
+- Claude global user-scope MCP is not file-synced by Agentloom. Project MCP remains synced via `.mcp.json`.
 
 ## Development
 

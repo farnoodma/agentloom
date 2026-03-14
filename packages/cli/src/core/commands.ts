@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import TOML from "@iarna/toml";
 import matter from "gray-matter";
 import YAML from "yaml";
 import { isObject, listMarkdownFiles, slugify } from "./fs.js";
@@ -87,12 +88,27 @@ export function renderCommandForProvider(
   const body = command.frontmatter ? command.body : command.content;
   const normalizedBody = normalizeCommandArgumentsForProvider(body, provider);
   const frontmatter = buildProviderCommandFrontmatter(command, providerConfig);
+  if (provider === "gemini") {
+    return buildGeminiCommandToml(frontmatter, normalizedBody);
+  }
   if (Object.keys(frontmatter).length === 0) {
     return normalizedBody;
   }
 
   const fm = YAML.stringify(frontmatter, { lineWidth: 0 }).trimEnd();
   return `---\n${fm}\n---\n\n${normalizedBody.trimStart()}${normalizedBody.endsWith("\n") ? "" : "\n"}`;
+}
+
+function buildGeminiCommandToml(
+  frontmatter: Record<string, unknown>,
+  body: string,
+): string {
+  const payload: Record<string, unknown> = {
+    ...frontmatter,
+    prompt: body.endsWith("\n") ? body : `${body}\n`,
+  };
+
+  return TOML.stringify(payload as TOML.JsonMap);
 }
 
 function buildProviderCommandFrontmatter(
@@ -122,9 +138,10 @@ const COMMAND_ARGUMENT_PLACEHOLDER_BY_PROVIDER: Partial<
   Record<Provider, string>
 > = {
   copilot: "${input:args}",
+  gemini: "{{args}}",
 };
 
-function normalizeCommandArgumentsForProvider(
+export function normalizeCommandArgumentsForProvider(
   body: string,
   provider: Provider,
 ): string {
@@ -135,6 +152,23 @@ function normalizeCommandArgumentsForProvider(
   }
 
   return body.replace(/\$ARGUMENTS\b/g, providerPlaceholder);
+}
+
+export function normalizeCommandArgumentsForCanonical(
+  body: string,
+  provider: Provider,
+): string {
+  const providerPlaceholder =
+    COMMAND_ARGUMENT_PLACEHOLDER_BY_PROVIDER[provider];
+  if (!providerPlaceholder || providerPlaceholder === "$ARGUMENTS") {
+    return body;
+  }
+
+  const escapedPlaceholder = providerPlaceholder.replace(
+    /[.*+?^${}()|[\]\\]/g,
+    "\\$&",
+  );
+  return body.replace(new RegExp(escapedPlaceholder, "g"), "$ARGUMENTS");
 }
 
 export function stripCommandFileExtension(fileName: string): string {

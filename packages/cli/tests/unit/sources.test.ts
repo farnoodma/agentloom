@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   discoverSourceAgentsDir,
   discoverSourceCommandsDir,
+  discoverSourceCommandsDirs,
   discoverSourceRulesDir,
   discoverSourceSkillsDir,
   parseSourceSpec,
@@ -86,6 +87,33 @@ describe("source parsing and revision", () => {
 
     ensureDir(path.join(root, ".github", "prompts"));
 
+    expect(discoverSourceCommandsDir(root)).toBe(
+      path.join(root, ".github", "prompts"),
+    );
+  });
+
+  it("falls back to .gemini commands when canonical command directories are absent", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-sources-"));
+    tempDirs.push(root);
+
+    ensureDir(path.join(root, ".gemini", "commands"));
+
+    expect(discoverSourceCommandsDir(root)).toBe(
+      path.join(root, ".gemini", "commands"),
+    );
+  });
+
+  it("returns provider-specific fallback command directories in merge order", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-sources-"));
+    tempDirs.push(root);
+
+    ensureDir(path.join(root, ".github", "prompts"));
+    ensureDir(path.join(root, ".gemini", "commands"));
+
+    expect(discoverSourceCommandsDirs(root)).toEqual([
+      path.join(root, ".github", "prompts"),
+      path.join(root, ".gemini", "commands"),
+    ]);
     expect(discoverSourceCommandsDir(root)).toBe(
       path.join(root, ".github", "prompts"),
     );

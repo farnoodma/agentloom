@@ -463,6 +463,25 @@ function mapProviderCommandFileName(
 ): string {
   const lower = fileName.toLowerCase();
 
+  if (provider === "gemini") {
+    if (lower.endsWith(".toml")) return fileName;
+    if (lower.endsWith(".prompt.md")) {
+      return `${fileName.slice(0, -".prompt.md".length)}.toml`;
+    }
+    if (lower.endsWith(".md")) {
+      return `${fileName.slice(0, -3)}.toml`;
+    }
+    if (lower.endsWith(".mdc")) {
+      return `${fileName.slice(0, -4)}.toml`;
+    }
+
+    const ext = path.extname(fileName);
+    if (ext) {
+      return `${fileName.slice(0, -ext.length)}.toml`;
+    }
+    return `${fileName}.toml`;
+  }
+
   if (provider === "copilot") {
     if (lower.endsWith(".prompt.md")) return fileName;
     if (lower.endsWith(".md")) {
@@ -532,8 +551,20 @@ function syncProviderMcp(options: {
     }
 
     if (provider === "claude") {
-      const mcpPath = getClaudeMcpPath(options.paths);
       const settingsPath = getClaudeSettingsPath(options.paths);
+      const settings = readClaudeSettingsForSync(options.paths);
+
+      if (options.paths.scope === "global") {
+        maybeMigrateClaudeGlobalSettings({
+          paths: options.paths,
+          settingsPath,
+          settings,
+          dryRun: options.dryRun,
+        });
+        continue;
+      }
+
+      const mcpPath = getClaudeMcpPath(options.paths);
 
       const claudeServers = mapMcpServers(resolved, [
         "type",
@@ -552,8 +583,6 @@ function syncProviderMcp(options: {
       maybeWriteJson(mcpPath, { mcpServers: claudeServers }, options.dryRun);
       options.generated.add(mcpPath);
 
-      const settings =
-        readJsonIfExists<Record<string, unknown>>(settingsPath) ?? {};
       settings.enabledMcpjsonServers = Object.keys(claudeServers).sort();
       maybeWriteJson(settingsPath, settings, options.dryRun);
       options.generated.add(settingsPath);
@@ -755,21 +784,21 @@ function syncCopilotDiscoverySettings(options: {
     appendPathSetting(
       settings,
       "chat.promptFilesLocations",
-      path.join(options.paths.homeDir, ".github", "prompts"),
+      path.join(options.paths.homeDir, ".copilot", "prompts"),
     );
   }
   if (options.includeAgentLocations) {
     appendPathSetting(
       settings,
       "chat.agentFilesLocations",
-      path.join(options.paths.homeDir, ".github", "agents"),
+      path.join(options.paths.homeDir, ".copilot", "agents"),
     );
   }
   if (options.includeInstructionLocations) {
     appendPathSetting(
       settings,
       "chat.instructionsFilesLocations",
-      path.join(options.paths.homeDir, ".github", "copilot-instructions.md"),
+      path.join(options.paths.homeDir, ".copilot", "copilot-instructions.md"),
     );
   }
 
@@ -790,6 +819,50 @@ function readVsCodeSettings(
   }
 
   return parsed;
+}
+
+function readClaudeSettingsForSync(paths: ScopePaths): Record<string, unknown> {
+  const settingsPath = getClaudeSettingsPath(paths);
+  const settings = readJsonIfExists<Record<string, unknown>>(settingsPath);
+  if (isObject(settings)) {
+    return { ...settings };
+  }
+
+  if (paths.scope === "global") {
+    const legacySettingsPath = path.join(paths.homeDir, ".claude.json");
+    const legacySettings =
+      readJsonIfExists<Record<string, unknown>>(legacySettingsPath);
+    if (isObject(legacySettings)) {
+      return { ...legacySettings };
+    }
+  }
+
+  return {};
+}
+
+function maybeMigrateClaudeGlobalSettings(options: {
+  paths: ScopePaths;
+  settingsPath: string;
+  settings: Record<string, unknown>;
+  dryRun: boolean;
+}): void {
+  const nextSettings = { ...options.settings };
+  delete nextSettings.enabledMcpjsonServers;
+
+  const legacySettingsPath = path.join(options.paths.homeDir, ".claude.json");
+  const hasCurrentSettings =
+    fs.existsSync(options.settingsPath) &&
+    fs.statSync(options.settingsPath).isFile();
+  const hasLegacySettings =
+    fs.existsSync(legacySettingsPath) &&
+    fs.statSync(legacySettingsPath).isFile();
+  const shouldWrite =
+    hasCurrentSettings ||
+    (hasLegacySettings && Object.keys(nextSettings).length > 0);
+
+  if (shouldWrite) {
+    maybeWriteJson(options.settingsPath, nextSettings, options.dryRun);
+  }
 }
 
 function parseJsonOrJsonc(input: string): unknown {
@@ -1286,6 +1359,7 @@ function isLegacyCommandOutputPath(normalizedPath: string): boolean {
     normalizedPath.includes("/.claude/commands/") ||
     normalizedPath.includes("/.opencode/commands/") ||
     normalizedPath.includes("/.gemini/commands/") ||
+    normalizedPath.includes("/.copilot/prompts/") ||
     normalizedPath.includes("/.github/prompts/") ||
     normalizedPath.includes("/.codex/prompts/") ||
     normalizedPath.includes("/.pi/prompts/")
@@ -1298,6 +1372,7 @@ function isLegacyAgentOutputPath(normalizedPath: string): boolean {
     normalizedPath.includes("/.claude/agents/") ||
     normalizedPath.includes("/.opencode/agents/") ||
     normalizedPath.includes("/.gemini/agents/") ||
+    normalizedPath.includes("/.copilot/agents/") ||
     normalizedPath.includes("/.github/agents/") ||
     normalizedPath.includes("/.codex/agents/") ||
     normalizedPath.includes("/.pi/agents/")
@@ -1305,13 +1380,22 @@ function isLegacyAgentOutputPath(normalizedPath: string): boolean {
 }
 
 function isLegacyRuleOutputPath(normalizedPath: string): boolean {
-  return normalizedPath.includes("/.cursor/rules/");
+  return (
+    normalizedPath.includes("/.cursor/rules/") ||
+    normalizedPath.endsWith("/agents.md") ||
+    normalizedPath.endsWith("/claude.md") ||
+    normalizedPath.endsWith("/gemini.md") ||
+    normalizedPath.endsWith("/.github/copilot-instructions.md") ||
+    normalizedPath.endsWith("/.copilot/copilot-instructions.md") ||
+    normalizedPath.endsWith("/.config/opencode/agents.md")
+  );
 }
 
 function isLegacyMcpOutputPath(normalizedPath: string): boolean {
   return (
     normalizedPath.endsWith("/.cursor/mcp.json") ||
     normalizedPath.endsWith("/.mcp.json") ||
+    normalizedPath.endsWith("/.claude.json") ||
     normalizedPath.endsWith("/.claude/settings.json") ||
     normalizedPath.endsWith("/.opencode/opencode.json") ||
     normalizedPath.endsWith("/.gemini/settings.json") ||

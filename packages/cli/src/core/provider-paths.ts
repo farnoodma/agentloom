@@ -31,7 +31,7 @@ export function getProviderAgentsDir(
     case "copilot":
       return paths.scope === "local"
         ? path.join(workspaceRoot, ".github", "agents")
-        : path.join(home, ".github", "agents");
+        : path.join(home, ".copilot", "agents");
     case "pi":
       return paths.scope === "local"
         ? path.join(workspaceRoot, ".pi", "agents")
@@ -70,7 +70,7 @@ export function getProviderCommandsDir(
     case "copilot":
       return paths.scope === "local"
         ? path.join(workspaceRoot, ".github", "prompts")
-        : path.join(home, ".github", "prompts");
+        : path.join(home, ".copilot", "prompts");
     case "pi":
       return paths.scope === "local"
         ? path.join(workspaceRoot, ".pi", "prompts")
@@ -85,14 +85,20 @@ export function getProviderSkillsPaths(
   providers: readonly Provider[],
 ): string[] {
   const targets = new Set<string>();
-  const hasClaudeStyleProvider =
-    providers.includes("claude") || providers.includes("copilot");
 
-  if (hasClaudeStyleProvider) {
+  if (providers.includes("claude")) {
     targets.add(
       paths.scope === "local"
         ? path.join(paths.workspaceRoot, ".claude", "skills")
         : path.join(paths.homeDir, ".claude", "skills"),
+    );
+  }
+
+  if (providers.includes("copilot")) {
+    targets.add(
+      paths.scope === "local"
+        ? path.join(paths.workspaceRoot, ".github", "skills")
+        : path.join(paths.homeDir, ".copilot", "skills"),
     );
   }
 
@@ -140,7 +146,7 @@ export function getGeminiInstructionPath(paths: ScopePaths): string {
 export function getCopilotInstructionPath(paths: ScopePaths): string {
   return paths.scope === "local"
     ? path.join(paths.workspaceRoot, ".github", "copilot-instructions.md")
-    : path.join(paths.homeDir, ".github", "copilot-instructions.md");
+    : path.join(paths.homeDir, ".copilot", "copilot-instructions.md");
 }
 
 export function getOpenCodeInstructionPath(paths: ScopePaths): string {
@@ -203,7 +209,7 @@ export function getClaudeMcpPath(paths: ScopePaths): string {
 export function getClaudeSettingsPath(paths: ScopePaths): string {
   return paths.scope === "local"
     ? path.join(paths.workspaceRoot, ".claude", "settings.json")
-    : path.join(paths.homeDir, ".claude.json");
+    : path.join(paths.homeDir, ".claude", "settings.json");
 }
 
 export function getOpenCodeConfigPath(paths: ScopePaths): string {

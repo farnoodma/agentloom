@@ -17,7 +17,13 @@ const SECTIONS = [
   { id: "env-vars", label: "Environment Variables" },
 ] as const;
 
-function CodeBlock({ children, command }: { children: string; command?: boolean }) {
+function CodeBlock({
+  children,
+  command,
+}: {
+  children: string;
+  command?: boolean;
+}) {
   return (
     <div className="relative rounded-xl border border-ink/10 bg-chalk/80 p-4 card-grid dark:border-white/10 dark:bg-white/5">
       <div className="flex items-start justify-between gap-3">
@@ -30,7 +36,13 @@ function CodeBlock({ children, command }: { children: string; command?: boolean 
   );
 }
 
-function SectionHeading({ id, children }: { id: string; children: React.ReactNode }) {
+function SectionHeading({
+  id,
+  children,
+}: {
+  id: string;
+  children: React.ReactNode;
+}) {
   return (
     <h2 id={id} className="scroll-mt-24 text-xl font-semibold md:text-2xl">
       {children}
@@ -43,12 +55,18 @@ function SubHeading({ children }: { children: React.ReactNode }) {
 }
 
 function Prose({ children }: { children: React.ReactNode }) {
-  return <p className="text-sm leading-relaxed text-ink/80 md:text-base dark:text-white/80">{children}</p>;
+  return (
+    <p className="text-sm leading-relaxed text-ink/80 md:text-base dark:text-white/80">
+      {children}
+    </p>
+  );
 }
 
 function InlineCode({ children }: { children: React.ReactNode }) {
   return (
-    <code className="rounded bg-ink/5 px-1.5 py-0.5 font-mono text-[0.85em] dark:bg-white/10">{children}</code>
+    <code className="rounded bg-ink/5 px-1.5 py-0.5 font-mono text-[0.85em] dark:bg-white/10">
+      {children}
+    </code>
   );
 }
 
@@ -61,12 +79,15 @@ export default function DocsPage() {
           Documentation
         </p>
         <h1 className="mt-3 text-3xl font-semibold leading-tight md:text-5xl">
-          Write your agents once.<br />Use them everywhere.
+          Write your agents once.
+          <br />
+          Use them everywhere.
         </h1>
         <p className="mt-4 max-w-2xl text-sm text-ink/70 md:text-base dark:text-white/70">
-          Agentloom is a CLI that unifies agent, skill, command, rule, and MCP server
-          definitions across Cursor, Claude, Copilot, Codex, OpenCode, Gemini, and Pi.
-          No more copy-pasting prompts between seven different config formats.
+          Agentloom is a CLI that unifies agent, skill, command, rule, and MCP
+          server definitions across Cursor, Claude, Copilot, Codex, OpenCode,
+          Gemini, and Pi. No more copy-pasting prompts between seven different
+          config formats.
         </p>
         <div className="mt-6">
           <Link
@@ -105,24 +126,32 @@ export default function DocsPage() {
             <SectionHeading id="overview">Overview</SectionHeading>
             <Prose>
               If you use more than one AI coding tool, you know the friction.
-              Cursor wants <InlineCode>.cursor/rules</InlineCode>, Claude wants <InlineCode>.claude/</InlineCode>,
-              Copilot wants <InlineCode>.github/copilot-instructions.md</InlineCode> — and none of them
-              talk to each other. You end up maintaining six copies of the same agent prompt.
+              Cursor expects subagents under{" "}
+              <InlineCode>.cursor/agents</InlineCode>, Claude expects
+              <InlineCode>.claude/</InlineCode>, and Copilot splits workspace
+              files under <InlineCode>.github/</InlineCode> from global files
+              under <InlineCode>~/.copilot/</InlineCode>. None of them talk to
+              each other by default.
             </Prose>
             <Prose>
-              Agentloom gives you a single <InlineCode>.agents/</InlineCode> directory where you define
-              everything once in plain markdown and JSON. Run <InlineCode>agentloom sync</InlineCode> and
-              your definitions are written to every tool in its native format. Switch tools,
-              share agents with your team, import from GitHub — all without lock-in.
+              Agentloom gives you a single <InlineCode>.agents/</InlineCode>{" "}
+              directory where you define everything once in plain markdown and
+              JSON. Run <InlineCode>agentloom sync</InlineCode> and your
+              definitions are written to every tool in its native format. Switch
+              tools, share agents with your team, import from GitHub — all
+              without lock-in.
             </Prose>
           </section>
 
           {/* Getting Started */}
           <section className="space-y-4 rounded-2xl border border-ink/10 bg-white p-6 shadow-card md:p-8 dark:border-white/10 dark:bg-black/30">
-            <SectionHeading id="getting-started">Getting Started</SectionHeading>
+            <SectionHeading id="getting-started">
+              Getting Started
+            </SectionHeading>
             <Prose>
-              One command to initialize. Agentloom detects your existing provider configs,
-              migrates them into the canonical format, and syncs everything back out.
+              One command to initialize. Agentloom detects your existing
+              provider configs, migrates them into the canonical format, and
+              syncs everything back out.
             </Prose>
 
             <div className="space-y-3">
@@ -136,7 +165,9 @@ export default function DocsPage() {
               <p className="text-xs font-medium uppercase tracking-wide text-ink/60 dark:text-white/60">
                 Import agents from GitHub
               </p>
-              <CodeBlock command>$ npx agentloom add farnoodma/agents</CodeBlock>
+              <CodeBlock command>
+                $ npx agentloom add farnoodma/agents
+              </CodeBlock>
             </div>
 
             <div className="space-y-3">
@@ -156,11 +187,13 @@ export default function DocsPage() {
 
           {/* Canonical Layout */}
           <section className="space-y-4 rounded-2xl border border-ink/10 bg-white p-6 shadow-card md:p-8 dark:border-white/10 dark:bg-black/30">
-            <SectionHeading id="canonical-layout">Canonical Layout</SectionHeading>
+            <SectionHeading id="canonical-layout">
+              Canonical Layout
+            </SectionHeading>
             <Prose>
-              All definitions live in a <InlineCode>.agents/</InlineCode> directory.
-              Version-controlled, diffable, reviewable. Global scope uses <InlineCode>~/.agents</InlineCode> with
-              the same structure.
+              All definitions live in a <InlineCode>.agents/</InlineCode>{" "}
+              directory. Version-controlled, diffable, reviewable. Global scope
+              uses <InlineCode>~/.agents</InlineCode> with the same structure.
             </Prose>
 
             <CodeBlock>{`.agents/
@@ -186,12 +219,20 @@ export default function DocsPage() {
 
             <Prose>
               Source path resolution is additive and priority-ordered, so
-              Agentloom can import repositories that use different directory conventions:
-              for agents it checks <InlineCode>.agents/agents</InlineCode> then <InlineCode>agents/</InlineCode>,
-              for commands <InlineCode>.agents/commands</InlineCode> then <InlineCode>commands/</InlineCode> then <InlineCode>prompts/</InlineCode>,
-              for rules <InlineCode>.agents/rules</InlineCode> then <InlineCode>rules/</InlineCode>,
-              for skills <InlineCode>.agents/skills</InlineCode> then <InlineCode>skills/</InlineCode> then a
-              root <InlineCode>SKILL.md</InlineCode> fallback.
+              Agentloom can import repositories that use different directory
+              conventions: for agents it checks{" "}
+              <InlineCode>.agents/agents</InlineCode> then{" "}
+              <InlineCode>agents/</InlineCode>, for commands{" "}
+              <InlineCode>.agents/commands</InlineCode> then{" "}
+              <InlineCode>commands/</InlineCode> then{" "}
+              <InlineCode>prompts/</InlineCode>, then provider fallbacks from{" "}
+              <InlineCode>.github/prompts/</InlineCode> and{" "}
+              <InlineCode>.gemini/commands/</InlineCode>, for rules{" "}
+              <InlineCode>.agents/rules</InlineCode> then{" "}
+              <InlineCode>rules/</InlineCode>, for skills{" "}
+              <InlineCode>.agents/skills</InlineCode> then{" "}
+              <InlineCode>skills/</InlineCode> then a root{" "}
+              <InlineCode>SKILL.md</InlineCode> fallback.
             </Prose>
           </section>
 
@@ -201,40 +242,67 @@ export default function DocsPage() {
 
             <div className="space-y-3">
               <SubHeading>Aggregate verbs</SubHeading>
-              <Prose>
-                These operate across all entity types at once.
-              </Prose>
+              <Prose>These operate across all entity types at once.</Prose>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-ink/10 text-left dark:border-white/10">
-                      <th className="py-2 pr-4 font-medium text-ink/70 dark:text-white/70">Command</th>
-                      <th className="py-2 font-medium text-ink/70 dark:text-white/70">Description</th>
+                      <th className="py-2 pr-4 font-medium text-ink/70 dark:text-white/70">
+                        Command
+                      </th>
+                      <th className="py-2 font-medium text-ink/70 dark:text-white/70">
+                        Description
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="text-ink/80 dark:text-white/80">
                     <tr className="border-b border-ink/5 dark:border-white/5">
-                      <td className="py-2 pr-4"><InlineCode>agentloom add &lt;source&gt;</InlineCode></td>
-                      <td className="py-2">Import agents, commands, rules, skills, and MCP servers from a source</td>
+                      <td className="py-2 pr-4">
+                        <InlineCode>agentloom add &lt;source&gt;</InlineCode>
+                      </td>
+                      <td className="py-2">
+                        Import agents, commands, rules, skills, and MCP servers
+                        from a source
+                      </td>
                     </tr>
                     <tr className="border-b border-ink/5 dark:border-white/5">
-                      <td className="py-2 pr-4"><InlineCode>agentloom find &lt;query&gt;</InlineCode></td>
-                      <td className="py-2">Search for entities across the ecosystem</td>
+                      <td className="py-2 pr-4">
+                        <InlineCode>agentloom find &lt;query&gt;</InlineCode>
+                      </td>
+                      <td className="py-2">
+                        Search for entities across the ecosystem
+                      </td>
                     </tr>
                     <tr className="border-b border-ink/5 dark:border-white/5">
-                      <td className="py-2 pr-4"><InlineCode>agentloom update [source]</InlineCode></td>
-                      <td className="py-2">Update previously imported sources</td>
+                      <td className="py-2 pr-4">
+                        <InlineCode>agentloom update [source]</InlineCode>
+                      </td>
+                      <td className="py-2">
+                        Update previously imported sources
+                      </td>
                     </tr>
                     <tr className="border-b border-ink/5 dark:border-white/5">
-                      <td className="py-2 pr-4"><InlineCode>agentloom upgrade</InlineCode></td>
-                      <td className="py-2">Check and install the latest CLI release</td>
+                      <td className="py-2 pr-4">
+                        <InlineCode>agentloom upgrade</InlineCode>
+                      </td>
+                      <td className="py-2">
+                        Check and install the latest CLI release
+                      </td>
                     </tr>
                     <tr className="border-b border-ink/5 dark:border-white/5">
-                      <td className="py-2 pr-4"><InlineCode>agentloom sync</InlineCode></td>
-                      <td className="py-2">Sync canonical definitions to all provider configs</td>
+                      <td className="py-2 pr-4">
+                        <InlineCode>agentloom sync</InlineCode>
+                      </td>
+                      <td className="py-2">
+                        Sync canonical definitions to all provider configs
+                      </td>
                     </tr>
                     <tr>
-                      <td className="py-2 pr-4"><InlineCode>agentloom delete &lt;source|name&gt;</InlineCode></td>
+                      <td className="py-2 pr-4">
+                        <InlineCode>
+                          agentloom delete &lt;source|name&gt;
+                        </InlineCode>
+                      </td>
                       <td className="py-2">Remove imported entities</td>
                     </tr>
                   </tbody>
@@ -244,9 +312,7 @@ export default function DocsPage() {
 
             <div className="space-y-3">
               <SubHeading>Entity verbs</SubHeading>
-              <Prose>
-                Fine-grained control over specific entity types.
-              </Prose>
+              <Prose>Fine-grained control over specific entity types.</Prose>
               <CodeBlock>{`agentloom agent <add|list|delete|find|update|sync>
 agentloom command <add|list|delete|find|update|sync>
 agentloom mcp <add|list|delete|find|update|sync>
@@ -256,48 +322,72 @@ agentloom skill <add|list|delete|find|update|sync>`}</CodeBlock>
 
             <div className="space-y-3">
               <SubHeading>Selector flags</SubHeading>
-              <Prose>
-                Filter which entities a command operates on.
-              </Prose>
+              <Prose>Filter which entities a command operates on.</Prose>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-ink/10 text-left dark:border-white/10">
-                      <th className="py-2 pr-4 font-medium text-ink/70 dark:text-white/70">Flag</th>
-                      <th className="py-2 font-medium text-ink/70 dark:text-white/70">Purpose</th>
+                      <th className="py-2 pr-4 font-medium text-ink/70 dark:text-white/70">
+                        Flag
+                      </th>
+                      <th className="py-2 font-medium text-ink/70 dark:text-white/70">
+                        Purpose
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="text-ink/80 dark:text-white/80">
                     <tr className="border-b border-ink/5 dark:border-white/5">
-                      <td className="py-2 pr-4"><InlineCode>--agents &lt;csv&gt;</InlineCode></td>
+                      <td className="py-2 pr-4">
+                        <InlineCode>--agents &lt;csv&gt;</InlineCode>
+                      </td>
                       <td className="py-2">Select specific agents by name</td>
                     </tr>
                     <tr className="border-b border-ink/5 dark:border-white/5">
-                      <td className="py-2 pr-4"><InlineCode>--commands &lt;csv&gt;</InlineCode></td>
+                      <td className="py-2 pr-4">
+                        <InlineCode>--commands &lt;csv&gt;</InlineCode>
+                      </td>
                       <td className="py-2">Select specific commands</td>
                     </tr>
                     <tr className="border-b border-ink/5 dark:border-white/5">
-                      <td className="py-2 pr-4"><InlineCode>--mcps &lt;csv&gt;</InlineCode></td>
+                      <td className="py-2 pr-4">
+                        <InlineCode>--mcps &lt;csv&gt;</InlineCode>
+                      </td>
                       <td className="py-2">Select specific MCP servers</td>
                     </tr>
                     <tr className="border-b border-ink/5 dark:border-white/5">
-                      <td className="py-2 pr-4"><InlineCode>--rules &lt;csv&gt;</InlineCode></td>
+                      <td className="py-2 pr-4">
+                        <InlineCode>--rules &lt;csv&gt;</InlineCode>
+                      </td>
                       <td className="py-2">Select specific rules</td>
                     </tr>
                     <tr className="border-b border-ink/5 dark:border-white/5">
-                      <td className="py-2 pr-4"><InlineCode>--rule &lt;csv&gt;</InlineCode></td>
-                      <td className="py-2">Alias for <InlineCode>--rules</InlineCode></td>
+                      <td className="py-2 pr-4">
+                        <InlineCode>--rule &lt;csv&gt;</InlineCode>
+                      </td>
+                      <td className="py-2">
+                        Alias for <InlineCode>--rules</InlineCode>
+                      </td>
                     </tr>
                     <tr className="border-b border-ink/5 dark:border-white/5">
-                      <td className="py-2 pr-4"><InlineCode>--skills &lt;csv&gt;</InlineCode></td>
+                      <td className="py-2 pr-4">
+                        <InlineCode>--skills &lt;csv&gt;</InlineCode>
+                      </td>
                       <td className="py-2">Select specific skills</td>
                     </tr>
                     <tr className="border-b border-ink/5 dark:border-white/5">
-                      <td className="py-2 pr-4"><InlineCode>--selection-mode</InlineCode></td>
-                      <td className="py-2"><InlineCode>all</InlineCode>, <InlineCode>sync-all</InlineCode>, or <InlineCode>custom</InlineCode></td>
+                      <td className="py-2 pr-4">
+                        <InlineCode>--selection-mode</InlineCode>
+                      </td>
+                      <td className="py-2">
+                        <InlineCode>all</InlineCode>,{" "}
+                        <InlineCode>sync-all</InlineCode>, or{" "}
+                        <InlineCode>custom</InlineCode>
+                      </td>
                     </tr>
                     <tr>
-                      <td className="py-2 pr-4"><InlineCode>--source &lt;value&gt;</InlineCode></td>
+                      <td className="py-2 pr-4">
+                        <InlineCode>--source &lt;value&gt;</InlineCode>
+                      </td>
                       <td className="py-2">Filter by source origin</td>
                     </tr>
                   </tbody>
@@ -352,9 +442,9 @@ $ agentloom delete farnoodma/agents`}</CodeBlock>
           <section className="space-y-4 rounded-2xl border border-ink/10 bg-white p-6 shadow-card md:p-8 dark:border-white/10 dark:bg-black/30">
             <SectionHeading id="agent-schema">Agent Schema</SectionHeading>
             <Prose>
-              Agents are markdown files with YAML frontmatter.
-              Use the frontmatter for metadata and provider-specific overrides.
-              The body is your agent&apos;s system prompt.
+              Agents are markdown files with YAML frontmatter. Use the
+              frontmatter for metadata and provider-specific overrides. The body
+              is your agent&apos;s system prompt.
             </Prose>
 
             <CodeBlock>{`---
@@ -363,8 +453,8 @@ description: Review changes and report issues.
 claude:
   model: sonnet
 codex:
-  model: gpt-5.3-codex
-  reasoningEffort: low
+  model: gpt-5-codex
+  reasoningEffort: medium
   webSearch: true
 ---
 
@@ -375,8 +465,10 @@ You are a strict code reviewer. Check for:
 - Missing error handling`}</CodeBlock>
 
             <Prose>
-              Provider-specific blocks (<InlineCode>claude:</InlineCode>, <InlineCode>codex:</InlineCode>, etc.)
-              let you tune model, reasoning effort, and other settings per tool without duplicating the prompt.
+              Provider-specific blocks (<InlineCode>claude:</InlineCode>,{" "}
+              <InlineCode>codex:</InlineCode>, etc.) let you tune model,
+              reasoning effort, and other settings per tool without duplicating
+              the prompt.
             </Prose>
           </section>
 
@@ -384,8 +476,9 @@ You are a strict code reviewer. Check for:
           <section className="space-y-4 rounded-2xl border border-ink/10 bg-white p-6 shadow-card md:p-8 dark:border-white/10 dark:bg-black/30">
             <SectionHeading id="command-schema">Command Schema</SectionHeading>
             <Prose>
-              Canonical commands are markdown files. Frontmatter is optional. When present,
-              provider-specific command config can be nested per provider.
+              Canonical commands are markdown files. Frontmatter is optional.
+              When present, provider-specific command config can be nested per
+              provider.
             </Prose>
 
             <CodeBlock>{`---
@@ -400,22 +493,29 @@ copilot:
 
 # /review
 
-Review active changes with scope \${input:args}.`}</CodeBlock>
+Review active changes with scope $ARGUMENTS.`}</CodeBlock>
 
             <ul className="space-y-2 pl-5 text-sm text-ink/80 dark:text-white/80">
               <li className="list-disc">
                 Provider configs follow the same pattern as agents.
               </li>
               <li className="list-disc">
-                Omit a provider key for default behavior, add <InlineCode>provider: {"{ ... }"}</InlineCode> for
-                provider-specific overrides, or set <InlineCode>provider: false</InlineCode> to disable output for a provider.
+                Omit a provider key for default behavior, add{" "}
+                <InlineCode>provider: {"{ ... }"}</InlineCode> for
+                provider-specific overrides, or set{" "}
+                <InlineCode>provider: false</InlineCode> to disable output for a
+                provider.
               </li>
               <li className="list-disc">
-                Provider-specific frontmatter keys are passed through as-is to provider outputs.
+                Provider-specific frontmatter keys are passed through as-is to
+                provider outputs.
               </li>
               <li className="list-disc">
-                Canonical command bodies can use <InlineCode>$ARGUMENTS</InlineCode>; provider-specific placeholder
-                translation is applied during sync (for example, Copilot receives <InlineCode>${"${input:args}"}</InlineCode>).
+                Canonical command bodies can use{" "}
+                <InlineCode>$ARGUMENTS</InlineCode>; provider-specific
+                placeholder translation is applied during sync (for example,
+                Copilot receives <InlineCode>${"${input:args}"}</InlineCode> and
+                Gemini receives <InlineCode>{"{{args}}"}</InlineCode>).
               </li>
             </ul>
           </section>
@@ -424,9 +524,10 @@ Review active changes with scope \${input:args}.`}</CodeBlock>
           <section className="space-y-4 rounded-2xl border border-ink/10 bg-white p-6 shadow-card md:p-8 dark:border-white/10 dark:bg-black/30">
             <SectionHeading id="rule-schema">Rule Schema</SectionHeading>
             <Prose>
-              Canonical rules live in <InlineCode>.agents/rules/*.md</InlineCode>.
-              Rules require <InlineCode>frontmatter.name</InlineCode>. Extra
-              frontmatter keys are preserved, but used only for Cursor rule file rendering.
+              Canonical rules live in{" "}
+              <InlineCode>.agents/rules/*.md</InlineCode>. Rules require{" "}
+              <InlineCode>frontmatter.name</InlineCode>. Extra frontmatter keys
+              are preserved, but used only for Cursor rule file rendering.
             </Prose>
 
             <CodeBlock>{`---
@@ -441,13 +542,19 @@ Before finishing any change, run project checks and include the result.`}</CodeB
 
             <ul className="space-y-2 pl-5 text-sm text-ink/80 dark:text-white/80">
               <li className="list-disc">
-                Rule IDs come from canonical filename stems (for example <InlineCode>always-run-checks.md</InlineCode>).
+                Rule IDs come from canonical filename stems (for example{" "}
+                <InlineCode>always-run-checks.md</InlineCode>).
               </li>
               <li className="list-disc">
-                Managed instruction blocks use markers like <InlineCode>{"<!-- agentloom:always-run-checks:start -->"}</InlineCode>.
+                Managed instruction blocks use markers like{" "}
+                <InlineCode>
+                  {"<!-- agentloom:always-run-checks:start -->"}
+                </InlineCode>
+                .
               </li>
               <li className="list-disc">
-                Cursor receives provider-native files at <InlineCode>.cursor/rules/&lt;rule-id&gt;.mdc</InlineCode>.
+                Cursor receives provider-native files at{" "}
+                <InlineCode>.cursor/rules/&lt;rule-id&gt;.mdc</InlineCode>.
               </li>
             </ul>
           </section>
@@ -456,10 +563,10 @@ Before finishing any change, run project checks and include the result.`}</CodeB
           <section className="space-y-4 rounded-2xl border border-ink/10 bg-white p-6 shadow-card md:p-8 dark:border-white/10 dark:bg-black/30">
             <SectionHeading id="mcp-schema">MCP Schema</SectionHeading>
             <Prose>
-              MCP servers are defined in <InlineCode>mcp.json</InlineCode>.
-              Each server has a <InlineCode>base</InlineCode> configuration and optional
-              per-provider overrides. Set a provider to <InlineCode>false</InlineCode> to
-              exclude a server from that tool.
+              MCP servers are defined in <InlineCode>mcp.json</InlineCode>. Each
+              server has a <InlineCode>base</InlineCode> configuration and
+              optional per-provider overrides. Set a provider to{" "}
+              <InlineCode>false</InlineCode> to exclude a server from that tool.
             </Prose>
 
             <CodeBlock>{`{
@@ -486,24 +593,48 @@ Before finishing any change, run project checks and include the result.`}</CodeB
             <SectionHeading id="providers">Supported Providers</SectionHeading>
             <Prose>
               Agentloom syncs your definitions to every major AI coding tool.
-              Rule sync writes managed instruction blocks plus provider-native Cursor rules.
+              Rule sync writes managed instruction blocks plus provider-native
+              Cursor rules.
             </Prose>
 
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-ink/10 text-left dark:border-white/10">
-                    <th className="py-2 pr-4 font-medium text-ink/70 dark:text-white/70">Provider</th>
-                    <th className="py-2 pr-4 text-center font-medium text-ink/70 dark:text-white/70">Agents</th>
-                    <th className="py-2 pr-4 text-center font-medium text-ink/70 dark:text-white/70">Commands</th>
-                    <th className="py-2 pr-4 text-center font-medium text-ink/70 dark:text-white/70">Rules</th>
-                    <th className="py-2 pr-4 text-center font-medium text-ink/70 dark:text-white/70">Skills</th>
-                    <th className="py-2 text-center font-medium text-ink/70 dark:text-white/70">MCP</th>
+                    <th className="py-2 pr-4 font-medium text-ink/70 dark:text-white/70">
+                      Provider
+                    </th>
+                    <th className="py-2 pr-4 text-center font-medium text-ink/70 dark:text-white/70">
+                      Agents
+                    </th>
+                    <th className="py-2 pr-4 text-center font-medium text-ink/70 dark:text-white/70">
+                      Commands
+                    </th>
+                    <th className="py-2 pr-4 text-center font-medium text-ink/70 dark:text-white/70">
+                      Rules
+                    </th>
+                    <th className="py-2 pr-4 text-center font-medium text-ink/70 dark:text-white/70">
+                      Skills
+                    </th>
+                    <th className="py-2 text-center font-medium text-ink/70 dark:text-white/70">
+                      MCP
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="text-ink/80 dark:text-white/80">
-                  {["Cursor", "Claude", "Copilot", "Codex", "OpenCode", "Gemini", "Pi"].map((provider) => (
-                    <tr key={provider} className="border-b border-ink/5 dark:border-white/5">
+                  {[
+                    "Cursor",
+                    "Claude",
+                    "Copilot",
+                    "Codex",
+                    "OpenCode",
+                    "Gemini",
+                    "Pi",
+                  ].map((provider) => (
+                    <tr
+                      key={provider}
+                      className="border-b border-ink/5 dark:border-white/5"
+                    >
                       <td className="py-2 pr-4 font-medium">{provider}</td>
                       <td className="py-2 pr-4 text-center text-ocean">✓</td>
                       <td className="py-2 pr-4 text-center text-ocean">✓</td>
@@ -517,14 +648,28 @@ Before finishing any change, run project checks and include the result.`}</CodeB
             </div>
 
             <Prose>
-              For Codex, <InlineCode>agentloom sync</InlineCode> writes role-based multi-agent config
-              following official Codex multi-agent guidance. Codex commands are always written to
-              global prompts under <InlineCode>~/.codex/prompts</InlineCode>.
+              For Codex, <InlineCode>agentloom sync</InlineCode> writes
+              role-based multi-agent config following official Codex multi-agent
+              guidance. Codex commands are always written to global prompts
+              under <InlineCode>~/.codex/prompts</InlineCode>.
             </Prose>
             <Prose>
-              Rule sync behavior: local runs always update managed blocks in <InlineCode>AGENTS.md</InlineCode>;
-              local Cursor also writes <InlineCode>.cursor/rules/*.mdc</InlineCode>. Global Copilot also updates
-              VS Code <InlineCode>chat.instructionsFilesLocations</InlineCode> for instruction discovery.
+              Cursor provider sync writes subagents to{" "}
+              <InlineCode>.cursor/agents/*.md</InlineCode>. Gemini command sync
+              writes TOML commands to{" "}
+              <InlineCode>.gemini/commands/*.toml</InlineCode>. Global Copilot
+              sync writes discovery targets under{" "}
+              <InlineCode>~/.copilot/*</InlineCode>.
+            </Prose>
+            <Prose>
+              Rule sync behavior: local runs always update managed blocks in{" "}
+              <InlineCode>AGENTS.md</InlineCode>; local Cursor also writes{" "}
+              <InlineCode>.cursor/rules/*.mdc</InlineCode>. Global Copilot also
+              updates VS Code{" "}
+              <InlineCode>chat.instructionsFilesLocations</InlineCode> with{" "}
+              <InlineCode>~/.copilot/copilot-instructions.md</InlineCode>.
+              Global Claude MCP user scope is not file-synced by Agentloom; only
+              project <InlineCode>.mcp.json</InlineCode> is managed.
             </Prose>
           </section>
 
@@ -532,18 +677,28 @@ Before finishing any change, run project checks and include the result.`}</CodeB
           <section className="space-y-4 rounded-2xl border border-ink/10 bg-white p-6 shadow-card md:p-8 dark:border-white/10 dark:bg-black/30">
             <SectionHeading id="telemetry">Telemetry</SectionHeading>
             <Prose>
-              Successful GitHub-based imports send anonymous telemetry to power the
-              public directory and leaderboard. No personal data is collected.
+              Successful GitHub-based imports send anonymous telemetry to power
+              the public directory and leaderboard. No personal data is
+              collected.
             </Prose>
 
             <ul className="space-y-2 pl-5 text-sm text-ink/80 dark:text-white/80">
-              <li className="list-disc">Only GitHub sources are tracked — local path imports are never sent.</li>
-              <li className="list-disc">Tracked entities: agents, skills, commands, rules, and MCP servers.</li>
+              <li className="list-disc">
+                Only GitHub sources are tracked — local path imports are never
+                sent.
+              </li>
+              <li className="list-disc">
+                Tracked entities: agents, skills, commands, rules, and MCP
+                servers.
+              </li>
               <li className="list-disc">
                 Opt out: <InlineCode>AGENTLOOM_DISABLE_TELEMETRY=1</InlineCode>
               </li>
               <li className="list-disc">
-                Override endpoint: <InlineCode>AGENTLOOM_TELEMETRY_ENDPOINT=https://...</InlineCode>
+                Override endpoint:{" "}
+                <InlineCode>
+                  AGENTLOOM_TELEMETRY_ENDPOINT=https://...
+                </InlineCode>
               </li>
             </ul>
           </section>
@@ -553,33 +708,43 @@ Before finishing any change, run project checks and include the result.`}</CodeB
             <SectionHeading id="directory">Directory</SectionHeading>
             <Prose>
               The{" "}
-              <Link href="/" className="text-ocean underline underline-offset-4 hover:text-ocean/80">
+              <Link
+                href="/"
+                className="text-ocean underline underline-offset-4 hover:text-ocean/80"
+              >
                 Agentloom Directory
               </Link>{" "}
-              surfaces the most popular agents, skills, commands, rules, and MCP servers the community
-              is importing. Browse trending setups, discover what other teams are using,
-              and add anything to your project in one command.
+              surfaces the most popular agents, skills, commands, rules, and MCP
+              servers the community is importing. Browse trending setups,
+              discover what other teams are using, and add anything to your
+              project in one command.
             </Prose>
           </section>
 
           {/* Scope & Config */}
           <section className="space-y-4 rounded-2xl border border-ink/10 bg-white p-6 shadow-card md:p-8 dark:border-white/10 dark:bg-black/30">
-            <SectionHeading id="scope-resolution">Scope Resolution</SectionHeading>
+            <SectionHeading id="scope-resolution">
+              Scope Resolution
+            </SectionHeading>
             <Prose>
               Agentloom supports both local (project) and global (user) scopes.
             </Prose>
             <ul className="space-y-2 pl-5 text-sm text-ink/80 dark:text-white/80">
               <li className="list-disc">
-                If <InlineCode>.agents/</InlineCode> exists in the current directory, you&apos;ll be prompted to choose scope.
+                If <InlineCode>.agents/</InlineCode> exists in the current
+                directory, you&apos;ll be prompted to choose scope.
               </li>
               <li className="list-disc">
-                In non-interactive mode, local scope is selected when <InlineCode>.agents/</InlineCode> exists.
+                In non-interactive mode, local scope is selected when{" "}
+                <InlineCode>.agents/</InlineCode> exists.
               </li>
               <li className="list-disc">
-                Otherwise global scope (<InlineCode>~/.agents</InlineCode>) is used.
+                Otherwise global scope (<InlineCode>~/.agents</InlineCode>) is
+                used.
               </li>
               <li className="list-disc">
-                Force scope with <InlineCode>--local</InlineCode> or <InlineCode>--global</InlineCode>.
+                Force scope with <InlineCode>--local</InlineCode> or{" "}
+                <InlineCode>--global</InlineCode>.
               </li>
             </ul>
           </section>
@@ -591,26 +756,46 @@ Before finishing any change, run project checks and include the result.`}</CodeB
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-ink/10 text-left dark:border-white/10">
-                    <th className="py-2 pr-4 font-medium text-ink/70 dark:text-white/70">Variable</th>
-                    <th className="py-2 font-medium text-ink/70 dark:text-white/70">Effect</th>
+                    <th className="py-2 pr-4 font-medium text-ink/70 dark:text-white/70">
+                      Variable
+                    </th>
+                    <th className="py-2 font-medium text-ink/70 dark:text-white/70">
+                      Effect
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="text-ink/80 dark:text-white/80">
                   <tr className="border-b border-ink/5 dark:border-white/5">
-                    <td className="py-2 pr-4"><InlineCode>AGENTLOOM_DISABLE_TELEMETRY=1</InlineCode></td>
+                    <td className="py-2 pr-4">
+                      <InlineCode>AGENTLOOM_DISABLE_TELEMETRY=1</InlineCode>
+                    </td>
                     <td className="py-2">Disable anonymous telemetry</td>
                   </tr>
                   <tr className="border-b border-ink/5 dark:border-white/5">
-                    <td className="py-2 pr-4"><InlineCode>AGENTLOOM_TELEMETRY_ENDPOINT</InlineCode></td>
-                    <td className="py-2">Override the telemetry endpoint URL</td>
+                    <td className="py-2 pr-4">
+                      <InlineCode>AGENTLOOM_TELEMETRY_ENDPOINT</InlineCode>
+                    </td>
+                    <td className="py-2">
+                      Override the telemetry endpoint URL
+                    </td>
                   </tr>
                   <tr className="border-b border-ink/5 dark:border-white/5">
-                    <td className="py-2 pr-4"><InlineCode>AGENTLOOM_DISABLE_UPDATE_NOTIFIER=1</InlineCode></td>
+                    <td className="py-2 pr-4">
+                      <InlineCode>
+                        AGENTLOOM_DISABLE_UPDATE_NOTIFIER=1
+                      </InlineCode>
+                    </td>
                     <td className="py-2">Disable auto-upgrade checks</td>
                   </tr>
                   <tr>
-                    <td className="py-2 pr-4"><InlineCode>AGENTLOOM_DISABLE_MANAGE_AGENTS_PROMPT=1</InlineCode></td>
-                    <td className="py-2">Disable the manage-agents skill bootstrap prompt</td>
+                    <td className="py-2 pr-4">
+                      <InlineCode>
+                        AGENTLOOM_DISABLE_MANAGE_AGENTS_PROMPT=1
+                      </InlineCode>
+                    </td>
+                    <td className="py-2">
+                      Disable the manage-agents skill bootstrap prompt
+                    </td>
                   </tr>
                 </tbody>
               </table>
@@ -619,7 +804,10 @@ Before finishing any change, run project checks and include the result.`}</CodeB
 
           {/* Back link */}
           <div className="pb-4 text-sm text-ink/60 dark:text-white/60">
-            <Link href="/" className="underline underline-offset-4 transition hover:text-ink dark:hover:text-white">
+            <Link
+              href="/"
+              className="underline underline-offset-4 transition hover:text-ink dark:hover:text-white"
+            >
               ← Back to directory
             </Link>
           </div>

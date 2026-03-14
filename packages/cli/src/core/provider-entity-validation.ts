@@ -7,6 +7,7 @@ const COPILOT_AGENT_FILE = /\.agent\.md$/i;
 const COPILOT_COMMAND_FILE = /\.prompt\.md$/i;
 const GENERIC_AGENT_FILE = /\.md$/i;
 const GENERIC_COMMAND_FILE = /(?:\.prompt)?\.(md|mdc)$/i;
+const GEMINI_COMMAND_FILE = /\.(toml|md|mdc)$/i;
 const EXCLUDED_ENTITY_STEMS = new Set(["readme"]);
 
 export function isProviderEntityFileName(options: {
@@ -31,6 +32,10 @@ export function isProviderEntityFileName(options: {
     return GENERIC_AGENT_FILE.test(normalizedName);
   }
 
+  if (options.provider === "gemini") {
+    return GEMINI_COMMAND_FILE.test(normalizedName);
+  }
+
   return GENERIC_COMMAND_FILE.test(normalizedName);
 }
 
@@ -39,5 +44,5 @@ function normalizeEntityStem(fileName: string): string {
     .toLowerCase()
     .replace(/\.agent\.md$/i, "")
     .replace(/\.prompt\.(md|mdc)$/i, "")
-    .replace(/\.(md|mdc)$/i, "");
+    .replace(/\.(md|mdc|toml)$/i, "");
 }

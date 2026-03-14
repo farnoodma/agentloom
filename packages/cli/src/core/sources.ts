@@ -120,31 +120,45 @@ export function discoverSourceMcpPath(importRoot: string): string | null {
   return null;
 }
 
-export function discoverSourceCommandsDir(importRoot: string): string | null {
+export function discoverSourceCommandsDirs(importRoot: string): string[] {
   const nested = path.join(importRoot, ".agents", "commands");
   if (fs.existsSync(nested) && fs.statSync(nested).isDirectory()) {
-    return nested;
+    return [nested];
   }
 
   const direct = path.join(importRoot, "commands");
   if (fs.existsSync(direct) && fs.statSync(direct).isDirectory()) {
-    return direct;
+    return [direct];
   }
 
   const prompts = path.join(importRoot, "prompts");
   if (fs.existsSync(prompts) && fs.statSync(prompts).isDirectory()) {
-    return prompts;
+    return [prompts];
   }
+
+  const providerFallbacks: string[] = [];
 
   const githubPrompts = path.join(importRoot, ".github", "prompts");
   if (
     fs.existsSync(githubPrompts) &&
     fs.statSync(githubPrompts).isDirectory()
   ) {
-    return githubPrompts;
+    providerFallbacks.push(githubPrompts);
   }
 
-  return null;
+  const geminiCommands = path.join(importRoot, ".gemini", "commands");
+  if (
+    fs.existsSync(geminiCommands) &&
+    fs.statSync(geminiCommands).isDirectory()
+  ) {
+    providerFallbacks.push(geminiCommands);
+  }
+
+  return providerFallbacks;
+}
+
+export function discoverSourceCommandsDir(importRoot: string): string | null {
+  return discoverSourceCommandsDirs(importRoot)[0] ?? null;
 }
 
 export function discoverSourceSkillsDir(importRoot: string): string | null {

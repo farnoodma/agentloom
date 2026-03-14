@@ -7,6 +7,7 @@ import {
   select,
   text as promptText,
 } from "@clack/prompts";
+import TOML from "@iarna/toml";
 import matter from "gray-matter";
 import YAML from "yaml";
 import type {
@@ -24,6 +25,7 @@ import {
   targetFileNameForAgent,
 } from "./agents.js";
 import {
+  normalizeCommandArgumentsForCanonical,
   normalizeCommandSelector,
   parseCommandsDir,
   resolveCommandSelections,
@@ -60,6 +62,7 @@ import { readCanonicalMcp, writeCanonicalMcp } from "./mcp.js";
 import {
   discoverSourceAgentsDir,
   discoverSourceCommandsDir,
+  discoverSourceCommandsDirs,
   discoverSourceMcpPath,
   discoverSourceRulesDir,
   discoverSourceSkillsDir,
@@ -197,9 +200,14 @@ export async function importSource(
     const sourceAgentsDir = shouldImportAgents
       ? discoverSourceAgentsDir(prepared.importRoot)
       : null;
-    const sourceCommandsDir = shouldImportCommands
-      ? discoverSourceCommandsDir(prepared.importRoot)
-      : null;
+    const sourceCommandsDirs = shouldImportCommands
+      ? discoverSourceCommandsDirs(prepared.importRoot)
+      : [];
+    const sourceCommandsDir =
+      sourceCommandsDirs[0] ??
+      (shouldImportCommands
+        ? discoverSourceCommandsDir(prepared.importRoot)
+        : null);
     const sourceMcpPath = shouldImportMcp
       ? discoverSourceMcpPath(prepared.importRoot)
       : null;
@@ -213,9 +221,10 @@ export async function importSource(
     const sourceAgents = sourceAgentsDir
       ? parseSourceAgentsForImport(sourceAgentsDir)
       : [];
-    const sourceCommands = sourceCommandsDir
-      ? parseSourceCommandsForImport(sourceCommandsDir)
-      : [];
+    const sourceCommands =
+      sourceCommandsDirs.length > 0
+        ? parseSourceCommandsForImport(sourceCommandsDirs)
+        : [];
     const sourceMcp = sourceMcpPath
       ? normalizeMcp(readJsonIfExists<Record<string, unknown>>(sourceMcpPath))
       : null;
@@ -240,7 +249,7 @@ export async function importSource(
     }
     if (shouldImportCommands && options.requireCommands && !sourceCommandsDir) {
       throw new Error(
-        `No source commands directory found under ${prepared.importRoot} (expected .agents/commands/, commands/, prompts/, or .github/prompts/).`,
+        `No source commands directory found under ${prepared.importRoot} (expected .agents/commands/, commands/, prompts/, .gemini/commands/, or .github/prompts/).`,
       );
     }
     if (
@@ -285,7 +294,7 @@ export async function importSource(
       Object.keys(sourceMcp?.mcpServers ?? {}).length === 0
     ) {
       throw new Error(
-        `No importable entities found in source "${sourceLocation}".\nExpected agents/, .agents/agents/, .github/agents/, commands/, .agents/commands/, prompts/, .github/prompts/, mcp.json/.agents/mcp.json, rules/.agents/rules/, skills/, .agents/skills/, or root SKILL.md.`,
+        `No importable entities found in source "${sourceLocation}".\nExpected agents/, .agents/agents/, .github/agents/, commands/, .agents/commands/, prompts/, .gemini/commands/, .github/prompts/, mcp.json/.agents/mcp.json, rules/.agents/rules/, skills/, .agents/skills/, or root SKILL.md.`,
       );
     }
 
@@ -870,8 +879,39 @@ function parseSourceAgentsForImport(sourceAgentsDir: string): CanonicalAgent[] {
 }
 
 function parseSourceCommandsForImport(
+  sourceCommandsDir: string | string[],
+): CanonicalCommandFile[] {
+  const sourceCommandsDirs = Array.isArray(sourceCommandsDir)
+    ? sourceCommandsDir
+    : [sourceCommandsDir];
+  return mergeCanonicalCommandFiles(
+    sourceCommandsDirs.flatMap((dirPath) =>
+      parseSourceCommandsFromDir(dirPath),
+    ),
+  );
+}
+
+function parseSourceCommandsFromDir(
   sourceCommandsDir: string,
 ): CanonicalCommandFile[] {
+  if (isGeminiCommandsDir(sourceCommandsDir)) {
+    const geminiMarkdownCommands = parseCommandsDir(sourceCommandsDir).filter(
+      (command) =>
+        isProviderEntityFileName({
+          provider: "gemini",
+          entity: "command",
+          fileName: command.fileName,
+        }),
+    );
+    const parsedCommands = mergeCommandsByCanonicalFileName([
+      ...parseGeminiTomlCommandsForImport(sourceCommandsDir),
+      ...geminiMarkdownCommands,
+    ]);
+    return parsedCommands.map((command) =>
+      normalizeGeminiCommandForImport(command),
+    );
+  }
+
   const commands = parseCommandsDir(sourceCommandsDir);
   if (!isGitHubPromptsDir(sourceCommandsDir)) {
     return commands;
@@ -888,6 +928,18 @@ function parseSourceCommandsForImport(
     .map((command) => normalizeGitHubPromptForImport(command));
 }
 
+function mergeCommandsByCanonicalFileName(
+  commands: CanonicalCommandFile[],
+): CanonicalCommandFile[] {
+  const byFileName = new Map<string, CanonicalCommandFile>();
+  for (const command of commands) {
+    if (!byFileName.has(command.fileName)) {
+      byFileName.set(command.fileName, command);
+    }
+  }
+  return [...byFileName.values()];
+}
+
 function isGitHubAgentsDir(sourceAgentsDir: string): boolean {
   return (
     path.basename(sourceAgentsDir).toLowerCase() === "agents" &&
@@ -900,6 +952,154 @@ function isGitHubPromptsDir(sourceCommandsDir: string): boolean {
     path.basename(sourceCommandsDir).toLowerCase() === "prompts" &&
     path.basename(path.dirname(sourceCommandsDir)).toLowerCase() === ".github"
   );
+}
+
+function isGeminiCommandsDir(sourceCommandsDir: string): boolean {
+  return (
+    path.basename(sourceCommandsDir).toLowerCase() === "commands" &&
+    path.basename(path.dirname(sourceCommandsDir)).toLowerCase() === ".gemini"
+  );
+}
+
+function parseGeminiTomlCommandsForImport(
+  sourceCommandsDir: string,
+): CanonicalCommandFile[] {
+  return fs
+    .readdirSync(sourceCommandsDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+    .filter((fileName) =>
+      isProviderEntityFileName({
+        provider: "gemini",
+        entity: "command",
+        fileName,
+      }),
+    )
+    .filter((fileName) => fileName.toLowerCase().endsWith(".toml"))
+    .sort((a, b) => a.localeCompare(b))
+    .map((fileName) =>
+      parseGeminiTomlCommandForImport(path.join(sourceCommandsDir, fileName)),
+    )
+    .filter((command): command is CanonicalCommandFile => command !== null);
+}
+
+function mergeCanonicalCommandFiles(
+  commands: CanonicalCommandFile[],
+): CanonicalCommandFile[] {
+  const merged = new Map<string, CanonicalCommandFile>();
+
+  for (const command of commands) {
+    const fileName = toCanonicalCommandFileName(command.fileName);
+    const normalizedCommand =
+      fileName === command.fileName ? command : { ...command, fileName };
+    const existing = merged.get(fileName);
+    if (!existing) {
+      merged.set(fileName, normalizedCommand);
+      continue;
+    }
+
+    const existingHasBody =
+      normalizeImportedCommandBody(existing.body).length > 0;
+    const incomingHasBody =
+      normalizeImportedCommandBody(normalizedCommand.body).length > 0;
+    if (
+      existingHasBody &&
+      incomingHasBody &&
+      !sameNormalizedImportedCommandBody(existing.body, normalizedCommand.body)
+    ) {
+      throw new Error(
+        `Conflicting command bodies found for "${fileName}" in ${existing.sourcePath} and ${normalizedCommand.sourcePath}. Align the provider-specific prompts before importing, or import a single provider directory with --subdir.`,
+      );
+    }
+
+    const body = existingHasBody ? existing.body : normalizedCommand.body;
+    const frontmatter = mergeCommandFrontmatterForImport(
+      existing.frontmatter,
+      normalizedCommand.frontmatter,
+    );
+    merged.set(fileName, {
+      ...existing,
+      fileName,
+      body,
+      frontmatter,
+      content: buildCommandMarkdownForImport(frontmatter, body),
+    });
+  }
+
+  return [...merged.values()];
+}
+
+function sameNormalizedImportedCommandBody(
+  left: string,
+  right: string,
+): boolean {
+  return (
+    normalizeImportedCommandBody(left) === normalizeImportedCommandBody(right)
+  );
+}
+
+function normalizeImportedCommandBody(value: string): string {
+  return value.trim().replace(/\r\n/g, "\n");
+}
+
+function mergeCommandFrontmatterForImport(
+  existing: Record<string, unknown> | undefined,
+  incoming: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!existing && !incoming) {
+    return undefined;
+  }
+
+  const merged = existing ? cloneUnknown(existing) : {};
+  for (const [key, value] of Object.entries(incoming ?? {})) {
+    const current = merged[key];
+    if (current === undefined) {
+      merged[key] = cloneUnknown(value);
+      continue;
+    }
+
+    if (isObject(current) && isObject(value)) {
+      merged[key] = {
+        ...(cloneUnknown(value) as Record<string, unknown>),
+        ...(cloneUnknown(current) as Record<string, unknown>),
+      };
+    }
+  }
+
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
+function parseGeminiTomlCommandForImport(
+  sourcePath: string,
+): CanonicalCommandFile | null {
+  const raw = fs.readFileSync(sourcePath, "utf8");
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = TOML.parse(raw) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+
+  if (!isObject(parsed) || typeof parsed.prompt !== "string") {
+    return null;
+  }
+
+  const body = normalizeCommandArgumentsForCanonical(parsed.prompt, "gemini");
+  const frontmatter = cloneUnknown(parsed);
+  delete frontmatter.prompt;
+
+  const normalizedFrontmatter =
+    Object.keys(frontmatter).length > 0 ? frontmatter : undefined;
+  const fileName = toCanonicalCommandFileName(path.basename(sourcePath));
+  const content = buildCommandMarkdownForImport(normalizedFrontmatter, body);
+
+  return {
+    fileName,
+    sourcePath,
+    content,
+    body,
+    frontmatter: normalizedFrontmatter,
+  };
 }
 
 function parseGitHubAgentsDirForImport(
@@ -1028,7 +1228,69 @@ function normalizeGitHubPromptForImport(
 
   const frontmatter =
     Object.keys(nextFrontmatter).length > 0 ? nextFrontmatter : undefined;
-  const body = command.body.trimStart();
+  const body = normalizeCommandArgumentsForCanonical(
+    command.body,
+    "copilot",
+  ).trimStart();
+  return {
+    ...command,
+    fileName,
+    body,
+    frontmatter,
+    content: buildCommandMarkdownForImport(frontmatter, body),
+  };
+}
+
+function normalizeGeminiCommandForImport(
+  command: CanonicalCommandFile,
+): CanonicalCommandFile {
+  const fileName = toCanonicalCommandFileName(command.fileName);
+  const body = normalizeCommandArgumentsForCanonical(command.body, "gemini");
+  if (!command.frontmatter) {
+    return {
+      ...command,
+      fileName,
+      body,
+      content: buildCommandMarkdownForImport(undefined, body),
+    };
+  }
+
+  const nextFrontmatter: Record<string, unknown> = {};
+  for (const provider of ALL_PROVIDERS) {
+    if (provider === "gemini") continue;
+    const value = command.frontmatter[provider];
+    if (value === false || isObject(value)) {
+      nextFrontmatter[provider] = cloneUnknown(value);
+    }
+  }
+
+  if (typeof command.frontmatter.description === "string") {
+    nextFrontmatter.description = command.frontmatter.description;
+  }
+
+  const explicitGemini = command.frontmatter.gemini;
+  if (explicitGemini === false) {
+    nextFrontmatter.gemini = false;
+  } else {
+    const geminiConfig: Record<string, unknown> = isObject(explicitGemini)
+      ? cloneUnknown(explicitGemini)
+      : {};
+
+    for (const [key, value] of Object.entries(command.frontmatter)) {
+      if (key === "description") continue;
+      if (ALL_PROVIDERS.includes(key as Provider)) continue;
+      if (!(key in geminiConfig)) {
+        geminiConfig[key] = cloneUnknown(value);
+      }
+    }
+
+    if (Object.keys(geminiConfig).length > 0) {
+      nextFrontmatter.gemini = geminiConfig;
+    }
+  }
+
+  const frontmatter =
+    Object.keys(nextFrontmatter).length > 0 ? nextFrontmatter : undefined;
   return {
     ...command,
     fileName,
@@ -1062,6 +1324,9 @@ function toCanonicalCommandFileName(fileName: string): string {
   const lower = fileName.toLowerCase();
   if (lower.endsWith(".prompt.md")) {
     return `${fileName.slice(0, -".prompt.md".length)}.md`;
+  }
+  if (lower.endsWith(".toml")) {
+    return `${fileName.slice(0, -".toml".length)}.md`;
   }
   return fileName;
 }
