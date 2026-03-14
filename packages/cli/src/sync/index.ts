@@ -1016,12 +1016,15 @@ function syncCodex(options: {
         codexAgentsDir,
         `${role}.instructions.md`,
       );
-
-      const roleToml = buildCodexRoleToml(roleInstructionsPath, codexConfig);
+      const developerInstructions = resolveCodexDeveloperInstructions(
+        agent.body,
+        codexConfig,
+      );
+      const roleToml = buildCodexRoleToml(developerInstructions, codexConfig);
 
       if (!options.dryRun) {
         ensureDir(codexAgentsDir);
-        writeTextAtomic(roleInstructionsPath, `${agent.body.trimStart()}\n`);
+        writeTextAtomic(roleInstructionsPath, `${developerInstructions}\n`);
         writeTextAtomic(roleTomlPath, TOML.stringify(roleToml as TOML.JsonMap));
       }
 
@@ -1085,12 +1088,26 @@ function resolveTrackedCodexEntries(
   return [...new Set([...tracked, ...fallbackEntries])].sort();
 }
 
+function resolveCodexDeveloperInstructions(
+  agentBody: string,
+  providerConfig: Record<string, unknown>,
+): string {
+  if (
+    typeof providerConfig.developerInstructions === "string" &&
+    providerConfig.developerInstructions.trim() !== ""
+  ) {
+    return providerConfig.developerInstructions.trim();
+  }
+
+  return agentBody.trimStart().trimEnd();
+}
+
 function buildCodexRoleToml(
-  roleInstructionsPath: string,
+  developerInstructions: string,
   providerConfig: Record<string, unknown>,
 ): Record<string, unknown> {
   const roleToml: Record<string, unknown> = {
-    model_instructions_file: `./${path.basename(roleInstructionsPath)}`,
+    developer_instructions: developerInstructions,
   };
 
   if (typeof providerConfig.model === "string") {
@@ -1099,6 +1116,14 @@ function buildCodexRoleToml(
 
   if (typeof providerConfig.reasoningEffort === "string") {
     roleToml.model_reasoning_effort = providerConfig.reasoningEffort;
+  }
+
+  if (typeof providerConfig.reasoningSummary === "string") {
+    roleToml.model_reasoning_summary = providerConfig.reasoningSummary;
+  }
+
+  if (typeof providerConfig.verbosity === "string") {
+    roleToml.model_verbosity = providerConfig.verbosity;
   }
 
   if (typeof providerConfig.approvalPolicy === "string") {
@@ -1110,9 +1135,7 @@ function buildCodexRoleToml(
   }
 
   if (typeof providerConfig.webSearch === "boolean") {
-    roleToml.tools = {
-      web_search: providerConfig.webSearch,
-    };
+    roleToml.web_search = providerConfig.webSearch;
   }
 
   return roleToml;
