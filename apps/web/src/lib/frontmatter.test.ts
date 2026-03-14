@@ -28,7 +28,7 @@ Body`;
     expect(parsed.frontmatter).toEqual([
       { key: "name", value: "code-reviewer" },
       { key: "description", value: "Reviews pull requests." },
-      { key: "cursor", value: "  model: gpt-5\n  tools:\n    - bash" },
+      { key: "cursor", value: "model: gpt-5\ntools:\n  - bash" },
     ]);
     expect(parsed.body).toBe("# Reviewer\n\nBody");
   });
@@ -43,5 +43,58 @@ Body`;
 
     expect(parsed.frontmatter).toEqual([{ key: "title", value: "" }]);
     expect(parsed.body).toBe("Body");
+  });
+
+  it("does not include YAML block-scalar indicators as metadata values", () => {
+    const content = `---
+description: |
+  First line.
+  Second line.
+model: inherit
+---
+Body`;
+
+    const parsed = parseMarkdownSource(content);
+
+    expect(parsed.frontmatter).toEqual([
+      { key: "description", value: "First line.\nSecond line." },
+      { key: "model", value: "inherit" },
+    ]);
+    expect(parsed.body).toBe("Body");
+  });
+
+  it("trims leading/trailing whitespace from multiline metadata values", () => {
+    const content = `---
+description: |
+  
+    First line.
+    Second line.
+  
+---
+Body`;
+
+    const parsed = parseMarkdownSource(content);
+
+    expect(parsed.frontmatter).toEqual([
+      { key: "description", value: "First line.\nSecond line." },
+    ]);
+  });
+
+  it("removes wrapping quotes from single-line metadata values", () => {
+    const content = `---
+description: "Deprecated - use the superpowers:writing-plans skill instead"
+model: 'inherit'
+---
+Body`;
+
+    const parsed = parseMarkdownSource(content);
+
+    expect(parsed.frontmatter).toEqual([
+      {
+        key: "description",
+        value: "Deprecated - use the superpowers:writing-plans skill instead",
+      },
+      { key: "model", value: "inherit" },
+    ]);
   });
 });

@@ -152,7 +152,7 @@ export default async function DetailPage({ params }: DetailPageProps) {
                             {entry.value.length === 0 ? (
                               <span className="text-ink/50 dark:text-white/50">(empty)</span>
                             ) : isMultiline ? (
-                              <pre className="overflow-x-auto rounded border border-ink/10 bg-white/90 p-2 text-xs text-ink dark:border-white/10 dark:bg-black/30 dark:text-white">
+                              <pre className="whitespace-pre-wrap break-all rounded border border-ink/10 bg-white/90 p-2 text-xs text-ink dark:border-white/10 dark:bg-black/30 dark:text-white">
                                 <code>{entry.value}</code>
                               </pre>
                             ) : (
