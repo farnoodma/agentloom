@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CopyCommand } from "@/components/copy-command";
 import { isCatalogEntityType } from "@/lib/catalog";
+import { parseMarkdownSource } from "@/lib/frontmatter";
 import { buildInstallCommand } from "@/lib/install";
 import { formatHumanDate } from "@/lib/time";
 import { getItemDetail } from "@/server/db/queries";
@@ -59,6 +60,10 @@ export default async function DetailPage({ params }: DetailPageProps) {
     repo: detail.repo,
     displayName: detail.displayName,
   });
+  const parsedMarkdown =
+    source && source.resolvedPath.endsWith(".md")
+      ? parseMarkdownSource(source.content)
+      : null;
 
   return (
     <main className="space-y-6">
@@ -128,9 +133,48 @@ export default async function DetailPage({ params }: DetailPageProps) {
             <p className="text-sm text-ink/60 dark:text-white/60">
               Source could not be fetched from GitHub yet. The telemetry record exists and will still appear in ranking.
             </p>
-          ) : source.resolvedPath.endsWith(".md") ? (
+          ) : parsedMarkdown ? (
             <div className="prose prose-slate max-w-none break-words prose-pre:max-w-full prose-pre:overflow-x-auto dark:prose-invert">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{source.content}</ReactMarkdown>
+              {parsedMarkdown.frontmatter.length > 0 ? (
+                <section className="not-prose mb-6 rounded-xl border border-ink/10 bg-chalk/70 p-4 dark:border-white/10 dark:bg-white/5">
+                  <h3 className="mb-3 text-xs font-semibold uppercase tracking-[0.12em] text-ink/70 dark:text-white/70">
+                    Metadata
+                  </h3>
+                  <dl className="space-y-3">
+                    {parsedMarkdown.frontmatter.map((entry, index) => {
+                      const isMultiline = entry.value.includes("\n");
+                      return (
+                        <div key={`${entry.key}-${index}`} className="grid gap-1 sm:grid-cols-[120px_minmax(0,1fr)] sm:items-start">
+                          <dt className="break-all font-mono text-[11px] uppercase tracking-[0.08em] text-ink/60 dark:text-white/60">
+                            {entry.key}
+                          </dt>
+                          <dd className="min-w-0 text-sm text-ink dark:text-white">
+                            {entry.value.length === 0 ? (
+                              <span className="text-ink/50 dark:text-white/50">(empty)</span>
+                            ) : isMultiline ? (
+                              <pre className="overflow-x-auto rounded border border-ink/10 bg-white/90 p-2 text-xs text-ink dark:border-white/10 dark:bg-black/30 dark:text-white">
+                                <code>{entry.value}</code>
+                              </pre>
+                            ) : (
+                              <code className="break-all rounded bg-white/90 px-1.5 py-0.5 text-xs text-ink dark:bg-black/30 dark:text-white">
+                                {entry.value}
+                              </code>
+                            )}
+                          </dd>
+                        </div>
+                      );
+                    })}
+                  </dl>
+                </section>
+              ) : null}
+
+              {parsedMarkdown.body.trim().length > 0 ? (
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{parsedMarkdown.body}</ReactMarkdown>
+              ) : (
+                <p className="not-prose text-sm text-ink/60 dark:text-white/60">
+                  This file only contains frontmatter metadata.
+                </p>
+              )}
             </div>
           ) : (
             <pre className="overflow-x-auto rounded-lg border border-ink/10 bg-chalk p-4 text-xs text-ink dark:border-white/10 dark:bg-white/5 dark:text-white">
