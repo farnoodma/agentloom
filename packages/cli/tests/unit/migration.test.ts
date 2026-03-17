@@ -604,6 +604,52 @@ Review active changes.
     expect(summary.entities.command.imported).toBe(0);
   });
 
+  it("does not conflict when copilot command arguments use provider placeholders", async () => {
+    const paths = createPaths();
+    initializeCanonicalLayout(paths, ["copilot"]);
+
+    writeTextAtomic(
+      path.join(paths.commandsDir, "build.md"),
+      `---
+description: Build command
+---
+
+# /build
+
+Build the project with scope $ARGUMENTS.
+`,
+    );
+
+    ensureDir(path.join(paths.workspaceRoot, ".github", "prompts"));
+    writeTextAtomic(
+      path.join(paths.workspaceRoot, ".github", "prompts", "build.prompt.md"),
+      `---
+description: Build command
+---
+
+# /build
+
+Build the project with scope \${input:args}.
+`,
+    );
+
+    const summary = await migrateProviderStateToCanonical({
+      paths,
+      providers: ["copilot"],
+      target: "command",
+      nonInteractive: true,
+    });
+
+    expect(summary.entities.command.conflicts).toBe(0);
+    expect(summary.entities.command.imported).toBe(0);
+
+    const canonical = parseCommandContent(
+      fs.readFileSync(path.join(paths.commandsDir, "build.md"), "utf8"),
+    );
+    expect(canonical.body).toContain("scope $ARGUMENTS.");
+    expect(canonical.body).not.toContain("${input:args}");
+  });
+
   it("merges provider command configs into provider frontmatter", async () => {
     const paths = createPaths();
     initializeCanonicalLayout(paths, ["cursor", "copilot"]);
