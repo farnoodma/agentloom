@@ -43,6 +43,7 @@ import {
   copySkillArtifacts,
   normalizeSkillSelector,
   parseSkillsDir,
+  resolveSkillSelector,
   resolveSkillSelections,
   skillContentMatchesTarget,
   type CanonicalSkill,
@@ -60,12 +61,12 @@ import { ALL_PROVIDERS } from "../types.js";
 import { readLockfile, upsertLockEntry, writeLockfile } from "./lockfile.js";
 import { readCanonicalMcp, writeCanonicalMcp } from "./mcp.js";
 import {
-  discoverSourceAgentsDir,
-  discoverSourceCommandsDir,
+  discoverPluginSourceRoots,
+  discoverSourceAgentsDirs,
   discoverSourceCommandsDirs,
-  discoverSourceMcpPath,
-  discoverSourceRulesDir,
-  discoverSourceSkillsDir,
+  discoverSourceMcpPaths,
+  discoverSourceRulesDirs,
+  discoverSourceSkillsDirs,
   prepareSource,
 } from "./sources.js";
 import { isProviderEntityFileName } from "./provider-entity-validation.js";
@@ -149,6 +150,7 @@ interface McpSelectionResult {
 
 interface SkillSelectionResult {
   selectedSkills: CanonicalSkill[];
+  selectedSourceSkills: string[];
   selectionMode: SelectionMode;
 }
 
@@ -197,39 +199,48 @@ export async function importSource(
         : options.source;
 
   try {
-    const sourceAgentsDir = shouldImportAgents
-      ? discoverSourceAgentsDir(prepared.importRoot)
-      : null;
+    const pluginSourceRoots = discoverPluginSourceRoots(prepared.importRoot);
+    const sourceAgentsDirs = shouldImportAgents
+      ? discoverSourceAgentsDirs(prepared.importRoot)
+      : [];
     const sourceCommandsDirs = shouldImportCommands
       ? discoverSourceCommandsDirs(prepared.importRoot)
       : [];
-    const sourceCommandsDir =
-      sourceCommandsDirs[0] ??
-      (shouldImportCommands
-        ? discoverSourceCommandsDir(prepared.importRoot)
-        : null);
-    const sourceMcpPath = shouldImportMcp
-      ? discoverSourceMcpPath(prepared.importRoot)
-      : null;
-    const sourceRulesDir = shouldImportRules
-      ? discoverSourceRulesDir(prepared.importRoot)
-      : null;
-    const sourceSkillsDir = shouldImportSkills
-      ? discoverSourceSkillsDir(prepared.importRoot)
-      : null;
-
-    const sourceAgents = sourceAgentsDir
-      ? parseSourceAgentsForImport(sourceAgentsDir)
+    const sourceMcpPaths = shouldImportMcp
+      ? discoverSourceMcpPaths(prepared.importRoot)
       : [];
+    const sourceRulesDirs = shouldImportRules
+      ? discoverSourceRulesDirs(prepared.importRoot)
+      : [];
+    const sourceSkillsDirs = shouldImportSkills
+      ? discoverSourceSkillsDirs(prepared.importRoot)
+      : [];
+
+    const sourceAgents =
+      sourceAgentsDirs.length > 0
+        ? parseSourceAgentsForImport(sourceAgentsDirs, pluginSourceRoots)
+        : [];
     const sourceCommands =
       sourceCommandsDirs.length > 0
-        ? parseSourceCommandsForImport(sourceCommandsDirs)
+        ? parseSourceCommandsForImport(sourceCommandsDirs, pluginSourceRoots)
         : [];
-    const sourceMcp = sourceMcpPath
-      ? normalizeMcp(readJsonIfExists<Record<string, unknown>>(sourceMcpPath))
-      : null;
-    const sourceRules = sourceRulesDir ? parseRulesDir(sourceRulesDir) : [];
-    const sourceSkills = sourceSkillsDir ? parseSkillsDir(sourceSkillsDir) : [];
+    const sourceMcp =
+      sourceMcpPaths.length > 0
+        ? parseSourceMcpForImport(sourceMcpPaths, pluginSourceRoots)
+        : null;
+    const sourceRules =
+      sourceRulesDirs.length > 0
+        ? parseSourceRulesForImport(sourceRulesDirs, pluginSourceRoots)
+        : [];
+    const sourceSkills =
+      sourceSkillsDirs.length > 0
+        ? parseSourceSkillsForImport(sourceSkillsDirs, pluginSourceRoots)
+        : [];
+    const sourceAgentsDir = sourceAgentsDirs[0] ?? null;
+    const sourceCommandsDir = sourceCommandsDirs[0] ?? null;
+    const sourceMcpPath = sourceMcpPaths[0] ?? null;
+    const sourceRulesDir = sourceRulesDirs[0] ?? null;
+    const sourceSkillsDir = sourceSkillsDirs[0] ?? null;
     const hasExplicitCommandSelection =
       (options.commandSelectors?.length ?? 0) > 0;
     const isAggregateImport =
@@ -239,17 +250,21 @@ export async function importSource(
       (options.importRules === undefined || shouldImportRules) &&
       shouldImportSkills;
 
-    if (shouldImportAgents && requireAgents && !sourceAgentsDir) {
+    if (shouldImportAgents && requireAgents && sourceAgentsDirs.length === 0) {
       throw new Error(
-        `No source agents directory found under ${prepared.importRoot} (expected agents/, .agents/agents/, or .github/agents/).`,
+        `No source agents directory found under ${prepared.importRoot} (expected agents/, .agents/agents/, or .github/agents/, including plugin sources declared in .claude-plugin/marketplace.json).`,
       );
     }
     if (shouldImportAgents && requireAgents && sourceAgents.length === 0) {
       throw new Error(`No agent files found in ${sourceAgentsDir}.`);
     }
-    if (shouldImportCommands && options.requireCommands && !sourceCommandsDir) {
+    if (
+      shouldImportCommands &&
+      options.requireCommands &&
+      sourceCommandsDirs.length === 0
+    ) {
       throw new Error(
-        `No source commands directory found under ${prepared.importRoot} (expected .agents/commands/, commands/, prompts/, .gemini/commands/, or .github/prompts/).`,
+        `No source commands directory found under ${prepared.importRoot} (expected .agents/commands/, commands/, prompts/, .gemini/commands/, or .github/prompts/, including plugin sources declared in .claude-plugin/marketplace.json).`,
       );
     }
     if (
@@ -259,22 +274,26 @@ export async function importSource(
     ) {
       throw new Error(`No command files found in ${sourceCommandsDir}.`);
     }
-    if (shouldImportMcp && options.requireMcp && !sourceMcpPath) {
+    if (shouldImportMcp && options.requireMcp && sourceMcpPaths.length === 0) {
       throw new Error(
-        `No source mcp.json found under ${prepared.importRoot} (expected mcp.json or .agents/mcp.json).`,
+        `No source mcp.json found under ${prepared.importRoot} (expected mcp.json or .agents/mcp.json, including plugin sources declared in .claude-plugin/marketplace.json).`,
       );
     }
-    if (shouldImportRules && requireRules && !sourceRulesDir) {
+    if (shouldImportRules && requireRules && sourceRulesDirs.length === 0) {
       throw new Error(
-        `No source rules directory found under ${prepared.importRoot} (expected .agents/rules/ or rules/).`,
+        `No source rules directory found under ${prepared.importRoot} (expected .agents/rules/ or rules/, including plugin sources declared in .claude-plugin/marketplace.json).`,
       );
     }
     if (shouldImportRules && requireRules && sourceRules.length === 0) {
       throw new Error(`No rule files found in ${sourceRulesDir}.`);
     }
-    if (shouldImportSkills && options.requireSkills && !sourceSkillsDir) {
+    if (
+      shouldImportSkills &&
+      options.requireSkills &&
+      sourceSkillsDirs.length === 0
+    ) {
       throw new Error(
-        `No source skills directory found under ${prepared.importRoot} (expected .agents/skills/, skills/, or root SKILL.md).`,
+        `No source skills directory found under ${prepared.importRoot} (expected .agents/skills/, skills/, or root SKILL.md, including plugin sources declared in .claude-plugin/marketplace.json).`,
       );
     }
     if (
@@ -294,7 +313,7 @@ export async function importSource(
       Object.keys(sourceMcp?.mcpServers ?? {}).length === 0
     ) {
       throw new Error(
-        `No importable entities found in source "${sourceLocation}".\nExpected agents/, .agents/agents/, .github/agents/, commands/, .agents/commands/, prompts/, .gemini/commands/, .github/prompts/, mcp.json/.agents/mcp.json, rules/.agents/rules/, skills/, .agents/skills/, or root SKILL.md.`,
+        `No importable entities found in source "${sourceLocation}".\nExpected agents/, .agents/agents/, .github/agents/, commands/, .agents/commands/, prompts/, .gemini/commands/, .github/prompts/, mcp.json/.agents/mcp.json, rules/.agents/rules/, skills/, .agents/skills/, root SKILL.md, or plugin sources from .claude-plugin/marketplace.json.`,
       );
     }
 
@@ -381,8 +400,8 @@ export async function importSource(
         selectionMode: options.selectionMode,
       });
       selectedSkills = skillSelection.selectedSkills;
+      selectedSourceSkills = skillSelection.selectedSourceSkills;
       skillSelectionMode = skillSelection.selectionMode;
-      selectedSourceSkills = selectedSkills.map((skill) => skill.name);
     }
 
     const importedAgents: string[] = [];
@@ -555,14 +574,22 @@ export async function importSource(
       }
 
       for (const [index, sourceSkill] of selectedSkills.entries()) {
-        let targetSkillDirName = slugify(sourceSkill.name) || "skill";
+        const canonicalSkillDirName = slugify(sourceSkill.name) || "skill";
+        const legacySkillDirName =
+          slugify(sourceSkill.sourceDirName) || "skill";
+        let targetSkillDirName = canonicalSkillDirName;
 
         const mappedTargetSkillDirName = resolveMappedTargetSkillName(
-          sourceSkill.name,
+          sourceSkill,
+          selectedSkills,
           options.skillRenameMap,
         );
         if (mappedTargetSkillDirName) {
-          targetSkillDirName = mappedTargetSkillDirName;
+          targetSkillDirName =
+            mappedTargetSkillDirName === legacySkillDirName &&
+            legacySkillDirName !== canonicalSkillDirName
+              ? canonicalSkillDirName
+              : mappedTargetSkillDirName;
         } else if (
           options.rename &&
           selectedSkills.length === 1 &&
@@ -577,6 +604,11 @@ export async function importSource(
         const resolvedSkillDirName = await resolveSkillConflict({
           sourceSkill,
           targetSkillDirName,
+          legacySkillDirName:
+            targetSkillDirName === canonicalSkillDirName
+              ? legacySkillDirName
+              : undefined,
+          canonicalSkillDirName,
           paths: options.paths,
           yes: !!options.yes,
           nonInteractive: !!options.nonInteractive,
@@ -589,9 +621,25 @@ export async function importSource(
           options.paths.skillsDir,
           resolvedSkillDirName,
         );
+        if (resolvedSkillDirName === canonicalSkillDirName) {
+          moveLegacySkillDirectoryToCanonicalIfUnchanged({
+            sourceSkill,
+            legacySkillDirName,
+            canonicalSkillDirName,
+            paths: options.paths,
+          });
+        }
         if (!skillContentMatchesTarget(sourceSkill, targetSkillDir)) {
           fs.rmSync(targetSkillDir, { recursive: true, force: true });
           copySkillArtifacts(sourceSkill, targetSkillDir);
+        }
+
+        if (resolvedSkillDirName === canonicalSkillDirName) {
+          removeLegacySkillDirectory({
+            legacySkillDirName,
+            canonicalSkillDirName,
+            paths: options.paths,
+          });
         }
 
         importedSkills.push(resolvedSkillDirName);
@@ -684,6 +732,7 @@ export async function importSource(
           selectedSourceMcpServers: selectedSourceMcpServersForLock,
           selectedSourceRules: selectedSourceRulesForLock,
           selectedSourceSkills: selectedSourceSkillsForLock,
+          selectedSkills,
           skillsProviders: skillsProvidersForLock,
         });
     const shouldMergeCommandOnlyEntry =
@@ -871,24 +920,252 @@ export async function importSource(
   }
 }
 
-function parseSourceAgentsForImport(sourceAgentsDir: string): CanonicalAgent[] {
-  if (isGitHubAgentsDir(sourceAgentsDir)) {
-    return parseGitHubAgentsDirForImport(sourceAgentsDir);
-  }
-  return parseAgentsDir(sourceAgentsDir);
+function parseSourceAgentsForImport(
+  sourceAgentsDirs: string[],
+  pluginSourceRoots: string[],
+): CanonicalAgent[] {
+  const sourceAgents = sourceAgentsDirs.flatMap((sourceAgentsDir) => {
+    if (isGitHubAgentsDir(sourceAgentsDir)) {
+      return parseGitHubAgentsDirForImport(sourceAgentsDir);
+    }
+    return parseAgentsDir(sourceAgentsDir);
+  });
+
+  assertNoPluginSourceCollisions({
+    entityLabel: "agent",
+    pluginSourceRoots,
+    entries: sourceAgents.map((agent) => ({
+      key: targetFileNameForAgent(agent),
+      sourcePath: agent.sourcePath,
+    })),
+  });
+
+  return sourceAgents;
 }
 
 function parseSourceCommandsForImport(
-  sourceCommandsDir: string | string[],
+  sourceCommandsDirs: string[],
+  pluginSourceRoots: string[],
 ): CanonicalCommandFile[] {
-  const sourceCommandsDirs = Array.isArray(sourceCommandsDir)
-    ? sourceCommandsDir
-    : [sourceCommandsDir];
-  return mergeCanonicalCommandFiles(
-    sourceCommandsDirs.flatMap((dirPath) =>
-      parseSourceCommandsFromDir(dirPath),
-    ),
+  const sourceCommands = sourceCommandsDirs.flatMap((dirPath) =>
+    parseSourceCommandsFromDir(dirPath),
   );
+
+  assertNoPluginSourceCollisions({
+    entityLabel: "command",
+    pluginSourceRoots,
+    entries: sourceCommands.map((command) => ({
+      key: toCanonicalCommandFileName(command.fileName),
+      sourcePath: command.sourcePath,
+    })),
+  });
+
+  return mergeCanonicalCommandFiles(sourceCommands);
+}
+
+function parseSourceMcpForImport(
+  sourceMcpPaths: string[],
+  pluginSourceRoots: string[],
+): CanonicalMcpFile {
+  const mergedMcpServers: Record<string, Record<string, unknown>> = {};
+  const seenServerSource = new Map<
+    string,
+    { sourcePath: string; pluginSourceRoot: string | null }
+  >();
+
+  for (const sourceMcpPath of sourceMcpPaths) {
+    const sourceMcp = normalizeMcp(
+      readJsonIfExists<Record<string, unknown>>(sourceMcpPath),
+    );
+
+    for (const [serverName, serverConfig] of Object.entries(
+      sourceMcp.mcpServers,
+    )) {
+      const pluginSourceRoot = resolvePluginSourceRootForPath(
+        sourceMcpPath,
+        pluginSourceRoots,
+      );
+      const existing = seenServerSource.get(serverName);
+      if (
+        existing &&
+        existing.pluginSourceRoot &&
+        pluginSourceRoot &&
+        existing.pluginSourceRoot !== pluginSourceRoot
+      ) {
+        throw buildPluginCollisionError({
+          entityLabel: "mcp server",
+          key: serverName,
+          sourcePaths: [existing.sourcePath, sourceMcpPath],
+        });
+      }
+
+      mergedMcpServers[serverName] = serverConfig;
+      seenServerSource.set(serverName, {
+        sourcePath: sourceMcpPath,
+        pluginSourceRoot,
+      });
+    }
+  }
+
+  return {
+    version: 1,
+    mcpServers: mergedMcpServers,
+  };
+}
+
+function parseSourceRulesForImport(
+  sourceRulesDirs: string[],
+  pluginSourceRoots: string[],
+): CanonicalRuleFile[] {
+  const sourceRules = sourceRulesDirs.flatMap((sourceRulesDir) =>
+    parseRulesDir(sourceRulesDir),
+  );
+
+  assertNoPluginSourceCollisions({
+    entityLabel: "rule",
+    pluginSourceRoots,
+    entries: sourceRules.map((rule) => ({
+      key: rule.id,
+      sourcePath: rule.sourcePath,
+    })),
+  });
+
+  return sourceRules;
+}
+
+function parseSourceSkillsForImport(
+  sourceSkillsDirs: string[],
+  pluginSourceRoots: string[],
+): CanonicalSkill[] {
+  const sourceSkills = sourceSkillsDirs.flatMap((sourceSkillsDir) =>
+    parseSkillsDir(sourceSkillsDir),
+  );
+
+  assertNoPluginSourceCollisions({
+    entityLabel: "skill",
+    pluginSourceRoots,
+    entries: sourceSkills.map((skill) => ({
+      key: normalizeSkillSelector(skill.name),
+      sourcePath: skill.skillPath,
+    })),
+  });
+  assertNoDuplicateSkillNames(sourceSkills);
+
+  return sourceSkills;
+}
+
+function assertNoDuplicateSkillNames(sourceSkills: CanonicalSkill[]): void {
+  const byName = new Map<string, Array<{ name: string; sourcePath: string }>>();
+
+  for (const skill of sourceSkills) {
+    const normalizedName = normalizeSkillSelector(skill.name);
+    if (!normalizedName) continue;
+
+    const matches = byName.get(normalizedName) ?? [];
+    matches.push({
+      name: skill.name,
+      sourcePath: skill.skillPath,
+    });
+    byName.set(normalizedName, matches);
+  }
+
+  for (const matches of byName.values()) {
+    const sourcePaths = [...new Set(matches.map((item) => item.sourcePath))];
+    if (sourcePaths.length < 2) {
+      continue;
+    }
+
+    const locations = sourcePaths
+      .map((sourcePath) => `- ${sourcePath}`)
+      .join("\n");
+    throw new Error(
+      `Conflicting skill "${matches[0]?.name ?? "unknown"}" found in source:\n${locations}\nEnsure each SKILL.md frontmatter name is unique.`,
+    );
+  }
+}
+
+function assertNoPluginSourceCollisions(options: {
+  entityLabel: string;
+  pluginSourceRoots: string[];
+  entries: Array<{ key: string; sourcePath: string }>;
+}): void {
+  if (options.pluginSourceRoots.length === 0 || options.entries.length === 0) {
+    return;
+  }
+
+  const byKey = new Map<
+    string,
+    Array<{ key: string; sourcePath: string; pluginSourceRoot: string | null }>
+  >();
+  for (const entry of options.entries) {
+    const normalizedKey = entry.key.trim().toLowerCase();
+    if (!normalizedKey) continue;
+
+    const pluginSourceRoot = resolvePluginSourceRootForPath(
+      entry.sourcePath,
+      options.pluginSourceRoots,
+    );
+    const group = byKey.get(normalizedKey) ?? [];
+    group.push({
+      key: entry.key,
+      sourcePath: entry.sourcePath,
+      pluginSourceRoot,
+    });
+    byKey.set(normalizedKey, group);
+  }
+
+  for (const matches of byKey.values()) {
+    const pluginRoots = [
+      ...new Set(
+        matches
+          .map((item) => item.pluginSourceRoot)
+          .filter((item): item is string => Boolean(item)),
+      ),
+    ];
+
+    if (pluginRoots.length < 2) {
+      continue;
+    }
+
+    throw buildPluginCollisionError({
+      entityLabel: options.entityLabel,
+      key: matches[0]?.key ?? "unknown",
+      sourcePaths: matches.map((item) => item.sourcePath),
+    });
+  }
+}
+
+function buildPluginCollisionError(options: {
+  entityLabel: string;
+  key: string;
+  sourcePaths: string[];
+}): Error {
+  const locations = [...new Set(options.sourcePaths)]
+    .map((sourcePath) => `- ${sourcePath}`)
+    .join("\n");
+  return new Error(
+    `Conflicting ${options.entityLabel} "${options.key}" found across plugin sources declared in .claude-plugin/marketplace.json:\n${locations}\nUse --subdir to import a single plugin source.`,
+  );
+}
+
+function resolvePluginSourceRootForPath(
+  sourcePath: string,
+  pluginSourceRoots: string[],
+): string | null {
+  for (const pluginSourceRoot of [...pluginSourceRoots].sort(
+    (left, right) => right.length - left.length,
+  )) {
+    const normalizedRoot = path.resolve(pluginSourceRoot);
+    const normalizedPath = path.resolve(sourcePath);
+    if (
+      normalizedPath === normalizedRoot ||
+      normalizedPath.startsWith(`${normalizedRoot}${path.sep}`)
+    ) {
+      return normalizedRoot;
+    }
+  }
+
+  return null;
 }
 
 function parseSourceCommandsFromDir(
@@ -1570,7 +1847,7 @@ function findMatchingLockEntry(
     | "selectedSourceRules"
     | "selectedSourceSkills"
     | "skillsProviders"
-  >,
+  > & { selectedSkills?: CanonicalSkill[] },
 ): LockEntry | undefined {
   return entries.find(
     (entry) =>
@@ -1591,9 +1868,10 @@ function findMatchingLockEntry(
         key.selectedSourceRules,
         { wildcardWhenRightIsUndefined: true },
       ) &&
-      sameStringSelectionForMatch(
+      sameSkillSelectionForMatch(
         entry.selectedSourceSkills,
         key.selectedSourceSkills,
+        key.selectedSkills,
         { wildcardWhenRightIsUndefined: true },
       ) &&
       sameStringSelectionForMatch(entry.skillsProviders, key.skillsProviders, {
@@ -1671,6 +1949,56 @@ function sameStringSelectionForMatch(
   return normalizedLeft.every(
     (value, index) => value === normalizedRight[index],
   );
+}
+
+function sameSkillSelectionForMatch(
+  left: string[] | undefined,
+  right: string[] | undefined,
+  selectedSkills: CanonicalSkill[] | undefined,
+  options: { wildcardWhenRightIsUndefined?: boolean } = {},
+): boolean {
+  if (options.wildcardWhenRightIsUndefined && right === undefined) {
+    return true;
+  }
+
+  const normalizedLeft = normalizeSkillSelectionsForMatch(left);
+  const normalizedRight = normalizeSkillSelectionsForMatch(right);
+  if (
+    normalizedLeft.length === normalizedRight.length &&
+    normalizedLeft.every((value, index) => value === normalizedRight[index])
+  ) {
+    return true;
+  }
+
+  if (!selectedSkills || normalizedLeft.length !== selectedSkills.length) {
+    return false;
+  }
+
+  const remainingSelectors = new Set(normalizedLeft);
+  for (const skill of selectedSkills) {
+    const matchedSelector = [
+      normalizeSkillSelector(skill.name),
+      normalizeSkillSelector(skill.sourceDirName),
+    ].find((selector) => selector && remainingSelectors.has(selector));
+    if (!matchedSelector) {
+      return false;
+    }
+    remainingSelectors.delete(matchedSelector);
+  }
+
+  return remainingSelectors.size === 0;
+}
+
+function normalizeSkillSelectionsForMatch(
+  value: string[] | undefined,
+): string[] {
+  if (!Array.isArray(value) || value.length === 0) return [];
+
+  return [
+    ...new Set(
+      value.map((item) => normalizeSkillSelector(item)).filter(Boolean),
+    ),
+  ].sort();
 }
 
 function uniqueStrings(values: string[]): string[] {
@@ -1874,22 +2202,98 @@ function normalizeSkillRenameMap(
 }
 
 function resolveMappedTargetSkillName(
-  sourceSkillName: string,
+  sourceSkill: CanonicalSkill,
+  selectedSkills: CanonicalSkill[],
   renameMap: Record<string, string> | undefined,
 ): string | undefined {
   if (!renameMap) return undefined;
 
-  const normalizedSourceName = normalizeSkillSelector(sourceSkillName);
-  if (!normalizedSourceName) return undefined;
-
   for (const [sourceSelector, importedName] of Object.entries(renameMap)) {
-    if (normalizeSkillSelector(sourceSelector) !== normalizedSourceName) {
+    const matchedSkill = resolveSkillSelector(selectedSkills, sourceSelector);
+    if (!matchedSkill || matchedSkill.sourcePath !== sourceSkill.sourcePath) {
       continue;
     }
     return slugify(path.basename(importedName.trim())) || "skill";
   }
 
   return undefined;
+}
+
+function moveLegacySkillDirectoryToCanonicalIfUnchanged(options: {
+  sourceSkill: CanonicalSkill;
+  legacySkillDirName: string;
+  canonicalSkillDirName: string;
+  paths: ScopePaths;
+}): void {
+  if (options.legacySkillDirName === options.canonicalSkillDirName) {
+    return;
+  }
+
+  const legacySkillDir = path.join(
+    options.paths.skillsDir,
+    options.legacySkillDirName,
+  );
+  if (
+    !fs.existsSync(legacySkillDir) ||
+    !fs.statSync(legacySkillDir).isDirectory()
+  ) {
+    return;
+  }
+
+  const canonicalSkillDir = path.join(
+    options.paths.skillsDir,
+    options.canonicalSkillDirName,
+  );
+  if (fs.existsSync(canonicalSkillDir)) {
+    return;
+  }
+  if (!skillContentMatchesTarget(options.sourceSkill, legacySkillDir)) {
+    return;
+  }
+
+  moveDirectory(legacySkillDir, canonicalSkillDir);
+}
+
+function removeLegacySkillDirectory(options: {
+  legacySkillDirName: string;
+  canonicalSkillDirName: string;
+  paths: ScopePaths;
+}): void {
+  if (options.legacySkillDirName === options.canonicalSkillDirName) {
+    return;
+  }
+
+  const legacySkillDir = path.join(
+    options.paths.skillsDir,
+    options.legacySkillDirName,
+  );
+  if (!fs.existsSync(legacySkillDir)) {
+    return;
+  }
+
+  const stat = fs.lstatSync(legacySkillDir);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) {
+    return;
+  }
+
+  fs.rmSync(legacySkillDir, { recursive: true, force: true });
+}
+
+function moveDirectory(sourceDir: string, targetDir: string): void {
+  ensureDir(path.dirname(targetDir));
+
+  try {
+    fs.renameSync(sourceDir, targetDir);
+    return;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException | undefined)?.code;
+    if (code !== "EXDEV") {
+      throw error;
+    }
+  }
+
+  fs.cpSync(sourceDir, targetDir, { recursive: true, force: true });
+  fs.rmSync(sourceDir, { recursive: true, force: true });
 }
 
 function normalizeSkillsProviders(
@@ -1911,6 +2315,8 @@ function normalizeSkillsProviders(
 async function resolveSkillConflict(options: {
   sourceSkill: CanonicalSkill;
   targetSkillDirName: string;
+  legacySkillDirName?: string;
+  canonicalSkillDirName: string;
   paths: ScopePaths;
   yes: boolean;
   nonInteractive: boolean;
@@ -1920,15 +2326,16 @@ async function resolveSkillConflict(options: {
     options.paths.skillsDir,
     options.targetSkillDirName,
   );
-  if (!fs.existsSync(targetPath)) return options.targetSkillDirName;
+  const conflictPath = resolveExistingSkillConflictPath(options, targetPath);
+  if (!conflictPath) return options.targetSkillDirName;
 
-  if (!fs.statSync(targetPath).isDirectory()) {
+  if (!fs.statSync(conflictPath).isDirectory()) {
     throw new Error(
-      `Cannot import skill ${options.promptLabel}: ${targetPath} exists and is not a directory.`,
+      `Cannot import skill ${options.promptLabel}: ${conflictPath} exists and is not a directory.`,
     );
   }
 
-  if (skillContentMatchesTarget(options.sourceSkill, targetPath)) {
+  if (skillContentMatchesTarget(options.sourceSkill, conflictPath)) {
     return options.targetSkillDirName;
   }
 
@@ -1982,6 +2389,32 @@ async function resolveSkillConflict(options: {
   }
 
   return options.targetSkillDirName;
+}
+
+function resolveExistingSkillConflictPath(
+  options: {
+    legacySkillDirName?: string;
+    canonicalSkillDirName: string;
+    paths: ScopePaths;
+  },
+  targetPath: string,
+): string | null {
+  if (fs.existsSync(targetPath)) {
+    return targetPath;
+  }
+
+  if (
+    !options.legacySkillDirName ||
+    options.legacySkillDirName === options.canonicalSkillDirName
+  ) {
+    return null;
+  }
+
+  const legacyPath = path.join(
+    options.paths.skillsDir,
+    options.legacySkillDirName,
+  );
+  return fs.existsSync(legacyPath) ? legacyPath : null;
 }
 
 async function resolveAgentConflict(options: {
@@ -2464,6 +2897,7 @@ async function resolveSkillsToImport(options: {
 
     return {
       selectedSkills: selected,
+      selectedSourceSkills: selectors,
       selectionMode: "custom",
     };
   }
@@ -2478,6 +2912,7 @@ async function resolveSkillsToImport(options: {
   if (selectionResolution.skipImport) {
     return {
       selectedSkills: [],
+      selectedSourceSkills: [],
       selectionMode: "custom",
     };
   }
@@ -2489,6 +2924,7 @@ async function resolveSkillsToImport(options: {
   ) {
     return {
       selectedSkills: options.sourceSkills,
+      selectedSourceSkills: options.sourceSkills.map((skill) => skill.name),
       selectionMode,
     };
   }
@@ -2515,6 +2951,9 @@ async function resolveSkillsToImport(options: {
     selectedSkills: options.sourceSkills.filter((skill) =>
       selectedNames.has(skill.name),
     ),
+    selectedSourceSkills: options.sourceSkills
+      .filter((skill) => selectedNames.has(skill.name))
+      .map((skill) => skill.name),
     selectionMode,
   };
 }

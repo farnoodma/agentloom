@@ -91,36 +91,105 @@ export function prepareSource(options: {
   };
 }
 
+export function discoverPluginSourceRoots(importRoot: string): string[] {
+  const marketplacePath = path.join(
+    importRoot,
+    ".claude-plugin",
+    "marketplace.json",
+  );
+  if (
+    !fs.existsSync(marketplacePath) ||
+    !fs.statSync(marketplacePath).isFile()
+  ) {
+    return [];
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(fs.readFileSync(marketplacePath, "utf8")) as unknown;
+  } catch {
+    return [];
+  }
+
+  const plugins = Array.isArray((parsed as { plugins?: unknown })?.plugins)
+    ? ((parsed as { plugins: unknown[] }).plugins as unknown[])
+    : [];
+  const discoveredRoots: string[] = [];
+
+  for (const plugin of plugins) {
+    if (
+      !plugin ||
+      typeof plugin !== "object" ||
+      Array.isArray(plugin) ||
+      typeof (plugin as { source?: unknown }).source !== "string"
+    ) {
+      continue;
+    }
+
+    const source = (plugin as { source: string }).source.trim();
+    if (!source) continue;
+
+    const pluginRoot = path.resolve(importRoot, source);
+    if (!isPathWithinRoot(importRoot, pluginRoot)) {
+      continue;
+    }
+    if (!fs.existsSync(pluginRoot) || !fs.statSync(pluginRoot).isDirectory()) {
+      continue;
+    }
+    discoveredRoots.push(pluginRoot);
+  }
+
+  return dedupePaths(discoveredRoots);
+}
+
 export function discoverSourceAgentsDir(importRoot: string): string | null {
-  const direct = path.join(importRoot, "agents");
-  if (fs.existsSync(direct) && fs.statSync(direct).isDirectory()) {
+  return discoverSourceAgentsDirs(importRoot)[0] ?? null;
+}
+
+export function discoverSourceAgentsDirs(importRoot: string): string[] {
+  const direct = discoverSourceAgentsDirsForRoot(importRoot);
+  if (direct.length > 0) {
     return direct;
   }
 
-  const nested = path.join(importRoot, ".agents", "agents");
-  if (fs.existsSync(nested) && fs.statSync(nested).isDirectory()) {
-    return nested;
-  }
-
-  const githubAgents = path.join(importRoot, ".github", "agents");
-  if (fs.existsSync(githubAgents) && fs.statSync(githubAgents).isDirectory()) {
-    return githubAgents;
-  }
-
-  return null;
+  return dedupePaths(
+    discoverPluginSourceRoots(importRoot).flatMap((pluginRoot) =>
+      discoverSourceAgentsDirsForRoot(pluginRoot),
+    ),
+  );
 }
 
 export function discoverSourceMcpPath(importRoot: string): string | null {
-  const nested = path.join(importRoot, ".agents", "mcp.json");
-  if (fs.existsSync(nested)) return nested;
+  return discoverSourceMcpPaths(importRoot)[0] ?? null;
+}
 
-  const direct = path.join(importRoot, "mcp.json");
-  if (fs.existsSync(direct)) return direct;
+export function discoverSourceMcpPaths(importRoot: string): string[] {
+  const direct = discoverSourceMcpPathsForRoot(importRoot);
+  if (direct.length > 0) {
+    return direct;
+  }
 
-  return null;
+  return dedupePaths(
+    discoverPluginSourceRoots(importRoot).flatMap((pluginRoot) =>
+      discoverSourceMcpPathsForRoot(pluginRoot),
+    ),
+  );
 }
 
 export function discoverSourceCommandsDirs(importRoot: string): string[] {
+  const direct = discoverSourceCommandsDirsForRoot(importRoot);
+  if (direct.length > 0) {
+    return direct;
+  }
+
+  return dedupePaths(
+    discoverPluginSourceRoots(importRoot).flatMap((pluginRoot) =>
+      discoverSourceCommandsDirsForRoot(pluginRoot),
+    ),
+  );
+}
+
+function discoverSourceCommandsDirsForRoot(importRoot: string): string[] {
   const nested = path.join(importRoot, ".agents", "commands");
   if (fs.existsSync(nested) && fs.statSync(nested).isDirectory()) {
     return [nested];
@@ -162,36 +231,115 @@ export function discoverSourceCommandsDir(importRoot: string): string | null {
 }
 
 export function discoverSourceSkillsDir(importRoot: string): string | null {
+  return discoverSourceSkillsDirs(importRoot)[0] ?? null;
+}
+
+export function discoverSourceSkillsDirs(importRoot: string): string[] {
+  const direct = discoverSourceSkillsDirsForRoot(importRoot);
+  if (direct.length > 0) {
+    return direct;
+  }
+
+  return dedupePaths(
+    discoverPluginSourceRoots(importRoot).flatMap((pluginRoot) =>
+      discoverSourceSkillsDirsForRoot(pluginRoot),
+    ),
+  );
+}
+
+export function discoverSourceRulesDir(importRoot: string): string | null {
+  return discoverSourceRulesDirs(importRoot)[0] ?? null;
+}
+
+export function discoverSourceRulesDirs(importRoot: string): string[] {
+  const direct = discoverSourceRulesDirsForRoot(importRoot);
+  if (direct.length > 0) {
+    return direct;
+  }
+
+  return dedupePaths(
+    discoverPluginSourceRoots(importRoot).flatMap((pluginRoot) =>
+      discoverSourceRulesDirsForRoot(pluginRoot),
+    ),
+  );
+}
+
+function discoverSourceAgentsDirsForRoot(importRoot: string): string[] {
+  const direct = path.join(importRoot, "agents");
+  if (fs.existsSync(direct) && fs.statSync(direct).isDirectory()) {
+    return [direct];
+  }
+
+  const nested = path.join(importRoot, ".agents", "agents");
+  if (fs.existsSync(nested) && fs.statSync(nested).isDirectory()) {
+    return [nested];
+  }
+
+  const githubAgents = path.join(importRoot, ".github", "agents");
+  if (fs.existsSync(githubAgents) && fs.statSync(githubAgents).isDirectory()) {
+    return [githubAgents];
+  }
+
+  return [];
+}
+
+function discoverSourceMcpPathsForRoot(importRoot: string): string[] {
+  const nested = path.join(importRoot, ".agents", "mcp.json");
+  if (fs.existsSync(nested) && fs.statSync(nested).isFile()) {
+    return [nested];
+  }
+
+  const direct = path.join(importRoot, "mcp.json");
+  if (fs.existsSync(direct) && fs.statSync(direct).isFile()) {
+    return [direct];
+  }
+
+  return [];
+}
+
+function discoverSourceSkillsDirsForRoot(importRoot: string): string[] {
   const nested = path.join(importRoot, ".agents", "skills");
   if (fs.existsSync(nested) && fs.statSync(nested).isDirectory()) {
-    return nested;
+    return [nested];
   }
 
   const direct = path.join(importRoot, "skills");
   if (fs.existsSync(direct) && fs.statSync(direct).isDirectory()) {
-    return direct;
+    return [direct];
   }
 
   const rootSkill = path.join(importRoot, "SKILL.md");
   if (fs.existsSync(rootSkill) && fs.statSync(rootSkill).isFile()) {
-    return importRoot;
+    return [importRoot];
   }
 
-  return null;
+  return [];
 }
 
-export function discoverSourceRulesDir(importRoot: string): string | null {
+function discoverSourceRulesDirsForRoot(importRoot: string): string[] {
   const nested = path.join(importRoot, ".agents", "rules");
   if (fs.existsSync(nested) && fs.statSync(nested).isDirectory()) {
-    return nested;
+    return [nested];
   }
 
   const direct = path.join(importRoot, "rules");
   if (fs.existsSync(direct) && fs.statSync(direct).isDirectory()) {
-    return direct;
+    return [direct];
   }
 
-  return null;
+  return [];
+}
+
+function dedupePaths(paths: string[]): string[] {
+  return [...new Set(paths)];
+}
+
+function isPathWithinRoot(rootPath: string, targetPath: string): boolean {
+  const relative = path.relative(rootPath, targetPath);
+  return (
+    relative === "" ||
+    (!relative.startsWith("..") && !path.isAbsolute(relative))
+  );
 }
 
 function resolveImportRoot(rootPath: string, subdir?: string): string {

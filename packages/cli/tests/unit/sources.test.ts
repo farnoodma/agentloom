@@ -3,11 +3,16 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  discoverPluginSourceRoots,
   discoverSourceAgentsDir,
+  discoverSourceAgentsDirs,
   discoverSourceCommandsDir,
   discoverSourceCommandsDirs,
+  discoverSourceMcpPaths,
   discoverSourceRulesDir,
+  discoverSourceRulesDirs,
   discoverSourceSkillsDir,
+  discoverSourceSkillsDirs,
   parseSourceSpec,
   prepareSource,
 } from "../../src/core/sources.js";
@@ -141,6 +146,105 @@ describe("source parsing and revision", () => {
 
     ensureDir(path.join(root, "skills"));
     expect(discoverSourceSkillsDir(root)).toBe(path.join(root, "skills"));
+  });
+
+  it("discovers plugin roots from .claude-plugin marketplace metadata", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-sources-"));
+    tempDirs.push(root);
+
+    ensureDir(path.join(root, ".claude-plugin"));
+    ensureDir(path.join(root, "plugins", "alpha"));
+    ensureDir(path.join(root, "plugins", "beta"));
+    writeTextAtomic(
+      path.join(root, ".claude-plugin", "marketplace.json"),
+      JSON.stringify({
+        plugins: [
+          { source: "./plugins/alpha" },
+          { source: "plugins/beta" },
+          { source: "../outside" },
+          { source: "./plugins/missing" },
+        ],
+      }),
+    );
+
+    expect(discoverPluginSourceRoots(root)).toEqual([
+      path.join(root, "plugins", "alpha"),
+      path.join(root, "plugins", "beta"),
+    ]);
+  });
+
+  it("uses canonical skills path before plugin fallback", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-sources-"));
+    tempDirs.push(root);
+
+    ensureDir(path.join(root, "skills"));
+    ensureDir(path.join(root, ".claude-plugin"));
+    ensureDir(path.join(root, "plugins", "railway", "skills"));
+    writeTextAtomic(
+      path.join(root, ".claude-plugin", "marketplace.json"),
+      JSON.stringify({
+        plugins: [{ source: "./plugins/railway" }],
+      }),
+    );
+
+    expect(discoverSourceSkillsDirs(root)).toEqual([path.join(root, "skills")]);
+    expect(discoverSourceSkillsDir(root)).toBe(path.join(root, "skills"));
+  });
+
+  it("falls back to plugin skills directories when canonical skills are absent", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-sources-"));
+    tempDirs.push(root);
+
+    ensureDir(path.join(root, ".claude-plugin"));
+    ensureDir(path.join(root, "plugins", "alpha", "skills"));
+    ensureDir(path.join(root, "plugins", "beta", ".agents", "skills"));
+    writeTextAtomic(
+      path.join(root, ".claude-plugin", "marketplace.json"),
+      JSON.stringify({
+        plugins: [{ source: "./plugins/alpha" }, { source: "./plugins/beta" }],
+      }),
+    );
+
+    expect(discoverSourceSkillsDirs(root)).toEqual([
+      path.join(root, "plugins", "alpha", "skills"),
+      path.join(root, "plugins", "beta", ".agents", "skills"),
+    ]);
+    expect(discoverSourceSkillsDir(root)).toBe(
+      path.join(root, "plugins", "alpha", "skills"),
+    );
+  });
+
+  it("falls back to all plugin roots for other entities when canonical paths are absent", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-sources-"));
+    tempDirs.push(root);
+
+    ensureDir(path.join(root, ".claude-plugin"));
+    ensureDir(path.join(root, "plugins", "alpha", "agents"));
+    ensureDir(path.join(root, "plugins", "beta", "rules"));
+    ensureDir(path.join(root, "plugins", "alpha", ".agents"));
+    ensureDir(path.join(root, "plugins", "beta"));
+    writeTextAtomic(
+      path.join(root, "plugins", "alpha", ".agents", "mcp.json"),
+      "{}",
+    );
+    writeTextAtomic(path.join(root, "plugins", "beta", "mcp.json"), "{}");
+    writeTextAtomic(
+      path.join(root, ".claude-plugin", "marketplace.json"),
+      JSON.stringify({
+        plugins: [{ source: "./plugins/alpha" }, { source: "./plugins/beta" }],
+      }),
+    );
+
+    expect(discoverSourceAgentsDirs(root)).toEqual([
+      path.join(root, "plugins", "alpha", "agents"),
+    ]);
+    expect(discoverSourceRulesDirs(root)).toEqual([
+      path.join(root, "plugins", "beta", "rules"),
+    ]);
+    expect(discoverSourceMcpPaths(root)).toEqual([
+      path.join(root, "plugins", "alpha", ".agents", "mcp.json"),
+      path.join(root, "plugins", "beta", "mcp.json"),
+    ]);
   });
 
   it("falls back to .github agents when canonical agent directories are absent", () => {

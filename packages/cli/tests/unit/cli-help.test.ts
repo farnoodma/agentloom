@@ -83,6 +83,33 @@ describe("cli help routing", () => {
     expect(output).toContain("agentloom command add <source> [options]");
   });
 
+  it("routes plural entity aliases to singular command help", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await runCli(["agents", "--help"]);
+    await runCli(["commands", "--help"]);
+    await runCli(["skills", "--help"]);
+    await runCli(["rules", "--help"]);
+    await runCli(["mcps", "--help"]);
+
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(output).toContain(
+      "agentloom agent <add|list|delete|find|update|sync> [options]",
+    );
+    expect(output).toContain(
+      "agentloom command <add|list|delete|find|update|sync> [options]",
+    );
+    expect(output).toContain(
+      "agentloom skill <add|list|delete|find|update|sync> [options]",
+    );
+    expect(output).toContain(
+      "agentloom rule <add|list|delete|find|update|sync> [options]",
+    );
+    expect(output).toContain(
+      "agentloom mcp <add|list|delete|find|update|sync> [options]",
+    );
+  });
+
   it("prints rule help without requiring scope resolution", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
 

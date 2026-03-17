@@ -44,6 +44,14 @@ const ENTITY_NOUNS = new Set<EntityType>([
   "skill",
 ]);
 
+const ENTITY_NOUN_ALIASES: Readonly<Record<string, EntityType>> = {
+  agents: "agent",
+  commands: "command",
+  mcps: "mcp",
+  rules: "rule",
+  skills: "skill",
+};
+
 const ENTITY_VERBS = new Set<EntityVerb>([
   "add",
   "list",
@@ -56,8 +64,9 @@ const ENTITY_VERBS = new Set<EntityVerb>([
 const MCP_SERVER_VERBS = new Set<McpServerVerb>(["add", "list", "delete"]);
 
 export function parseCommandRoute(argv: string[]): CommandRoute | null {
-  const root = argv[0]?.trim().toLowerCase();
-  if (!root) return null;
+  const rawRoot = argv[0]?.trim().toLowerCase();
+  if (!rawRoot) return null;
+  const root = ENTITY_NOUN_ALIASES[rawRoot] ?? rawRoot;
 
   if (AGGREGATE_VERBS.has(root as AggregateVerb)) {
     return {

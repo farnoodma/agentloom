@@ -7,6 +7,8 @@ import { getProviderSkillsPaths } from "./provider-paths.js";
 
 export interface CanonicalSkill {
   name: string;
+  aliases: string[];
+  sourceDirName: string;
   sourcePath: string;
   skillPath: string;
   layout: "nested" | "root";
@@ -31,9 +33,13 @@ export function parseSkillsDir(skillsDir: string): CanonicalSkill[] {
     const skillDir = path.join(skillsDir, entry.name);
     const skillFile = path.join(skillDir, "SKILL.md");
     if (!fs.existsSync(skillFile)) continue;
+    const raw = fs.readFileSync(skillFile, "utf8");
+    const canonicalName = extractSkillName(raw) || entry.name;
 
     skills.push({
-      name: entry.name,
+      name: canonicalName,
+      aliases: buildSkillAliases(canonicalName, entry.name),
+      sourceDirName: entry.name,
       sourcePath: skillDir,
       skillPath: skillFile,
       layout: "nested",
@@ -50,9 +56,12 @@ export function parseSkillsDir(skillsDir: string): CanonicalSkill[] {
   }
 
   const raw = fs.readFileSync(rootSkillFile, "utf8");
+  const canonicalName = extractSkillName(raw) || path.basename(skillsDir);
   return [
     {
-      name: extractSkillName(raw) || path.basename(skillsDir),
+      name: canonicalName,
+      aliases: buildSkillAliases(canonicalName, path.basename(skillsDir)),
+      sourceDirName: path.basename(skillsDir),
       sourcePath: skillsDir,
       skillPath: rootSkillFile,
       layout: "root",
@@ -75,6 +84,29 @@ export function normalizeSkillSelector(value: string): string {
   return slugify(value.trim().replace(/\/+$/, "")).toLowerCase();
 }
 
+export function resolveSkillSelector(
+  skills: CanonicalSkill[],
+  selector: string,
+): CanonicalSkill | null {
+  const normalizedSelector = normalizeSkillSelector(selector);
+  if (!normalizedSelector) return null;
+
+  const canonicalMatch =
+    skills.find(
+      (skill) => normalizeSkillSelector(skill.name) === normalizedSelector,
+    ) ?? null;
+  if (canonicalMatch) {
+    return canonicalMatch;
+  }
+
+  return (
+    skills.find(
+      (skill) =>
+        normalizeSkillSelector(skill.sourceDirName) === normalizedSelector,
+    ) ?? null
+  );
+}
+
 export function resolveSkillSelections(
   skills: CanonicalSkill[],
   selectors: string[],
@@ -89,18 +121,13 @@ export function resolveSkillSelections(
   const unmatched: string[] = [];
 
   for (const selector of normalizedSelectors) {
-    const matches = skills.filter(
-      (skill) => normalizeSkillSelector(skill.name) === selector,
-    );
-
-    if (matches.length === 0) {
+    const match = resolveSkillSelector(skills, selector);
+    if (!match) {
       unmatched.push(selector);
       continue;
     }
 
-    for (const match of matches) {
-      selectedMap.set(match.name, match);
-    }
+    selectedMap.set(match.name, match);
   }
 
   return {
@@ -281,10 +308,7 @@ function migrateProviderSkillsIntoCanonical(options: {
   const providerSkills = parseSkillsDir(options.providerSkillsDir);
 
   for (const skill of providerSkills) {
-    const targetSkillDirName =
-      skill.layout === "nested"
-        ? path.basename(skill.sourcePath)
-        : slugify(skill.name) || "skill";
+    const targetSkillDirName = slugify(skill.name) || "skill";
     const targetSkillDir = path.join(
       options.canonicalSkillsDir,
       targetSkillDirName,
@@ -315,6 +339,10 @@ function migrateProviderSkillsIntoCanonical(options: {
 
     copyRootSkillArtifacts(skill.sourcePath, targetSkillDir);
   }
+}
+
+function buildSkillAliases(name: string, sourceDirName: string): string[] {
+  return [...new Set([name, sourceDirName].filter(Boolean))];
 }
 
 function moveDirectory(sourceDir: string, targetDir: string): void {
