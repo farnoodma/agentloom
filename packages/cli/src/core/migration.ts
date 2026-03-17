@@ -1084,10 +1084,7 @@ function readProviderCommandsFromDir(
     sourcePriority,
     targetFileName,
     content: file.content,
-    body:
-      provider === "gemini"
-        ? normalizeCommandArgumentsForCanonical(file.body, provider)
-        : file.body,
+    body: normalizeCommandArgumentsForCanonical(file.body, provider),
     frontmatter: file.frontmatter,
   }));
 }
