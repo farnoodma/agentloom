@@ -45,6 +45,10 @@ Run tests before merge.
       path.join(workspaceRoot, "AGENTS.md"),
       "# Local notes\n\nKeep this content.\n",
     );
+    writeTextAtomic(
+      path.join(workspaceRoot, "CLAUDE.md"),
+      "# Claude notes\n\nKeep this content.\n",
+    );
 
     const summary = await syncFromCanonical({
       paths,
@@ -85,6 +89,138 @@ Run tests before merge.
         cursorRulePath,
       ]),
     );
+  });
+
+  it("skips managed instruction blocks for rules with alwaysApply: false", async () => {
+    const { workspaceRoot, homeDir } = makeTempDirs();
+    const paths = buildScopePaths(workspaceRoot, "local", homeDir);
+
+    ensureDir(paths.rulesDir);
+    writeTextAtomic(
+      path.join(paths.rulesDir, "optional-note.md"),
+      `---
+name: Optional Note
+alwaysApply: false
+---
+
+Apply this only when needed.
+`,
+    );
+
+    writeTextAtomic(path.join(workspaceRoot, "AGENTS.md"), "# Local notes\n");
+
+    const summary = await syncFromCanonical({
+      paths,
+      providers: ["cursor", "claude"],
+      yes: true,
+      nonInteractive: true,
+      target: "rule",
+    });
+
+    const agentsPath = path.join(workspaceRoot, "AGENTS.md");
+    const claudePath = path.join(workspaceRoot, "CLAUDE.md");
+    const agentsContent = fs.readFileSync(agentsPath, "utf8");
+    expect(agentsContent).not.toContain("agentloom:optional-note:start");
+    expect(fs.existsSync(claudePath)).toBe(false);
+
+    const cursorRulePath = path.join(
+      workspaceRoot,
+      ".cursor",
+      "rules",
+      "optional-note.mdc",
+    );
+    expect(fs.existsSync(cursorRulePath)).toBe(true);
+    const cursorRule = fs.readFileSync(cursorRulePath, "utf8");
+    expect(cursorRule).toContain("alwaysApply: false");
+
+    expect(summary.generatedFiles).toContain(cursorRulePath);
+    expect(summary.generatedFiles).not.toContain(agentsPath);
+    expect(summary.generatedFiles).not.toContain(claudePath);
+  });
+
+  it("does not create missing provider instruction files", async () => {
+    const { workspaceRoot, homeDir } = makeTempDirs();
+    const paths = buildScopePaths(workspaceRoot, "local", homeDir);
+
+    ensureDir(paths.rulesDir);
+    writeTextAtomic(
+      path.join(paths.rulesDir, "always-test.md"),
+      `---
+name: Always Test
+alwaysApply: true
+---
+
+Run tests before merge.
+`,
+    );
+
+    const summary = await syncFromCanonical({
+      paths,
+      providers: ["claude", "gemini"],
+      yes: true,
+      nonInteractive: true,
+      target: "rule",
+    });
+
+    const agentsPath = path.join(workspaceRoot, "AGENTS.md");
+    const claudePath = path.join(workspaceRoot, "CLAUDE.md");
+    const geminiPath = path.join(workspaceRoot, "GEMINI.md");
+
+    expect(fs.existsSync(agentsPath)).toBe(false);
+    expect(fs.existsSync(claudePath)).toBe(false);
+    expect(fs.existsSync(geminiPath)).toBe(false);
+    expect(summary.generatedFiles).not.toContain(agentsPath);
+    expect(summary.generatedFiles).not.toContain(claudePath);
+    expect(summary.generatedFiles).not.toContain(geminiPath);
+  });
+
+  it("does not overwrite symlinked provider instruction files", async () => {
+    const { workspaceRoot, homeDir } = makeTempDirs();
+    const paths = buildScopePaths(workspaceRoot, "local", homeDir);
+
+    ensureDir(paths.rulesDir);
+    writeTextAtomic(
+      path.join(paths.rulesDir, "always-test.md"),
+      `---
+name: Always Test
+alwaysApply: true
+---
+
+Run tests before merge.
+`,
+    );
+    const claudePath = path.join(workspaceRoot, "CLAUDE.md");
+    writeTextAtomic(claudePath, "# Claude\n");
+
+    await syncFromCanonical({
+      paths,
+      providers: ["claude"],
+      yes: true,
+      nonInteractive: true,
+      target: "rule",
+    });
+
+    const linkedTargetPath = path.join(workspaceRoot, "linked-claude.md");
+    writeTextAtomic(
+      linkedTargetPath,
+      "# Linked Claude\n\nKeep this content.\n",
+    );
+    fs.rmSync(claudePath);
+    fs.symlinkSync(linkedTargetPath, claudePath);
+
+    const summary = await syncFromCanonical({
+      paths,
+      providers: ["claude"],
+      yes: true,
+      nonInteractive: true,
+      target: "rule",
+    });
+
+    expect(fs.lstatSync(claudePath).isSymbolicLink()).toBe(true);
+    expect(fs.readFileSync(linkedTargetPath, "utf8")).toBe(
+      "# Linked Claude\n\nKeep this content.\n",
+    );
+    expect(summary.generatedFiles).not.toContain(claudePath);
   });
 
   it("reports provider instruction file rewrites during dry-run cleanup", async () => {
@@ -215,6 +351,7 @@ name: Always Test
 Run tests before merge.
 `,
     );
+    writeTextAtomic(path.join(workspaceRoot, "CLAUDE.md"), "");
 
     await syncFromCanonical({
       paths,
@@ -259,6 +396,13 @@ Run tests before merge.
     ensureDir(path.dirname(settingsPath));
     writeTextAtomic(settingsPath, "{}\n");
 
+    const instructionPath = path.join(
+      homeDir,
+      ".copilot",
+      "copilot-instructions.md",
+    );
+    writeTextAtomic(instructionPath, "# Copilot notes\n");
+
     await syncFromCanonical({
       paths,
       providers: ["copilot"],
@@ -267,11 +411,6 @@ Run tests before merge.
       target: "rule",
     });
 
-    const instructionPath = path.join(
-      homeDir,
-      ".copilot",
-      "copilot-instructions.md",
-    );
     expect(fs.existsSync(instructionPath)).toBe(true);
     expect(fs.readFileSync(instructionPath, "utf8")).toContain(
       "agentloom:always-test:start",
@@ -283,6 +422,54 @@ Run tests before merge.
     expect(settings["chat.instructionsFilesLocations"]).toEqual(
       expect.arrayContaining([instructionPath]),
     );
+  });
+
+  it("removes stale global copilot instruction settings when the file is absent", async () => {
+    const { workspaceRoot, homeDir } = makeTempDirs();
+    const paths = buildScopePaths(workspaceRoot, "global", homeDir);
+
+    ensureDir(paths.rulesDir);
+    writeTextAtomic(
+      path.join(paths.rulesDir, "always-test.md"),
+      `---
+name: Always Test
+---
+
+Run tests before merge.
+`,
+    );
+
+    const settingsPath = getVsCodeSettingsPath(homeDir);
+    ensureDir(path.dirname(settingsPath));
+    const instructionPath = path.join(
+      homeDir,
+      ".copilot",
+      "copilot-instructions.md",
+    );
+    writeTextAtomic(
+      settingsPath,
+      JSON.stringify(
+        {
+          "chat.instructionsFilesLocations": [instructionPath],
+        },
+        null,
+        2,
+      ),
+    );
+
+    await syncFromCanonical({
+      paths,
+      providers: ["copilot"],
+      yes: true,
+      nonInteractive: true,
+      target: "rule",
+    });
+
+    expect(fs.existsSync(instructionPath)).toBe(false);
+    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8")) as {
+      [key: string]: unknown;
+    };
+    expect(settings["chat.instructionsFilesLocations"]).toBeUndefined();
   });
 
   it("treats global cursor rule sync as a no-op for other instruction files", async () => {

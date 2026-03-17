@@ -98,6 +98,9 @@ export async function syncFromCanonical(
   const agents = parseAgentsDir(options.paths.agentsDir);
   const commands = parseCommandsDir(options.paths.commandsDir);
   const rules = parseRulesDir(options.paths.rulesDir);
+  const managedInstructionRules = rules.filter(
+    (rule) => rule.frontmatter.alwaysApply !== false,
+  );
   const mcp = readCanonicalMcp(options.paths);
   const manifest = readManifest(options.paths);
   const effectiveManifest: SyncManifest = {
@@ -183,7 +186,7 @@ export async function syncFromCanonical(
     syncManagedRuleInstructions({
       paths: options.paths,
       providers,
-      rules,
+      rules: managedInstructionRules,
       generated: generatedRules,
       updated: updatedRuleInstructionFiles,
       retained: retainedRuleInstructionFiles,
@@ -733,7 +736,21 @@ function syncManagedRuleInstructions(options: {
   );
 
   for (const targetPath of cleanupTargets) {
-    const existing = readTextIfExists(targetPath) ?? "";
+    if (!fs.existsSync(targetPath)) {
+      continue;
+    }
+
+    const stat = fs.lstatSync(targetPath);
+    if (!stat.isFile() || stat.isSymbolicLink()) {
+      options.retained.add(targetPath);
+      continue;
+    }
+
+    const existing = readTextIfExists(targetPath);
+    if (existing === null) {
+      continue;
+    }
+
     const next = upsertManagedRuleBlocks(
       existing,
       activeTargets.has(targetPath) ? options.rules : [],
@@ -760,7 +777,6 @@ function syncManagedRuleInstructions(options: {
           removeFileIfExists(targetPath);
         }
       } else {
-        ensureDir(path.dirname(targetPath));
         writeTextAtomic(targetPath, next);
       }
     }
@@ -795,10 +811,16 @@ function syncCopilotDiscoverySettings(options: {
     );
   }
   if (options.includeInstructionLocations) {
-    appendPathSetting(
+    const instructionPath = path.join(
+      options.paths.homeDir,
+      ".copilot",
+      "copilot-instructions.md",
+    );
+    setPathSettingEnabled(
       settings,
       "chat.instructionsFilesLocations",
-      path.join(options.paths.homeDir, ".copilot", "copilot-instructions.md"),
+      instructionPath,
+      fs.existsSync(instructionPath),
     );
   }
 
@@ -1016,6 +1038,34 @@ function appendPathSetting(
 
   if (!existing.includes(settingPath)) {
     existing.push(settingPath);
+  }
+
+  settings[key] = existing;
+}
+
+function setPathSettingEnabled(
+  settings: Record<string, unknown>,
+  key: string,
+  settingPath: string,
+  enabled: boolean,
+): void {
+  if (enabled) {
+    appendPathSetting(settings, key, settingPath);
+    return;
+  }
+
+  const existing = Array.isArray(settings[key])
+    ? (settings[key] as unknown[]).filter(
+        (value): value is string =>
+          typeof value === "string" &&
+          value.trim() !== "" &&
+          value !== settingPath,
+      )
+    : [];
+
+  if (existing.length === 0) {
+    delete settings[key];
+    return;
   }
 
   settings[key] = existing;

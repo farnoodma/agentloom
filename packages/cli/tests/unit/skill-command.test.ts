@@ -84,6 +84,8 @@ describe("runSkillCommand", () => {
     commandMocks.parseSkillsDir.mockReturnValue([
       {
         name: "release-check",
+        aliases: ["release-check"],
+        sourceDirName: "release-check",
         sourcePath: "/tmp/agentloom/.agents/skills/release-check",
         skillPath: "/tmp/agentloom/.agents/skills/release-check/SKILL.md",
         layout: "nested",

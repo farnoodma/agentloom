@@ -276,14 +276,6 @@ export function formatUsageError(input: UsageErrorInput): string {
 }
 
 export function formatUnknownCommandError(command: string): string {
-  if (command === "skills") {
-    return formatUsageError({
-      issue: 'Command "skills" was removed.',
-      usage: "agentloom skill <add|list|delete|find|update|sync> [options]",
-      example: "agentloom skill find typescript",
-    });
-  }
-
   return formatUsageError({
     issue: `Unknown command "${command}".`,
     usage: "agentloom --help",

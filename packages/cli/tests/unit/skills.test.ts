@@ -7,6 +7,7 @@ import { buildScopePaths } from "../../src/core/scope.js";
 import {
   applySkillProviderSideEffects,
   parseSkillsDir,
+  resolveSkillSelections,
 } from "../../src/core/skills.js";
 
 const tempDirs: string[] = [];
@@ -36,6 +37,8 @@ Root skill body.
     expect(parseSkillsDir(root)).toEqual([
       {
         name: "visual-explainer",
+        aliases: ["visual-explainer", path.basename(root)],
+        sourceDirName: path.basename(root),
         sourcePath: root,
         skillPath: path.join(root, "SKILL.md"),
         layout: "root",
@@ -60,6 +63,8 @@ Root skill body.
     expect(parseSkillsDir(root)).toEqual([
       {
         name: path.basename(root),
+        aliases: [path.basename(root)],
+        sourceDirName: path.basename(root),
         sourcePath: root,
         skillPath: path.join(root, "SKILL.md"),
         layout: "root",
@@ -77,6 +82,8 @@ Root skill body.
     expect(parseSkillsDir(root)).toEqual([
       {
         name: "reviewing",
+        aliases: ["reviewing"],
+        sourceDirName: "reviewing",
         sourcePath: path.join(root, "reviewing"),
         skillPath: path.join(root, "reviewing", "SKILL.md"),
         layout: "nested",
@@ -95,11 +102,64 @@ Root skill body.
     expect(parseSkillsDir(root)).toEqual([
       {
         name: "reviewing",
+        aliases: ["reviewing"],
+        sourceDirName: "reviewing",
         sourcePath: path.join(root, "reviewing"),
         skillPath: path.join(root, "reviewing", "SKILL.md"),
         layout: "nested",
       },
     ]);
+  });
+
+  it("uses nested frontmatter name over source directory name", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-skills-"));
+    tempDirs.push(root);
+
+    ensureDir(path.join(root, "react-best-practices"));
+    writeTextAtomic(
+      path.join(root, "react-best-practices", "SKILL.md"),
+      `---
+name: vercel-react-best-practices
+---
+`,
+    );
+
+    expect(parseSkillsDir(root)).toEqual([
+      {
+        name: "vercel-react-best-practices",
+        aliases: ["vercel-react-best-practices", "react-best-practices"],
+        sourceDirName: "react-best-practices",
+        sourcePath: path.join(root, "react-best-practices"),
+        skillPath: path.join(root, "react-best-practices", "SKILL.md"),
+        layout: "nested",
+      },
+    ]);
+  });
+
+  it("prefers canonical skill names over legacy aliases during selection", () => {
+    const skills = [
+      {
+        name: "foo",
+        aliases: ["foo", "alpha"],
+        sourceDirName: "alpha",
+        sourcePath: "/tmp/alpha",
+        skillPath: "/tmp/alpha/SKILL.md",
+        layout: "nested" as const,
+      },
+      {
+        name: "bar",
+        aliases: ["bar", "foo"],
+        sourceDirName: "foo",
+        sourcePath: "/tmp/foo",
+        skillPath: "/tmp/foo/SKILL.md",
+        layout: "nested" as const,
+      },
+    ];
+
+    expect(resolveSkillSelections(skills, ["foo"])).toEqual({
+      selected: [skills[0]],
+      unmatched: [],
+    });
   });
 });
 

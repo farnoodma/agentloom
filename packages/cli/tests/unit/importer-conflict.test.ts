@@ -573,6 +573,475 @@ Skill body.
     ).toBe(true);
   });
 
+  it("imports skills from plugin marketplace sources without requiring --subdir", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, ".claude-plugin"));
+    ensureDir(
+      path.join(sourceRoot, "plugins", "railway", "skills", "use-railway"),
+    );
+    ensureDir(
+      path.join(sourceRoot, "plugins", "railway", "skills", "changelog"),
+    );
+    writeTextAtomic(
+      path.join(sourceRoot, ".claude-plugin", "marketplace.json"),
+      JSON.stringify({
+        plugins: [{ source: "./plugins/railway" }],
+      }),
+    );
+    writeTextAtomic(
+      path.join(
+        sourceRoot,
+        "plugins",
+        "railway",
+        "skills",
+        "use-railway",
+        "SKILL.md",
+      ),
+      `---
+name: use-railway
+---
+`,
+    );
+    writeTextAtomic(
+      path.join(
+        sourceRoot,
+        "plugins",
+        "railway",
+        "skills",
+        "changelog",
+        "SKILL.md",
+      ),
+      `---
+name: changelog
+---
+`,
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    const summary = await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: false,
+      importCommands: false,
+      importMcp: false,
+      importSkills: true,
+      requireSkills: true,
+    });
+
+    expect(summary.importedSkills).toEqual(["changelog", "use-railway"]);
+    expect(
+      fs.existsSync(path.join(paths.skillsDir, "use-railway", "SKILL.md")),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(paths.skillsDir, "changelog", "SKILL.md")),
+    ).toBe(true);
+  });
+
+  it("fails fast when plugin sources define colliding skill names", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, ".claude-plugin"));
+    ensureDir(path.join(sourceRoot, "plugins", "alpha", "skills", "first"));
+    ensureDir(path.join(sourceRoot, "plugins", "beta", "skills", "second"));
+    writeTextAtomic(
+      path.join(sourceRoot, ".claude-plugin", "marketplace.json"),
+      JSON.stringify({
+        plugins: [{ source: "./plugins/alpha" }, { source: "./plugins/beta" }],
+      }),
+    );
+    writeTextAtomic(
+      path.join(sourceRoot, "plugins", "alpha", "skills", "first", "SKILL.md"),
+      `---
+name: shared-skill
+---
+`,
+    );
+    writeTextAtomic(
+      path.join(sourceRoot, "plugins", "beta", "skills", "second", "SKILL.md"),
+      `---
+name: shared-skill
+---
+`,
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    await expect(
+      importSource({
+        source: sourceRoot,
+        paths,
+        yes: true,
+        nonInteractive: true,
+        importAgents: false,
+        importCommands: false,
+        importMcp: false,
+        importSkills: true,
+        requireSkills: true,
+      }),
+    ).rejects.toThrow('Conflicting skill "shared-skill"');
+  });
+
+  it("fails fast when a single source defines duplicate canonical skill names", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "skills", "first"));
+    ensureDir(path.join(sourceRoot, "skills", "second"));
+    writeTextAtomic(
+      path.join(sourceRoot, "skills", "first", "SKILL.md"),
+      `---
+name: shared-skill
+---
+
+first
+`,
+    );
+    writeTextAtomic(
+      path.join(sourceRoot, "skills", "second", "SKILL.md"),
+      `---
+name: shared-skill
+---
+
+second
+`,
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    await expect(
+      importSource({
+        source: sourceRoot,
+        paths,
+        yes: true,
+        nonInteractive: true,
+        importAgents: false,
+        importCommands: false,
+        importMcp: false,
+        importSkills: true,
+        requireSkills: true,
+      }),
+    ).rejects.toThrow('Conflicting skill "shared-skill"');
+  });
+
+  it("preserves explicit skill selectors while importing canonical target directories", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "skills", "react-best-practices"));
+    writeTextAtomic(
+      path.join(sourceRoot, "skills", "react-best-practices", "SKILL.md"),
+      `---
+name: vercel-react-best-practices
+---
+
+Skill body.
+`,
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    ensureDir(path.join(paths.skillsDir, "react-best-practices"));
+    writeTextAtomic(
+      path.join(paths.skillsDir, "react-best-practices", "SKILL.md"),
+      "# legacy\n",
+    );
+
+    const summary = await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: false,
+      importCommands: false,
+      importMcp: false,
+      importSkills: true,
+      requireSkills: true,
+      skillSelectors: ["react-best-practices"],
+      skillRenameMap: {
+        "react-best-practices": "react-best-practices",
+      },
+    });
+
+    expect(summary.importedSkills).toEqual(["vercel-react-best-practices"]);
+    expect(
+      fs.existsSync(
+        path.join(paths.skillsDir, "vercel-react-best-practices", "SKILL.md"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(paths.skillsDir, "react-best-practices")),
+    ).toBe(false);
+
+    const lock = readJsonIfExists<AgentsLockFile>(
+      path.join(workspaceRoot, ".agents", "agents.lock.json"),
+    );
+    expect(lock?.entries[0]?.selectedSourceSkills).toEqual([
+      "react-best-practices",
+    ]);
+    expect(lock?.entries[0]?.skillRenameMap).toEqual({
+      "vercel-react-best-practices": "vercel-react-best-practices",
+    });
+  });
+
+  it("updates legacy skill lock entries instead of appending duplicates", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "skills", "react-best-practices"));
+    writeTextAtomic(
+      path.join(sourceRoot, "skills", "react-best-practices", "SKILL.md"),
+      `---
+name: vercel-react-best-practices
+---
+
+Skill body.
+`,
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    ensureDir(path.dirname(paths.lockPath));
+    writeTextAtomic(
+      paths.lockPath,
+      JSON.stringify(
+        {
+          version: 1,
+          entries: [
+            {
+              source: sourceRoot,
+              sourceType: "local",
+              resolvedCommit: "old",
+              importedAt: "2026-01-01T00:00:00.000Z",
+              importedAgents: [],
+              importedCommands: [],
+              importedMcpServers: [],
+              importedRules: [],
+              importedSkills: ["react-best-practices"],
+              selectedSourceSkills: ["react-best-practices"],
+              trackedEntities: ["skill"],
+              contentHash: "hash",
+            },
+          ],
+        } satisfies AgentsLockFile,
+        null,
+        2,
+      ),
+    );
+
+    await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: false,
+      importCommands: false,
+      importMcp: false,
+      importSkills: true,
+      requireSkills: true,
+      skillSelectors: ["react-best-practices"],
+    });
+
+    const lock = readJsonIfExists<AgentsLockFile>(paths.lockPath);
+    expect(lock?.entries).toHaveLength(1);
+    expect(lock?.entries[0]?.importedSkills).toEqual([
+      "vercel-react-best-practices",
+    ]);
+    expect(lock?.entries[0]?.selectedSourceSkills).toEqual([
+      "react-best-practices",
+    ]);
+  });
+
+  it("preserves legacy skill directories when canonical import conflicts", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "skills", "react-best-practices"));
+    writeTextAtomic(
+      path.join(sourceRoot, "skills", "react-best-practices", "SKILL.md"),
+      `---
+name: vercel-react-best-practices
+---
+
+Source content.
+`,
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    ensureDir(path.join(paths.skillsDir, "react-best-practices"));
+    ensureDir(path.join(paths.skillsDir, "vercel-react-best-practices"));
+    writeTextAtomic(
+      path.join(paths.skillsDir, "react-best-practices", "note.txt"),
+      "legacy content",
+    );
+    writeTextAtomic(
+      path.join(paths.skillsDir, "vercel-react-best-practices", "SKILL.md"),
+      "# existing canonical\n",
+    );
+
+    await expect(
+      importSource({
+        source: sourceRoot,
+        paths,
+        yes: false,
+        nonInteractive: true,
+        importAgents: false,
+        importCommands: false,
+        importMcp: false,
+        importSkills: true,
+        requireSkills: true,
+      }),
+    ).rejects.toThrow('Conflict for skill "vercel-react-best-practices"');
+
+    expect(
+      fs.existsSync(path.join(paths.skillsDir, "react-best-practices")),
+    ).toBe(true);
+    expect(
+      fs.readFileSync(
+        path.join(paths.skillsDir, "react-best-practices", "note.txt"),
+        "utf8",
+      ),
+    ).toBe("legacy content");
+  });
+
+  it("does not rename legacy skill directories before resolving conflicts", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "skills", "react-best-practices"));
+    writeTextAtomic(
+      path.join(sourceRoot, "skills", "react-best-practices", "SKILL.md"),
+      `---
+name: vercel-react-best-practices
+---
+
+Source content.
+`,
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    ensureDir(path.join(paths.skillsDir, "react-best-practices"));
+    writeTextAtomic(
+      path.join(paths.skillsDir, "react-best-practices", "SKILL.md"),
+      "# legacy content\n",
+    );
+
+    await expect(
+      importSource({
+        source: sourceRoot,
+        paths,
+        yes: false,
+        nonInteractive: true,
+        importAgents: false,
+        importCommands: false,
+        importMcp: false,
+        importSkills: true,
+        requireSkills: true,
+      }),
+    ).rejects.toThrow('Conflict for skill "vercel-react-best-practices"');
+
+    expect(
+      fs.existsSync(
+        path.join(paths.skillsDir, "react-best-practices", "SKILL.md"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(paths.skillsDir, "vercel-react-best-practices", "SKILL.md"),
+      ),
+    ).toBe(false);
+  });
+
+  it("applies skill rename selectors to canonical matches before aliases", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "skills", "alpha"));
+    ensureDir(path.join(sourceRoot, "skills", "foo"));
+    writeTextAtomic(
+      path.join(sourceRoot, "skills", "alpha", "SKILL.md"),
+      `---
+name: foo
+---
+
+Canonical foo.
+`,
+    );
+    writeTextAtomic(
+      path.join(sourceRoot, "skills", "foo", "SKILL.md"),
+      `---
+name: bar
+---
+
+Alias foo.
+`,
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    const summary = await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: false,
+      importCommands: false,
+      importMcp: false,
+      importSkills: true,
+      requireSkills: true,
+      skillRenameMap: {
+        foo: "primary-foo",
+      },
+    });
+
+    expect(summary.importedSkills).toEqual(["bar", "primary-foo"]);
+    expect(
+      fs.existsSync(path.join(paths.skillsDir, "primary-foo", "SKILL.md")),
+    ).toBe(true);
+    expect(fs.existsSync(path.join(paths.skillsDir, "bar", "SKILL.md"))).toBe(
+      true,
+    );
+  });
+
   it("supports single-skill --rename and replays the persisted rename map", async () => {
     const sourceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "agentloom-source-"),
