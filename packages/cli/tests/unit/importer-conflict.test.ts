@@ -479,6 +479,608 @@ Run tests before merge.
     expect(lock?.entries[0]?.importedRules).toEqual(["rules/always-test.md"]);
   });
 
+  it("reuses one lock entry when agent-only imports expand selectors", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "agents"));
+    writeTextAtomic(
+      path.join(sourceRoot, "agents", "issue-creator.md"),
+      `---\nname: Issue Creator\ndescription: Create issues\n---\n`,
+    );
+    writeTextAtomic(
+      path.join(sourceRoot, "agents", "reviewer.md"),
+      `---\nname: Reviewer\ndescription: Review changes\n---\n`,
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: true,
+      requireAgents: true,
+      importCommands: false,
+      importMcp: false,
+      importRules: false,
+      importSkills: false,
+      agents: ["Issue Creator"],
+    });
+    await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: true,
+      requireAgents: true,
+      importCommands: false,
+      importMcp: false,
+      importRules: false,
+      importSkills: false,
+      agents: ["Reviewer"],
+    });
+
+    const lock = readJsonIfExists<AgentsLockFile>(paths.lockPath);
+    expect(lock?.entries).toHaveLength(1);
+    expect([...(lock?.entries[0]?.importedAgents ?? [])].sort()).toEqual([
+      "agents/issue-creator.md",
+      "agents/reviewer.md",
+    ]);
+    expect([...(lock?.entries[0]?.requestedAgents ?? [])].sort()).toEqual([
+      "Issue Creator",
+      "Reviewer",
+    ]);
+  });
+
+  it("preserves prior agent selectors when command and agent-only entries collapse", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "agents"));
+    ensureDir(path.join(sourceRoot, "commands"));
+    writeTextAtomic(
+      path.join(sourceRoot, "agents", "issue-creator.md"),
+      `---\nname: Issue Creator\ndescription: Create issues\n---\n`,
+    );
+    writeTextAtomic(
+      path.join(sourceRoot, "agents", "reviewer.md"),
+      `---\nname: Reviewer\ndescription: Review changes\n---\n`,
+    );
+    writeTextAtomic(
+      path.join(sourceRoot, "commands", "review.md"),
+      "# /review\n",
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: false,
+      importCommands: true,
+      requireCommands: true,
+      importMcp: false,
+      importRules: false,
+      importSkills: false,
+      commandSelectors: ["review"],
+    });
+    await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: true,
+      requireAgents: true,
+      importCommands: false,
+      importMcp: false,
+      importRules: false,
+      importSkills: false,
+      agents: ["Reviewer"],
+    });
+    await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: true,
+      requireAgents: true,
+      importCommands: false,
+      importMcp: false,
+      importRules: false,
+      importSkills: false,
+      agents: ["Issue Creator"],
+    });
+
+    const lock = readJsonIfExists<AgentsLockFile>(paths.lockPath);
+    expect(lock?.entries).toHaveLength(1);
+    expect(lock?.entries[0]?.importedCommands).toEqual(["commands/review.md"]);
+    expect([...(lock?.entries[0]?.importedAgents ?? [])].sort()).toEqual([
+      "agents/issue-creator.md",
+      "agents/reviewer.md",
+    ]);
+    expect([...(lock?.entries[0]?.requestedAgents ?? [])].sort()).toEqual([
+      "Issue Creator",
+      "Reviewer",
+    ]);
+  });
+
+  it("keeps non-target lockfile state when agent-only imports collapse entries", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "agents"));
+    writeTextAtomic(
+      path.join(sourceRoot, "agents", "reviewer.md"),
+      `---\nname: Reviewer\ndescription: Review changes\n---\n`,
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    ensureDir(path.dirname(paths.lockPath));
+    writeTextAtomic(
+      paths.lockPath,
+      JSON.stringify(
+        {
+          version: 1,
+          entries: [
+            {
+              source: sourceRoot,
+              sourceType: "local",
+              resolvedCommit: "old-a",
+              importedAt: "2026-01-01T00:00:00.000Z",
+              importedAgents: [],
+              importedCommands: ["commands/review.md"],
+              selectedSourceCommands: ["review.md"],
+              importedMcpServers: [],
+              importedRules: [],
+              importedSkills: [],
+              trackedEntities: ["command"],
+              contentHash: "hash-a",
+            },
+            {
+              source: sourceRoot,
+              sourceType: "local",
+              resolvedCommit: "old-b",
+              importedAt: "2026-01-02T00:00:00.000Z",
+              importedAgents: [],
+              importedCommands: [],
+              importedMcpServers: ["alpha"],
+              selectedSourceMcpServers: ["alpha"],
+              importedRules: [],
+              importedSkills: [],
+              trackedEntities: ["mcp"],
+              contentHash: "hash-b",
+            },
+          ],
+        } satisfies AgentsLockFile,
+        null,
+        2,
+      ),
+    );
+
+    await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: true,
+      requireAgents: true,
+      importCommands: false,
+      importMcp: false,
+      importRules: false,
+      importSkills: false,
+      agents: ["Reviewer"],
+    });
+
+    const lock = readJsonIfExists<AgentsLockFile>(paths.lockPath);
+    expect(lock?.entries).toHaveLength(2);
+    expect(
+      lock?.entries.some(
+        (entry) =>
+          entry.importedCommands.includes("commands/review.md") &&
+          (entry.selectedSourceCommands ?? []).includes("review.md"),
+      ),
+    ).toBe(true);
+    expect(
+      lock?.entries.some(
+        (entry) =>
+          entry.importedMcpServers.includes("alpha") &&
+          (entry.selectedSourceMcpServers ?? []).includes("alpha"),
+      ),
+    ).toBe(true);
+    expect(
+      [...(lock?.entries.flatMap((entry) => entry.importedAgents) ?? [])].sort(),
+    ).toEqual(["agents/reviewer.md"]);
+  });
+
+  it("reuses one lock entry when mcp-only imports expand selectors", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    writeTextAtomic(
+      path.join(sourceRoot, "mcp.json"),
+      JSON.stringify(
+        {
+          version: 1,
+          mcpServers: {
+            alpha: {
+              command: "node",
+              args: ["alpha"],
+            },
+            beta: {
+              command: "node",
+              args: ["beta"],
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: false,
+      importCommands: false,
+      importMcp: true,
+      requireMcp: true,
+      importRules: false,
+      importSkills: false,
+      mcpSelectors: ["alpha"],
+      promptForMcp: false,
+    });
+    await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: false,
+      importCommands: false,
+      importMcp: true,
+      requireMcp: true,
+      importRules: false,
+      importSkills: false,
+      mcpSelectors: ["beta"],
+      promptForMcp: false,
+    });
+
+    const lock = readJsonIfExists<AgentsLockFile>(paths.lockPath);
+    expect(lock?.entries).toHaveLength(1);
+    expect([...(lock?.entries[0]?.importedMcpServers ?? [])].sort()).toEqual([
+      "alpha",
+      "beta",
+    ]);
+    expect(
+      [...(lock?.entries[0]?.selectedSourceMcpServers ?? [])].sort(),
+    ).toEqual(["alpha", "beta"]);
+  });
+
+  it("reuses one lock entry when rule-only imports expand selectors", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "rules"));
+    writeTextAtomic(
+      path.join(sourceRoot, "rules", "always-test.md"),
+      `---\nname: Always Test\n---\n`,
+    );
+    writeTextAtomic(
+      path.join(sourceRoot, "rules", "never-force.md"),
+      `---\nname: Never Force Push\n---\n`,
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: false,
+      importCommands: false,
+      importMcp: false,
+      importRules: true,
+      requireRules: true,
+      importSkills: false,
+      ruleSelectors: ["always-test"],
+      promptForRules: false,
+    });
+    await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: false,
+      importCommands: false,
+      importMcp: false,
+      importRules: true,
+      requireRules: true,
+      importSkills: false,
+      ruleSelectors: ["never-force"],
+      promptForRules: false,
+    });
+
+    const lock = readJsonIfExists<AgentsLockFile>(paths.lockPath);
+    expect(lock?.entries).toHaveLength(1);
+    expect([...(lock?.entries[0]?.importedRules ?? [])].sort()).toEqual([
+      "rules/always-test.md",
+      "rules/never-force.md",
+    ]);
+    expect([...(lock?.entries[0]?.selectedSourceRules ?? [])].sort()).toEqual([
+      "always-test.md",
+      "never-force.md",
+    ]);
+  });
+
+  it("replaces removed agents on all-mode agent-only reimport", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "agents"));
+    writeTextAtomic(
+      path.join(sourceRoot, "agents", "issue-creator.md"),
+      `---\nname: Issue Creator\ndescription: Create issues\n---\n`,
+    );
+    writeTextAtomic(
+      path.join(sourceRoot, "agents", "reviewer.md"),
+      `---\nname: Reviewer\ndescription: Review changes\n---\n`,
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: true,
+      requireAgents: true,
+      importCommands: false,
+      importMcp: false,
+      importRules: false,
+      importSkills: false,
+    });
+
+    fs.rmSync(path.join(sourceRoot, "agents", "issue-creator.md"));
+
+    await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: true,
+      requireAgents: true,
+      importCommands: false,
+      importMcp: false,
+      importRules: false,
+      importSkills: false,
+    });
+
+    const lock = readJsonIfExists<AgentsLockFile>(paths.lockPath);
+    expect(lock?.entries).toHaveLength(1);
+    expect(lock?.entries[0]?.importedAgents).toEqual(["agents/reviewer.md"]);
+  });
+
+  it("replaces removed MCP servers on all-mode mcp-only reimport", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    writeTextAtomic(
+      path.join(sourceRoot, "mcp.json"),
+      JSON.stringify(
+        {
+          version: 1,
+          mcpServers: {
+            alpha: {
+              command: "node",
+              args: ["alpha"],
+            },
+            beta: {
+              command: "node",
+              args: ["beta"],
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: false,
+      importCommands: false,
+      importMcp: true,
+      requireMcp: true,
+      importRules: false,
+      importSkills: false,
+    });
+
+    writeTextAtomic(
+      path.join(sourceRoot, "mcp.json"),
+      JSON.stringify(
+        {
+          version: 1,
+          mcpServers: {
+            alpha: {
+              command: "node",
+              args: ["alpha"],
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: false,
+      importCommands: false,
+      importMcp: true,
+      requireMcp: true,
+      importRules: false,
+      importSkills: false,
+    });
+
+    const lock = readJsonIfExists<AgentsLockFile>(paths.lockPath);
+    expect(lock?.entries).toHaveLength(1);
+    expect(lock?.entries[0]?.importedMcpServers).toEqual(["alpha"]);
+  });
+
+  it("replaces removed rules on all-mode rule-only reimport", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "rules"));
+    writeTextAtomic(
+      path.join(sourceRoot, "rules", "always-test.md"),
+      `---\nname: Always Test\n---\n`,
+    );
+    writeTextAtomic(
+      path.join(sourceRoot, "rules", "never-force.md"),
+      `---\nname: Never Force Push\n---\n`,
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: false,
+      importCommands: false,
+      importMcp: false,
+      importRules: true,
+      requireRules: true,
+      importSkills: false,
+    });
+
+    fs.rmSync(path.join(sourceRoot, "rules", "never-force.md"));
+
+    await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: false,
+      importCommands: false,
+      importMcp: false,
+      importRules: true,
+      requireRules: true,
+      importSkills: false,
+    });
+
+    const lock = readJsonIfExists<AgentsLockFile>(paths.lockPath);
+    expect(lock?.entries).toHaveLength(1);
+    expect(lock?.entries[0]?.importedRules).toEqual(["rules/always-test.md"]);
+  });
+
+  it("replaces removed skills on all-mode skill-only reimport", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "skills", "react-best-practices"));
+    ensureDir(path.join(sourceRoot, "skills", "composition-patterns"));
+    writeTextAtomic(
+      path.join(sourceRoot, "skills", "react-best-practices", "SKILL.md"),
+      "# react\n",
+    );
+    writeTextAtomic(
+      path.join(sourceRoot, "skills", "composition-patterns", "SKILL.md"),
+      "# composition\n",
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: false,
+      importCommands: false,
+      importMcp: false,
+      importSkills: true,
+      requireSkills: true,
+    });
+
+    fs.rmSync(path.join(sourceRoot, "skills", "composition-patterns"), {
+      recursive: true,
+      force: true,
+    });
+
+    await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: false,
+      importCommands: false,
+      importMcp: false,
+      importSkills: true,
+      requireSkills: true,
+    });
+
+    const lock = readJsonIfExists<AgentsLockFile>(paths.lockPath);
+    expect(lock?.entries).toHaveLength(1);
+    expect(lock?.entries[0]?.importedSkills).toEqual(["react-best-practices"]);
+  });
+
   it("throws a single actionable error when aggregate imports find no entities", async () => {
     const sourceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "agentloom-source-"),
@@ -873,6 +1475,167 @@ Skill body.
       "vercel-react-best-practices",
     ]);
     expect(lock?.entries[0]?.selectedSourceSkills).toEqual([
+      "react-best-practices",
+    ]);
+  });
+
+  it("reuses one lock entry when skill-only imports expand selected skills", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "skills", "react-best-practices"));
+    ensureDir(path.join(sourceRoot, "skills", "composition-patterns"));
+    writeTextAtomic(
+      path.join(sourceRoot, "skills", "react-best-practices", "SKILL.md"),
+      `---
+name: vercel-react-best-practices
+---
+
+React skill.
+`,
+    );
+    writeTextAtomic(
+      path.join(sourceRoot, "skills", "composition-patterns", "SKILL.md"),
+      `---
+name: vercel-composition-patterns
+---
+
+Composition skill.
+`,
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: false,
+      importCommands: false,
+      importMcp: false,
+      importSkills: true,
+      requireSkills: true,
+      skillSelectors: ["vercel-react-best-practices"],
+    });
+    await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: false,
+      importCommands: false,
+      importMcp: false,
+      importSkills: true,
+      requireSkills: true,
+      skillSelectors: [
+        "vercel-react-best-practices",
+        "vercel-composition-patterns",
+      ],
+    });
+
+    const lock = readJsonIfExists<AgentsLockFile>(paths.lockPath);
+    expect(lock?.entries).toHaveLength(1);
+    expect([...(lock?.entries[0]?.importedSkills ?? [])].sort()).toEqual([
+      "vercel-composition-patterns",
+      "vercel-react-best-practices",
+    ]);
+    expect([...(lock?.entries[0]?.selectedSourceSkills ?? []).sort()]).toEqual([
+      "vercel-composition-patterns",
+      "vercel-react-best-practices",
+    ]);
+  });
+
+  it("collapses duplicate skill-only lock entries for the same source", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "skills", "react-best-practices"));
+    ensureDir(path.join(sourceRoot, "skills", "composition-patterns"));
+    writeTextAtomic(
+      path.join(sourceRoot, "skills", "react-best-practices", "SKILL.md"),
+      "# react\n",
+    );
+    writeTextAtomic(
+      path.join(sourceRoot, "skills", "composition-patterns", "SKILL.md"),
+      "# composition\n",
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    ensureDir(path.dirname(paths.lockPath));
+    writeTextAtomic(
+      paths.lockPath,
+      JSON.stringify(
+        {
+          version: 1,
+          entries: [
+            {
+              source: sourceRoot,
+              sourceType: "local",
+              resolvedCommit: "old-a",
+              importedAt: "2026-01-01T00:00:00.000Z",
+              importedAgents: [],
+              importedCommands: [],
+              importedMcpServers: [],
+              importedRules: [],
+              importedSkills: ["react-best-practices"],
+              selectedSourceSkills: ["react-best-practices"],
+              skillRenameMap: {
+                "react-best-practices": "react-best-practices",
+              },
+              trackedEntities: ["skill"],
+              contentHash: "hash-a",
+            },
+            {
+              source: sourceRoot,
+              sourceType: "local",
+              resolvedCommit: "old-b",
+              importedAt: "2026-01-02T00:00:00.000Z",
+              importedAgents: [],
+              importedCommands: [],
+              importedMcpServers: [],
+              importedRules: [],
+              importedSkills: ["composition-patterns"],
+              selectedSourceSkills: ["composition-patterns"],
+              skillRenameMap: {
+                "composition-patterns": "composition-patterns",
+              },
+              trackedEntities: ["skill"],
+              contentHash: "hash-b",
+            },
+          ],
+        } satisfies AgentsLockFile,
+        null,
+        2,
+      ),
+    );
+
+    await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: false,
+      importCommands: false,
+      importMcp: false,
+      importSkills: true,
+      requireSkills: true,
+      skillSelectors: ["react-best-practices", "composition-patterns"],
+    });
+
+    const lock = readJsonIfExists<AgentsLockFile>(paths.lockPath);
+    expect(lock?.entries).toHaveLength(1);
+    expect([...(lock?.entries[0]?.importedSkills ?? [])].sort()).toEqual([
+      "composition-patterns",
       "react-best-practices",
     ]);
   });

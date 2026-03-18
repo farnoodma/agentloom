@@ -4,6 +4,7 @@ import type { AgentsLockFile, ScopePaths } from "../../src/types.js";
 
 const commandMocks = vi.hoisted(() => ({
   importSource: vi.fn(),
+  sendAddTelemetryEvent: vi.fn(),
   readLockfile: vi.fn(),
   resolveScope: vi.fn(),
   prepareSource: vi.fn(),
@@ -34,6 +35,16 @@ vi.mock("../../src/core/sources.js", async () => {
   return {
     ...actual,
     prepareSource: commandMocks.prepareSource,
+  };
+});
+
+vi.mock("../../src/core/telemetry.js", async () => {
+  const actual = await vi.importActual<
+    typeof import("../../src/core/telemetry.js")
+  >("../../src/core/telemetry.js");
+  return {
+    ...actual,
+    sendAddTelemetryEvent: commandMocks.sendAddTelemetryEvent,
   };
 });
 
@@ -80,6 +91,7 @@ function createLockfile(): AgentsLockFile {
 
 beforeEach(() => {
   commandMocks.importSource.mockReset();
+  commandMocks.sendAddTelemetryEvent.mockReset();
   commandMocks.readLockfile.mockReset();
   commandMocks.resolveScope.mockReset();
   commandMocks.prepareSource.mockReset();
@@ -148,6 +160,15 @@ describe("runUpdateCommand", () => {
       }),
     );
     expect(cleanup).toHaveBeenCalledTimes(1);
+    expect(commandMocks.sendAddTelemetryEvent).toHaveBeenCalledTimes(1);
+    expect(commandMocks.sendAddTelemetryEvent).toHaveBeenCalledWith({
+      rawSource: "farnoodma/agents",
+      summary: expect.objectContaining({
+        source: "farnoodma/agents",
+        sourceType: "github",
+        resolvedCommit: "new-commit",
+      }),
+    });
 
     const output = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
     expect(output).toContain("Updated entries: 1");
