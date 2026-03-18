@@ -97,14 +97,26 @@ async function runEntityAwareUpdate(options: {
     return;
   }
 
+  console.log(
+    `Checking ${entries.length} lock entr${entries.length === 1 ? "y" : "ies"} for updates...`,
+  );
+
   let updated = 0;
   let skipped = 0;
 
-  for (const entry of entries) {
+  for (const [index, entry] of entries.entries()) {
+    const progressPrefix = formatUpdateProgressPrefix(index, entries.length);
+    const entryLabel = formatLockEntryLabel(entry);
+
     if (!entryIncludesTarget(entry, options.target)) {
+      console.log(
+        `${progressPrefix} Skipping ${entryLabel} (does not track ${options.target}).`,
+      );
       skipped += 1;
       continue;
     }
+
+    console.log(`${progressPrefix} Checking ${entryLabel}...`);
 
     const probe = prepareSource({
       source: entry.source,
@@ -112,10 +124,14 @@ async function runEntityAwareUpdate(options: {
       subdir: entry.subdir,
     });
 
-    const hasNewCommit = probe.resolvedCommit !== entry.resolvedCommit;
+    const latestCommit = probe.resolvedCommit;
+    const hasNewCommit = latestCommit !== entry.resolvedCommit;
     probe.cleanup();
 
     if (!hasNewCommit) {
+      console.log(
+        `${progressPrefix} Up to date at ${formatShortCommit(entry.resolvedCommit)}.`,
+      );
       skipped += 1;
       continue;
     }
@@ -128,9 +144,16 @@ async function runEntityAwareUpdate(options: {
       !updatePlan.importRules &&
       !updatePlan.importSkills
     ) {
+      console.log(
+        `${progressPrefix} Skipping ${entryLabel} (no tracked entities selected for update).`,
+      );
       skipped += 1;
       continue;
     }
+
+    console.log(
+      `${progressPrefix} Updating ${entryLabel} (${formatShortCommit(entry.resolvedCommit)} -> ${formatShortCommit(latestCommit)})...`,
+    );
 
     try {
       const importOptions: Parameters<typeof importSource>[0] = {
@@ -194,6 +217,9 @@ async function runEntityAwareUpdate(options: {
         rawSource: entry.source,
         summary,
       });
+      console.log(
+        `${progressPrefix} Updated ${entryLabel} to ${formatShortCommit(summary.resolvedCommit)}.`,
+      );
       updated += 1;
     } catch (err) {
       if (err instanceof NonInteractiveConflictError) {
@@ -215,6 +241,29 @@ async function runEntityAwareUpdate(options: {
       providers: explicitProviders ?? resolvedSkillProviders,
     });
   }
+}
+
+function formatUpdateProgressPrefix(index: number, total: number): string {
+  return `[${index + 1}/${total}]`;
+}
+
+function formatLockEntryLabel(entry: LockEntry): string {
+  const base = entry.source;
+  const refSuffix =
+    typeof entry.requestedRef === "string" && entry.requestedRef.length > 0
+      ? `@${entry.requestedRef}`
+      : "";
+  const subdirSuffix =
+    typeof entry.subdir === "string" && entry.subdir.length > 0
+      ? ` (${entry.subdir})`
+      : "";
+  return `${base}${refSuffix}${subdirSuffix}`;
+}
+
+function formatShortCommit(commit: string): string {
+  const normalized = commit.trim();
+  if (normalized.length <= 12) return normalized;
+  return normalized.slice(0, 12);
 }
 
 interface EntryUpdatePlan {
