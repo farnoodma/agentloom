@@ -112,6 +112,20 @@ describe("runSkillCommand", () => {
     );
   });
 
+  it("accepts remove as a delete alias", async () => {
+    await runSkillCommand(
+      { _: ["skill", "remove", "release-check"] } as ParsedArgs,
+      "/workspace",
+    );
+
+    expect(commandMocks.runScopedDeleteCommand).toHaveBeenCalledWith({
+      argv: { _: ["skill", "remove", "release-check"] },
+      cwd: "/workspace",
+      entity: "skill",
+      sourceIndex: 2,
+    });
+  });
+
   it("delegates skill sync to scoped sync pipeline", async () => {
     await runSkillCommand(
       { _: ["skill", "sync"], yes: true, "dry-run": true } as ParsedArgs,

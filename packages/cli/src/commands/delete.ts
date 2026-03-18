@@ -3,10 +3,15 @@ import path from "node:path";
 import { multiselect, isCancel, cancel, select } from "@clack/prompts";
 import type { ParsedArgs } from "minimist";
 import { parseAgentsDir } from "../core/agents.js";
-import { parseCommandsDir } from "../core/commands.js";
+import { getStringArrayFlag } from "../core/argv.js";
+import {
+  parseCommandsDir,
+  stripCommandFileExtension,
+} from "../core/commands.js";
 import { formatUsageError } from "../core/copy.js";
 import { readLockfile, writeLockfile } from "../core/lockfile.js";
 import { readCanonicalMcp, writeCanonicalMcp } from "../core/mcp.js";
+import { getProviderCommandsDir } from "../core/provider-paths.js";
 import {
   normalizeRuleSelector,
   parseRulesDir,
@@ -24,6 +29,16 @@ import {
 
 const ALL_ENTITIES: EntityType[] = ["agent", "command", "mcp", "rule", "skill"];
 const MULTISELECT_HELP_TEXT = "↑↓ move, space select, enter confirm";
+
+class MissingEntityError extends Error {
+  constructor(
+    readonly candidate: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "MissingEntityError";
+  }
+}
 
 function withMultiselectHelp(message: string): string {
   return `${message}\n${MULTISELECT_HELP_TEXT}`;
@@ -61,15 +76,15 @@ async function runEntityAwareDelete(options: {
   target: EntityType | "all";
   sourceIndex: number;
 }): Promise<void> {
-  const candidate = getDeleteCandidate(options.argv, options.sourceIndex);
-  if (!candidate) {
+  const candidates = getDeleteCandidates(options.argv, options.sourceIndex);
+  if (candidates.length === 0) {
     throw new Error(
       formatUsageError({
-        issue: "Missing required <source|name>.",
+        issue: "Missing required <source|name...>.",
         usage:
           options.target === "all"
-            ? "agentloom delete <source|name> [options]"
-            : `agentloom ${options.target} delete <source|name> [options]`,
+            ? "agentloom delete <source|name...> [options]"
+            : `agentloom ${options.target} delete <source|name...> [options]`,
         example:
           options.target === "all"
             ? "agentloom delete farnoodma/agents"
@@ -80,45 +95,58 @@ async function runEntityAwareDelete(options: {
 
   const nonInteractive = getNonInteractiveMode(options.argv);
   const paths = await resolvePathsForCommand(options.argv, options.cwd);
-
-  const lockfile = readLockfile(paths);
-  const sourceMatches = lockfile.entries.filter((entry) =>
-    matchesSource(entry, candidate),
+  const explicitSourceFilters = getStringArrayFlag(
+    (options.argv as Record<string, unknown>).source,
   );
+  const missingCandidates: string[] = [];
 
-  const sourceMode =
-    sourceMatches.length > 0 ||
-    (typeof options.argv.source === "string" &&
-      options.argv.source.trim() !== "");
+  for (const candidate of candidates) {
+    const lockfile = readLockfile(paths);
+    const sourceMatches = lockfile.entries.filter((entry) =>
+      matchesSource(entry, candidate),
+    );
 
-  const entities = await resolveEntitiesForDelete({
-    argv: options.argv,
-    target: options.target,
-    sourceMode,
-    nonInteractive,
-  });
+    const sourceMode =
+      sourceMatches.length > 0 || explicitSourceFilters.length > 0;
 
-  if (entities.length === 0) {
-    console.log("No entities selected for deletion.");
-    return;
-  }
-
-  if (sourceMode) {
-    await deleteBySource({
-      paths,
-      sourceFilter: candidate,
-      lockfile,
-      lockEntries: sourceMatches,
-      entities,
-    });
-  } else {
-    await deleteByName({
-      candidate,
+    const entities = await resolveEntitiesForDelete({
       argv: options.argv,
-      paths,
-      entities,
+      target: options.target,
+      sourceMode,
       nonInteractive,
     });
+
+    if (entities.length === 0) {
+      console.log("No entities selected for deletion.");
+      return;
+    }
+
+    if (sourceMode) {
+      await deleteBySource({
+        paths,
+        sourceFilter: candidate,
+        lockfile,
+        lockEntries: sourceMatches,
+        entities,
+      });
+      continue;
+    }
+
+    try {
+      await deleteByName({
+        candidate,
+        argv: options.argv,
+        paths,
+        entities,
+        nonInteractive,
+      });
+    } catch (error) {
+      if (error instanceof MissingEntityError) {
+        missingCandidates.push(error.candidate);
+        continue;
+      }
+      throw error;
+    }
   }
 
   await runPostMutationSync({
@@ -126,30 +154,29 @@ async function runEntityAwareDelete(options: {
     paths,
     target: options.target,
   });
+
+  if (missingCandidates.length > 0) {
+    console.warn(
+      `Couldn't delete these because they don't exist: ${[...new Set(missingCandidates)].join(", ")}`,
+    );
+  }
 }
 
-function getDeleteCandidate(
-  argv: ParsedArgs,
-  sourceIndex: number,
-): string | undefined {
-  const fromSourceFlag =
-    typeof argv.source === "string" && argv.source.trim().length > 0
-      ? argv.source.trim()
-      : undefined;
-  if (fromSourceFlag) return fromSourceFlag;
+function getDeleteCandidates(argv: ParsedArgs, sourceIndex: number): string[] {
+  const fromSourceFlag = getStringArrayFlag(
+    (argv as Record<string, unknown>).source,
+  );
+  if (fromSourceFlag.length > 0) return fromSourceFlag;
 
-  const fromNameFlag =
-    typeof argv.name === "string" && argv.name.trim().length > 0
-      ? argv.name.trim()
-      : undefined;
-  if (fromNameFlag) return fromNameFlag;
+  const fromNameFlag = getStringArrayFlag(
+    (argv as Record<string, unknown>).name,
+  );
+  if (fromNameFlag.length > 0) return fromNameFlag;
 
-  const positional = argv._[sourceIndex];
-  if (typeof positional !== "string" || positional.trim().length === 0) {
-    return undefined;
-  }
-
-  return positional.trim();
+  return argv._.slice(sourceIndex)
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 async function resolveEntitiesForDelete(options: {
@@ -283,7 +310,8 @@ async function deleteByName(options: {
     );
 
     if (matchingEntities.length === 0) {
-      throw new Error(
+      throw new MissingEntityError(
+        options.candidate,
         `No installed entity named "${options.candidate}" found.`,
       );
     }
@@ -325,7 +353,10 @@ async function deleteByName(options: {
         (name) => normalizeName(name) === normalizeName(options.candidate),
       );
       if (!existing) {
-        throw new Error(`MCP server "${options.candidate}" was not found.`);
+        throw new MissingEntityError(
+          options.candidate,
+          `MCP server "${options.candidate}" was not found.`,
+        );
       }
       delete mcp.mcpServers[existing];
     } else if (entity === "rule") {
@@ -370,7 +401,10 @@ function deleteAgentByName(
         normalizeName(name),
   );
   if (!target) {
-    throw new Error(`Agent "${name}" was not found in canonical agents.`);
+    throw new MissingEntityError(
+      name,
+      `Agent "${name}" was not found in canonical agents.`,
+    );
   }
   removeIfExists(target.sourcePath);
 }
@@ -387,9 +421,13 @@ function deleteCommandByName(
         normalizeName(name),
   );
   if (!target) {
-    throw new Error(`Command "${name}" was not found in canonical commands.`);
+    throw new MissingEntityError(
+      name,
+      `Command "${name}" was not found in canonical commands.`,
+    );
   }
   removeIfExists(target.sourcePath);
+  removeLegacyGeminiCommandVariants(paths, target.fileName);
 }
 
 function deleteSkillByName(
@@ -403,7 +441,10 @@ function deleteSkillByName(
       normalizeName(path.basename(skill.sourcePath)) === normalizeName(name),
   );
   if (!target) {
-    throw new Error(`Skill "${name}" was not found in canonical skills.`);
+    throw new MissingEntityError(
+      name,
+      `Skill "${name}" was not found in canonical skills.`,
+    );
   }
   removeIfExists(target.sourcePath);
 }
@@ -415,7 +456,10 @@ function deleteRuleByName(
   const rules = parseRulesDir(paths.rulesDir);
   const target = rules.find((rule) => ruleMatchesCandidate(rule, name));
   if (!target) {
-    throw new Error(`Rule "${name}" was not found in canonical rules.`);
+    throw new MissingEntityError(
+      name,
+      `Rule "${name}" was not found in canonical rules.`,
+    );
   }
   removeIfExists(target.sourcePath);
   return target;
@@ -424,6 +468,16 @@ function deleteRuleByName(
 function removeIfExists(filePath: string): void {
   if (!fs.existsSync(filePath)) return;
   fs.rmSync(filePath, { recursive: true, force: true });
+}
+
+function removeLegacyGeminiCommandVariants(
+  paths: Awaited<ReturnType<typeof resolvePathsForCommand>>,
+  fileName: string,
+): void {
+  const commandsDir = getProviderCommandsDir(paths, "gemini");
+  const stem = stripCommandFileExtension(path.basename(fileName));
+  removeIfExists(path.join(commandsDir, `${stem}.md`));
+  removeIfExists(path.join(commandsDir, `${stem}.mdc`));
 }
 
 function normalizeName(value: string): string {

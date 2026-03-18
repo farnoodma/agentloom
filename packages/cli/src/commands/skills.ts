@@ -13,7 +13,8 @@ export async function runSkillCommand(
   argv: ParsedArgs,
   cwd: string,
 ): Promise<void> {
-  const action = argv._[1];
+  const rawAction = argv._[1];
+  const action = rawAction === "remove" ? "delete" : rawAction;
 
   if (argv.help || !action) {
     console.log(

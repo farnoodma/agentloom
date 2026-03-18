@@ -109,6 +109,20 @@ describe("runRuleCommand", () => {
     );
   });
 
+  it("accepts remove as a delete alias", async () => {
+    await runRuleCommand(
+      { _: ["rule", "remove", "always-test"] } as ParsedArgs,
+      "/workspace",
+    );
+
+    expect(commandMocks.runScopedDeleteCommand).toHaveBeenCalledWith({
+      argv: { _: ["rule", "remove", "always-test"] },
+      cwd: "/workspace",
+      entity: "rule",
+      sourceIndex: 2,
+    });
+  });
+
   it("delegates rule sync to scoped sync pipeline", async () => {
     await runRuleCommand(
       { _: ["rule", "sync"], yes: true, "dry-run": true } as ParsedArgs,

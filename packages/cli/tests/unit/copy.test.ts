@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   getCommandAddHelpText,
+  getCommandDeleteHelpText,
   getCommandHelpText,
   formatUnknownCommandError,
   formatUsageError,
@@ -18,6 +19,7 @@ describe("copy helpers", () => {
     expect(help).toContain("find <query>");
     expect(help).toContain("init");
     expect(help).toContain("upgrade");
+    expect(help).toContain("delete <source|name...>");
     expect(help).toContain("mcp <add|list|delete|find|update|sync>");
     expect(help).toContain("rule <add|list|delete|find|update|sync>");
     expect(help).toContain("mcp server <add|list|delete>");
@@ -53,6 +55,9 @@ describe("copy helpers", () => {
     );
     expect(getCommandAddHelpText()).toContain(
       "agentloom command add <source> [options]",
+    );
+    expect(getCommandDeleteHelpText()).toContain(
+      "agentloom command delete <source|name...> [options]",
     );
     expect(getCommandAddHelpText()).toContain("--commands <name>");
     expect(getMcpHelpText()).toContain(

@@ -22,7 +22,8 @@ export async function runMcpCommand(
   argv: ParsedArgs,
   cwd: string,
 ): Promise<void> {
-  const action = argv._[1];
+  const rawAction = argv._[1];
+  const action = rawAction === "remove" ? "delete" : rawAction;
 
   if (argv.help) {
     if (action === "add") {
@@ -125,7 +126,8 @@ async function runMcpServerCommand(
   argv: ParsedArgs,
   cwd: string,
 ): Promise<void> {
-  const action = argv._[2];
+  const rawAction = argv._[2];
+  const action = rawAction === "remove" ? "delete" : rawAction;
 
   if (argv.help || !action) {
     console.log(getMcpServerHelpText());

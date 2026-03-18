@@ -300,7 +300,7 @@ export default function DocsPage() {
                     <tr>
                       <td className="py-2 pr-4">
                         <InlineCode>
-                          agentloom delete &lt;source|name&gt;
+                          agentloom delete &lt;source|name...&gt;
                         </InlineCode>
                       </td>
                       <td className="py-2">Remove imported entities</td>
@@ -434,7 +434,10 @@ $ agentloom rule add farnoodma/agents --rules always-test
 $ agentloom skill add farnoodma/agents --skills pr-review
 
 # Remove everything from a source
-$ agentloom delete farnoodma/agents`}</CodeBlock>
+$ agentloom delete farnoodma/agents
+
+# Remove multiple commands by name
+$ agentloom command delete review audit`}</CodeBlock>
             </div>
           </section>
 

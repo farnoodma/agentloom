@@ -6,6 +6,7 @@ import TOML from "@iarna/toml";
 import { afterEach, describe, expect, it } from "vitest";
 import { runAgentCommand } from "../../src/commands/agent.js";
 import { runCommandCommand } from "../../src/commands/command.js";
+import { runSyncCommand } from "../../src/commands/sync.js";
 import { parseArgs } from "../../src/core/argv.js";
 import {
   ensureDir,
@@ -162,6 +163,86 @@ describe("legacy manifest cleanup integration", () => {
       agents?: Record<string, unknown>;
     };
     expect(codexConfig.agents?.researcher).toBeUndefined();
+  });
+
+  it("command delete removes legacy gemini markdown variants so sync does not re-import deleted commands", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "commands"));
+    writeTextAtomic(
+      path.join(sourceRoot, "commands", "brainstorm.md"),
+      "# /brainstorm\n",
+    );
+    initGitRepo(sourceRoot);
+    commitAll(sourceRoot, "initial");
+
+    await runCommandCommand(
+      parseArgs([
+        "command",
+        "add",
+        sourceRoot,
+        "--local",
+        "--yes",
+        "--providers",
+        "gemini",
+      ]),
+      workspaceRoot,
+    );
+
+    const geminiTomlPath = path.join(
+      workspaceRoot,
+      ".gemini",
+      "commands",
+      "brainstorm.toml",
+    );
+    const geminiLegacyMarkdownPath = path.join(
+      workspaceRoot,
+      ".gemini",
+      "commands",
+      "brainstorm.md",
+    );
+    expect(fs.existsSync(geminiTomlPath)).toBe(true);
+
+    writeTextAtomic(geminiLegacyMarkdownPath, "# /brainstorm (legacy)\n");
+    expect(fs.existsSync(geminiLegacyMarkdownPath)).toBe(true);
+
+    await runCommandCommand(
+      parseArgs([
+        "command",
+        "delete",
+        "brainstorm",
+        "--local",
+        "--yes",
+        "--providers",
+        "gemini",
+      ]),
+      workspaceRoot,
+    );
+
+    expect(
+      fs.existsSync(
+        path.join(workspaceRoot, ".agents", "commands", "brainstorm.md"),
+      ),
+    ).toBe(false);
+    expect(fs.existsSync(geminiTomlPath)).toBe(false);
+    expect(fs.existsSync(geminiLegacyMarkdownPath)).toBe(false);
+
+    await runSyncCommand(
+      parseArgs(["sync", "--local", "--yes", "--providers", "gemini"]),
+      workspaceRoot,
+    );
+
+    expect(
+      fs.existsSync(
+        path.join(workspaceRoot, ".agents", "commands", "brainstorm.md"),
+      ),
+    ).toBe(false);
   });
 });
 
