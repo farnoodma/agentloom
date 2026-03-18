@@ -55,15 +55,6 @@ interface CursorPayload {
 
 const CURRENT_CURSOR_VERSION = 2;
 
-const ENTITY_SORT_ORDER = sql<number>`CASE
-  WHEN ${catalogItems.entityType} = 'agent' THEN 5
-  WHEN ${catalogItems.entityType} = 'skill' THEN 4
-  WHEN ${catalogItems.entityType} = 'command' THEN 3
-  WHEN ${catalogItems.entityType} = 'rule' THEN 2
-  WHEN ${catalogItems.entityType} = 'mcp' THEN 1
-  ELSE 0
-END`;
-
 function buildFilter(entity: CatalogEntityType | "all", q?: string): SQL<unknown> | undefined {
   const filters: SQL<unknown>[] = [];
 
@@ -211,13 +202,10 @@ export async function getLeaderboardPage(input: {
   const limit = clampLeaderboardPageSize(input.limit);
   const rowLimit = limit + 1;
   const baseWhere = buildFilter(input.entity, input.q);
-  const useEntityGrouping = input.entity === "all";
 
   if (input.period === "all") {
     const cursorFilter = input.cursor
-      ? useEntityGrouping
-        ? sql`(${ENTITY_SORT_ORDER}, ${catalogItems.totalInstalls}, ${catalogItems.firstSeenAt}, ${catalogItems.id}) < (${input.cursor.entitySort}, ${input.cursor.totalInstalls}, ${input.cursor.firstSeenAt}, ${input.cursor.id}::uuid)`
-        : sql`(${catalogItems.totalInstalls}, ${catalogItems.firstSeenAt}, ${catalogItems.id}) < (${input.cursor.totalInstalls}, ${input.cursor.firstSeenAt}, ${input.cursor.id}::uuid)`
+      ? sql`(${catalogItems.totalInstalls}, ${catalogItems.firstSeenAt}, ${catalogItems.id}) < (${input.cursor.totalInstalls}, ${input.cursor.firstSeenAt}, ${input.cursor.id}::uuid)`
       : undefined;
 
     const rows = await db
@@ -237,9 +225,7 @@ export async function getLeaderboardPage(input: {
       .from(catalogItems)
       .where(combineFilters([baseWhere, cursorFilter]))
       .orderBy(
-        ...(useEntityGrouping
-          ? [desc(ENTITY_SORT_ORDER), desc(catalogItems.totalInstalls)]
-          : [desc(catalogItems.totalInstalls)]),
+        desc(catalogItems.totalInstalls),
         desc(catalogItems.firstSeenAt),
         desc(catalogItems.id),
       )
@@ -277,9 +263,7 @@ export async function getLeaderboardPage(input: {
       : installCountsWeekly.weekStart;
   const periodInstalls = sql<number>`COALESCE(${periodTable.installs}, 0)`;
   const cursorFilter = input.cursor
-    ? useEntityGrouping
-      ? sql`(${ENTITY_SORT_ORDER}, ${periodInstalls}, ${catalogItems.totalInstalls}, ${catalogItems.firstSeenAt}, ${catalogItems.id}) < (${input.cursor.entitySort}, ${input.cursor.installs}, ${input.cursor.totalInstalls}, ${input.cursor.firstSeenAt}, ${input.cursor.id}::uuid)`
-      : sql`(${periodInstalls}, ${catalogItems.totalInstalls}, ${catalogItems.firstSeenAt}, ${catalogItems.id}) < (${input.cursor.installs}, ${input.cursor.totalInstalls}, ${input.cursor.firstSeenAt}, ${input.cursor.id}::uuid)`
+    ? sql`(${periodInstalls}, ${catalogItems.totalInstalls}, ${catalogItems.firstSeenAt}, ${catalogItems.id}) < (${input.cursor.installs}, ${input.cursor.totalInstalls}, ${input.cursor.firstSeenAt}, ${input.cursor.id}::uuid)`
     : undefined;
 
   const rows = await db
@@ -303,7 +287,6 @@ export async function getLeaderboardPage(input: {
     )
     .where(combineFilters([baseWhere, cursorFilter]))
     .orderBy(
-      ...(useEntityGrouping ? [desc(ENTITY_SORT_ORDER)] : []),
       desc(periodInstalls),
       desc(catalogItems.totalInstalls),
       desc(catalogItems.firstSeenAt),
