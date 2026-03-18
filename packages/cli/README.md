@@ -60,7 +60,7 @@ Global scope uses `~/.agents` with the same file layout.
 - `agentloom update [source]`
 - `agentloom upgrade`
 - `agentloom sync`
-- `agentloom delete <source|name>`
+- `agentloom delete <source|name...>`
 
 Aggregate `add` imports discoverable entities from a source (agents, commands, rules, MCP servers, skills). In interactive sessions, each entity supports two tracking modes:
 
@@ -117,6 +117,7 @@ agentloom mcp add farnoodma/agents --mcps browser
 agentloom rule add farnoodma/agents --rules always-test
 agentloom skill add farnoodma/agents --skills pr-review
 agentloom delete farnoodma/agents
+agentloom command delete review audit
 agentloom mcp server add browser-tools --command npx --arg browser-tools-mcp
 ```
 

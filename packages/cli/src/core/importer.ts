@@ -670,6 +670,9 @@ export async function importSource(
       }
     }
 
+    const selectedSubsetOfSourceAgents =
+      sourceAgents.length > 0 &&
+      selection.selectedAgents.length < sourceAgents.length;
     const selectedSubsetOfSourceCommands =
       sourceCommands.length > 0 &&
       selectedSourceCommandFiles.length < sourceCommands.length;
@@ -708,19 +711,56 @@ export async function importSource(
         : undefined;
 
     const lockfile = readLockfile(options.paths);
-    const isCommandOnlyImport =
-      !shouldImportAgents &&
-      shouldImportCommands &&
-      !shouldImportMcp &&
-      !shouldImportRules &&
-      !shouldImportSkills;
-    const existingEntry = isCommandOnlyImport
-      ? findRelaxedCommandEntry(lockfile.entries, {
+    const importedEntities = [
+      shouldImportAgents ? "agent" : null,
+      shouldImportCommands ? "command" : null,
+      shouldImportMcp ? "mcp" : null,
+      shouldImportRules ? "rule" : null,
+      shouldImportSkills ? "skill" : null,
+    ].filter(Boolean) as EntityType[];
+    const singleEntityImport =
+      importedEntities.length === 1 ? importedEntities[0] : undefined;
+    const isAgentOnlyImport = singleEntityImport === "agent";
+    const isCommandOnlyImport = singleEntityImport === "command";
+    const isMcpOnlyImport = singleEntityImport === "mcp";
+    const isRuleOnlyImport = singleEntityImport === "rule";
+    const isSkillOnlyImport = singleEntityImport === "skill";
+
+    const relaxedSingleEntityEntries = singleEntityImport
+      ? findRelaxedEntityEntries(lockfile.entries, {
           source: prepared.spec.source,
           sourceType: prepared.spec.type,
           subdir: options.subdir,
           requestedAgents: options.agents,
+          entity: singleEntityImport,
         })
+      : [];
+    let relaxedSingleEntityEntry = relaxedSingleEntityEntries[0];
+
+    if (relaxedSingleEntityEntries.length > 1) {
+      const canonicalEntry = relaxedSingleEntityEntries[0];
+      const redundantEntries = relaxedSingleEntityEntries.slice(1);
+      const collapsibleRedundantEntries = redundantEntries.filter(
+        (entry) => !isMixedEntryForEntity(entry, singleEntityImport!),
+      );
+      const consolidatedEntry = mergeRelaxedEntityEntriesForLock({
+        canonicalEntry,
+        redundantEntries: collapsibleRedundantEntries,
+        entity: singleEntityImport!,
+      });
+      const canonicalEntryIndex = lockfile.entries.indexOf(canonicalEntry);
+      if (canonicalEntryIndex >= 0) {
+        lockfile.entries[canonicalEntryIndex] = consolidatedEntry;
+      }
+      const redundantEntriesSet = new Set(collapsibleRedundantEntries);
+      lockfile.entries = lockfile.entries.filter(
+        (entry) => !redundantEntriesSet.has(entry),
+      );
+      relaxedSingleEntityEntry = consolidatedEntry;
+    }
+
+    const existingEntry = singleEntityImport
+      ? relaxedSingleEntityEntry
       : findMatchingLockEntry(lockfile.entries, {
           source: prepared.spec.source,
           sourceType: prepared.spec.type,
@@ -741,9 +781,39 @@ export async function importSource(
       (existingEntry?.importedAgents.length ?? 0) === 0 &&
       (existingEntry?.importedMcpServers.length ?? 0) === 0 &&
       (existingEntry?.importedSkills.length ?? 0) === 0;
+    const shouldMergeAgentOnlyEntry =
+      isAgentOnlyImport &&
+      Boolean(existingEntry) &&
+      (selection.requestedAgentsForLock !== undefined ||
+        selectedSubsetOfSourceAgents);
+    const shouldMergeMcpOnlyEntry =
+      isMcpOnlyImport &&
+      Boolean(existingEntry) &&
+      (existingEntry?.importedAgents.length ?? 0) === 0 &&
+      (existingEntry?.importedCommands.length ?? 0) === 0 &&
+      (existingEntry?.importedRules.length ?? 0) === 0 &&
+      (existingEntry?.importedSkills.length ?? 0) === 0 &&
+      (shouldPersistMcpSelection || selectedSubsetOfSourceMcp);
+    const shouldMergeRuleOnlyEntry =
+      isRuleOnlyImport &&
+      Boolean(existingEntry) &&
+      (existingEntry?.importedAgents.length ?? 0) === 0 &&
+      (existingEntry?.importedCommands.length ?? 0) === 0 &&
+      (existingEntry?.importedMcpServers.length ?? 0) === 0 &&
+      (existingEntry?.importedSkills.length ?? 0) === 0 &&
+      (shouldPersistRuleSelection || selectedSubsetOfSourceRules);
+    const shouldMergeSkillOnlyEntry =
+      isSkillOnlyImport &&
+      Boolean(existingEntry) &&
+      (shouldPersistSkillSelection || selectedSubsetOfSourceSkills);
 
     const lockImportedAgents = shouldImportAgents
-      ? importedAgents
+      ? shouldMergeAgentOnlyEntry
+        ? uniqueStrings([
+            ...(existingEntry?.importedAgents ?? []),
+            ...importedAgents,
+          ])
+        : importedAgents
       : (existingEntry?.importedAgents ?? []);
     const lockImportedCommands = shouldImportCommands
       ? shouldMergeCommandOnlyEntry
@@ -754,13 +824,30 @@ export async function importSource(
         : importedCommands
       : (existingEntry?.importedCommands ?? []);
     const lockImportedMcpServers = shouldImportMcp
-      ? importedMcpServers
+      ? shouldMergeMcpOnlyEntry
+        ? uniqueStrings([
+            ...(existingEntry?.importedMcpServers ?? []),
+            ...importedMcpServers,
+          ])
+        : importedMcpServers
       : (existingEntry?.importedMcpServers ?? []);
     const lockImportedRules = shouldImportRules
-      ? importedRules
+      ? shouldMergeRuleOnlyEntry
+        ? uniqueStrings([
+            ...(existingEntry?.importedRules ?? []),
+            ...importedRules,
+          ])
+        : importedRules
       : (existingEntry?.importedRules ?? []);
     const lockImportedSkills = shouldImportSkills
-      ? importedSkills
+      ? shouldMergeSkillOnlyEntry
+        ? mergeImportedSkills({
+            existingImportedSkills: existingEntry?.importedSkills,
+            importedSkills,
+            selectedSkills,
+            existingSkillRenameMap: existingEntry?.skillRenameMap,
+          })
+        : importedSkills
       : (existingEntry?.importedSkills ?? []);
 
     let lockSelectedSourceCommands: string[] | undefined;
@@ -786,30 +873,88 @@ export async function importSource(
       lockSelectedSourceCommands = existingEntry?.selectedSourceCommands;
     }
 
-    const lockSelectedSourceMcpServers = shouldImportMcp
-      ? shouldPersistMcpSelection || selectedSubsetOfSourceMcp
-        ? [...selectedSourceMcpServers]
-        : undefined
-      : existingEntry?.selectedSourceMcpServers;
-    const lockSelectedSourceRules = shouldImportRules
-      ? shouldPersistRuleSelection || selectedSubsetOfSourceRules
-        ? [...selectedSourceRules]
-        : undefined
-      : existingEntry?.selectedSourceRules;
+    let lockSelectedSourceMcpServers: string[] | undefined;
+    if (shouldImportMcp) {
+      if (shouldMergeMcpOnlyEntry) {
+        if (shouldPersistMcpSelection || selectedSubsetOfSourceMcp) {
+          lockSelectedSourceMcpServers = uniqueStrings([
+            ...(existingEntry?.selectedSourceMcpServers ?? []),
+            ...selectedSourceMcpServers,
+          ]);
+        } else {
+          lockSelectedSourceMcpServers = undefined;
+        }
+      } else if (shouldPersistMcpSelection || selectedSubsetOfSourceMcp) {
+        lockSelectedSourceMcpServers = [...selectedSourceMcpServers];
+      } else {
+        lockSelectedSourceMcpServers = undefined;
+      }
+    } else {
+      lockSelectedSourceMcpServers = existingEntry?.selectedSourceMcpServers;
+    }
 
-    const lockSelectedSourceSkills = shouldImportSkills
-      ? shouldPersistSkillSelection || selectedSubsetOfSourceSkills
-        ? [...selectedSourceSkills]
-        : undefined
-      : existingEntry?.selectedSourceSkills;
+    let lockSelectedSourceRules: string[] | undefined;
+    if (shouldImportRules) {
+      if (shouldMergeRuleOnlyEntry) {
+        if (shouldPersistRuleSelection || selectedSubsetOfSourceRules) {
+          lockSelectedSourceRules = uniqueStrings([
+            ...(existingEntry?.selectedSourceRules ?? []),
+            ...selectedSourceRules,
+          ]);
+        } else {
+          lockSelectedSourceRules = undefined;
+        }
+      } else if (shouldPersistRuleSelection || selectedSubsetOfSourceRules) {
+        lockSelectedSourceRules = [...selectedSourceRules];
+      } else {
+        lockSelectedSourceRules = undefined;
+      }
+    } else {
+      lockSelectedSourceRules = existingEntry?.selectedSourceRules;
+    }
+
+    let lockSelectedSourceSkills: string[] | undefined;
+    if (shouldImportSkills) {
+      if (shouldMergeSkillOnlyEntry) {
+        if (shouldPersistSkillSelection || selectedSubsetOfSourceSkills) {
+          lockSelectedSourceSkills = uniqueStrings([
+            ...(existingEntry?.selectedSourceSkills ?? []),
+            ...selectedSourceSkills,
+          ]);
+        } else {
+          lockSelectedSourceSkills = undefined;
+        }
+      } else if (shouldPersistSkillSelection || selectedSubsetOfSourceSkills) {
+        lockSelectedSourceSkills = [...selectedSourceSkills];
+      } else {
+        lockSelectedSourceSkills = undefined;
+      }
+    } else {
+      lockSelectedSourceSkills = existingEntry?.selectedSourceSkills;
+    }
     const lockRuleRenameMap = shouldImportRules
-      ? normalizeRuleRenameMap(importedRuleRenameMap)
+      ? shouldMergeRuleOnlyEntry
+        ? mergeRuleRenameMaps(
+            existingEntry?.ruleRenameMap,
+            importedRuleRenameMap,
+          )
+        : normalizeRuleRenameMap(importedRuleRenameMap)
       : existingEntry?.ruleRenameMap;
     const lockSkillsProviders = shouldImportSkills
-      ? (skillsProvidersForLock ?? existingEntry?.skillsProviders)
+      ? shouldMergeSkillOnlyEntry
+        ? normalizeSkillsProviders([
+            ...(existingEntry?.skillsProviders ?? []),
+            ...(skillsProvidersForLock ?? []),
+          ])
+        : (skillsProvidersForLock ?? existingEntry?.skillsProviders)
       : existingEntry?.skillsProviders;
     const lockSkillRenameMap = shouldImportSkills
-      ? normalizeSkillRenameMap(importedSkillRenameMap)
+      ? shouldMergeSkillOnlyEntry
+        ? mergeSkillRenameMaps(
+            existingEntry?.skillRenameMap,
+            importedSkillRenameMap,
+          )
+        : normalizeSkillRenameMap(importedSkillRenameMap)
       : existingEntry?.skillRenameMap;
     let lockCommandRenameMap: Record<string, string> | undefined;
     if (shouldImportCommands) {
@@ -828,7 +973,12 @@ export async function importSource(
     }
 
     const lockRequestedAgents = shouldImportAgents
-      ? selection.requestedAgentsForLock
+      ? shouldMergeAgentOnlyEntry
+        ? uniqueStrings([
+            ...(existingEntry?.requestedAgents ?? []),
+            ...(selection.requestedAgentsForLock ?? []),
+          ])
+        : selection.requestedAgentsForLock
       : existingEntry?.requestedAgents;
     const trackedEntities = computeTrackedEntitiesForLock({
       requestedAgents: lockRequestedAgents,
@@ -1880,29 +2030,242 @@ function findMatchingLockEntry(
   );
 }
 
-function findRelaxedCommandEntry(
+function findRelaxedEntityEntries(
   entries: LockEntry[],
-  key: Pick<LockEntry, "source" | "sourceType" | "subdir" | "requestedAgents">,
-): LockEntry | undefined {
+  key: Pick<
+    LockEntry,
+    "source" | "sourceType" | "subdir" | "requestedAgents"
+  > & {
+    entity: EntityType;
+  },
+): LockEntry[] {
   const matches = entries.filter(
     (entry) =>
       entry.source === key.source &&
       entry.sourceType === key.sourceType &&
       entry.subdir === key.subdir &&
-      sameRequestedAgentsForMatch(entry.requestedAgents, key.requestedAgents),
+      (key.entity === "agent" ||
+        sameRequestedAgentsForMatch(
+          entry.requestedAgents,
+          key.requestedAgents,
+        )),
   );
 
-  if (matches.length === 0) return undefined;
+  if (matches.length <= 1) return matches;
 
-  const mixed = matches.find(
-    (entry) =>
-      entry.importedAgents.length > 0 ||
-      entry.importedMcpServers.length > 0 ||
-      entry.importedRules.length > 0 ||
-      entry.importedSkills.length > 0,
+  return [...matches].sort((left, right) => {
+    const leftMixed = isMixedEntryForEntity(left, key.entity) ? 1 : 0;
+    const rightMixed = isMixedEntryForEntity(right, key.entity) ? 1 : 0;
+    if (leftMixed !== rightMixed) {
+      return rightMixed - leftMixed;
+    }
+
+    const leftScore = scoreEntryForEntity(left, key.entity);
+    const rightScore = scoreEntryForEntity(right, key.entity);
+    if (leftScore !== rightScore) {
+      return rightScore - leftScore;
+    }
+
+    return 0;
+  });
+}
+
+function isMixedEntryForEntity(entry: LockEntry, entity: EntityType): boolean {
+  return (
+    (entity !== "agent" &&
+      (entry.importedAgents.length > 0 ||
+        (entry.requestedAgents?.length ?? 0) > 0)) ||
+    (entity !== "command" &&
+      (entry.importedCommands.length > 0 ||
+        (entry.selectedSourceCommands?.length ?? 0) > 0 ||
+        Object.keys(entry.commandRenameMap ?? {}).length > 0)) ||
+    (entity !== "mcp" &&
+      (entry.importedMcpServers.length > 0 ||
+        (entry.selectedSourceMcpServers?.length ?? 0) > 0)) ||
+    (entity !== "rule" &&
+      (entry.importedRules.length > 0 ||
+        (entry.selectedSourceRules?.length ?? 0) > 0 ||
+        Object.keys(entry.ruleRenameMap ?? {}).length > 0)) ||
+    (entity !== "skill" &&
+      (entry.importedSkills.length > 0 ||
+        (entry.selectedSourceSkills?.length ?? 0) > 0 ||
+        (entry.skillsProviders?.length ?? 0) > 0 ||
+        Object.keys(entry.skillRenameMap ?? {}).length > 0))
   );
+}
 
-  return mixed ?? matches[0];
+function scoreEntryForEntity(entry: LockEntry, entity: EntityType): number {
+  if (entity === "agent") {
+    return (
+      entry.importedAgents.length * 100 + (entry.requestedAgents?.length ?? 0)
+    );
+  }
+
+  if (entity === "command") {
+    return (
+      entry.importedCommands.length * 100 +
+      (entry.selectedSourceCommands?.length ?? 0) * 10 +
+      Object.keys(entry.commandRenameMap ?? {}).length
+    );
+  }
+
+  if (entity === "mcp") {
+    return (
+      entry.importedMcpServers.length * 100 +
+      (entry.selectedSourceMcpServers?.length ?? 0) * 10
+    );
+  }
+
+  if (entity === "rule") {
+    return (
+      entry.importedRules.length * 100 +
+      (entry.selectedSourceRules?.length ?? 0) * 10 +
+      Object.keys(entry.ruleRenameMap ?? {}).length
+    );
+  }
+
+  return (
+    entry.importedSkills.length * 100 +
+    (entry.selectedSourceSkills?.length ?? 0) * 10 +
+    (entry.skillsProviders?.length ?? 0) * 3 +
+    Object.keys(entry.skillRenameMap ?? {}).length
+  );
+}
+
+function mergeRelaxedEntityEntriesForLock(options: {
+  canonicalEntry: LockEntry;
+  redundantEntries: LockEntry[];
+  entity: EntityType;
+}): LockEntry {
+  if (options.redundantEntries.length === 0) {
+    return options.canonicalEntry;
+  }
+
+  let mergedEntry: LockEntry = {
+    ...options.canonicalEntry,
+  };
+
+  if (options.entity === "agent") {
+    const mergedRequestedAgents = uniqueStrings([
+      ...(mergedEntry.requestedAgents ?? []),
+      ...options.redundantEntries.flatMap(
+        (entry) => entry.requestedAgents ?? [],
+      ),
+    ]);
+    mergedEntry = {
+      ...mergedEntry,
+      importedAgents: uniqueStrings([
+        ...mergedEntry.importedAgents,
+        ...options.redundantEntries.flatMap((entry) => entry.importedAgents),
+      ]),
+      requestedAgents:
+        mergedRequestedAgents.length > 0 ? mergedRequestedAgents : undefined,
+    };
+  } else if (options.entity === "command") {
+    const mergedSelectedSourceCommands = uniqueStrings([
+      ...(mergedEntry.selectedSourceCommands ?? []),
+      ...options.redundantEntries.flatMap(
+        (entry) => entry.selectedSourceCommands ?? [],
+      ),
+    ]);
+    const mergedCommandRenameMap = Object.assign(
+      {},
+      mergedEntry.commandRenameMap ?? {},
+      ...options.redundantEntries.map((entry) => entry.commandRenameMap ?? {}),
+    );
+    mergedEntry = {
+      ...mergedEntry,
+      importedCommands: uniqueStrings([
+        ...mergedEntry.importedCommands,
+        ...options.redundantEntries.flatMap((entry) => entry.importedCommands),
+      ]),
+      selectedSourceCommands:
+        mergedSelectedSourceCommands.length > 0
+          ? mergedSelectedSourceCommands
+          : undefined,
+      commandRenameMap: normalizeCommandRenameMap(mergedCommandRenameMap),
+    };
+  } else if (options.entity === "mcp") {
+    const mergedSelectedSourceMcpServers = uniqueStrings([
+      ...(mergedEntry.selectedSourceMcpServers ?? []),
+      ...options.redundantEntries.flatMap(
+        (entry) => entry.selectedSourceMcpServers ?? [],
+      ),
+    ]);
+    mergedEntry = {
+      ...mergedEntry,
+      importedMcpServers: uniqueStrings([
+        ...mergedEntry.importedMcpServers,
+        ...options.redundantEntries.flatMap(
+          (entry) => entry.importedMcpServers,
+        ),
+      ]),
+      selectedSourceMcpServers:
+        mergedSelectedSourceMcpServers.length > 0
+          ? mergedSelectedSourceMcpServers
+          : undefined,
+    };
+  } else if (options.entity === "rule") {
+    const mergedSelectedSourceRules = uniqueStrings([
+      ...(mergedEntry.selectedSourceRules ?? []),
+      ...options.redundantEntries.flatMap(
+        (entry) => entry.selectedSourceRules ?? [],
+      ),
+    ]);
+    const mergedRuleRenameMap = Object.assign(
+      {},
+      mergedEntry.ruleRenameMap ?? {},
+      ...options.redundantEntries.map((entry) => entry.ruleRenameMap ?? {}),
+    );
+    mergedEntry = {
+      ...mergedEntry,
+      importedRules: uniqueStrings([
+        ...mergedEntry.importedRules,
+        ...options.redundantEntries.flatMap((entry) => entry.importedRules),
+      ]),
+      selectedSourceRules:
+        mergedSelectedSourceRules.length > 0
+          ? mergedSelectedSourceRules
+          : undefined,
+      ruleRenameMap: normalizeRuleRenameMap(mergedRuleRenameMap),
+    };
+  } else {
+    const mergedSelectedSourceSkills = uniqueStrings([
+      ...(mergedEntry.selectedSourceSkills ?? []),
+      ...options.redundantEntries.flatMap(
+        (entry) => entry.selectedSourceSkills ?? [],
+      ),
+    ]);
+    const mergedSkillsProviders = normalizeSkillsProviders([
+      ...(mergedEntry.skillsProviders ?? []),
+      ...options.redundantEntries.flatMap(
+        (entry) => entry.skillsProviders ?? [],
+      ),
+    ]);
+    const mergedSkillRenameMap = Object.assign(
+      {},
+      mergedEntry.skillRenameMap ?? {},
+      ...options.redundantEntries.map((entry) => entry.skillRenameMap ?? {}),
+    );
+    mergedEntry = {
+      ...mergedEntry,
+      importedSkills: uniqueStrings([
+        ...mergedEntry.importedSkills,
+        ...options.redundantEntries.flatMap((entry) => entry.importedSkills),
+      ]),
+      selectedSourceSkills:
+        mergedSelectedSourceSkills.length > 0
+          ? mergedSelectedSourceSkills
+          : undefined,
+      skillsProviders:
+        mergedSkillsProviders && mergedSkillsProviders.length > 0
+          ? mergedSkillsProviders
+          : undefined,
+      skillRenameMap: normalizeSkillRenameMap(mergedSkillRenameMap),
+    };
+  }
+
+  return mergedEntry;
 }
 
 function sameRequestedAgentsForMatch(
@@ -2092,6 +2455,18 @@ function mergeCommandRenameMaps(
   return normalizeCommandRenameMap(merged);
 }
 
+function mergeRuleRenameMaps(
+  existing: Record<string, string> | undefined,
+  updates: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  const merged = {
+    ...(existing ?? {}),
+    ...(updates ?? {}),
+  };
+
+  return normalizeRuleRenameMap(merged);
+}
+
 function resolveMappedTargetFileName(
   sourceFileName: string,
   renameMap: Record<string, string> | undefined,
@@ -2199,6 +2574,71 @@ function normalizeSkillRenameMap(
 
   if (normalizedEntries.length === 0) return undefined;
   return Object.fromEntries(normalizedEntries);
+}
+
+function mergeSkillRenameMaps(
+  existing: Record<string, string> | undefined,
+  updates: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  const merged = {
+    ...(existing ?? {}),
+    ...(updates ?? {}),
+  };
+
+  return normalizeSkillRenameMap(merged);
+}
+
+function mergeImportedSkills(options: {
+  existingImportedSkills: string[] | undefined;
+  importedSkills: string[];
+  selectedSkills: CanonicalSkill[];
+  existingSkillRenameMap: Record<string, string> | undefined;
+}): string[] {
+  if (
+    !options.existingImportedSkills ||
+    options.existingImportedSkills.length === 0
+  ) {
+    return [...options.importedSkills];
+  }
+
+  const coveredSelectors = new Set<string>();
+  for (const skill of options.selectedSkills) {
+    const byName = normalizeSkillSelector(skill.name);
+    if (byName) coveredSelectors.add(byName);
+    const bySourceDir = normalizeSkillSelector(skill.sourceDirName);
+    if (bySourceDir) coveredSelectors.add(bySourceDir);
+  }
+  if (coveredSelectors.size === 0) {
+    return [...options.importedSkills];
+  }
+
+  const selectedImportedTargets = new Set<string>();
+  for (const [sourceSelector, importedName] of Object.entries(
+    options.existingSkillRenameMap ?? {},
+  )) {
+    const normalizedSourceSelector = normalizeSkillSelector(sourceSelector);
+    const normalizedImportedName = normalizeSkillSelector(importedName);
+    if (
+      !normalizedSourceSelector ||
+      !normalizedImportedName ||
+      !coveredSelectors.has(normalizedSourceSelector)
+    ) {
+      continue;
+    }
+    selectedImportedTargets.add(normalizedImportedName);
+  }
+
+  const retained = options.existingImportedSkills.filter(
+    (importedSkillName) => {
+      const selector = normalizeSkillSelector(importedSkillName);
+      if (!selector) return true;
+      if (coveredSelectors.has(selector)) return false;
+      if (selectedImportedTargets.has(selector)) return false;
+      return true;
+    },
+  );
+
+  return uniqueStrings([...retained, ...options.importedSkills]);
 }
 
 function resolveMappedTargetSkillName(

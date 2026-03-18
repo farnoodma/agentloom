@@ -12,6 +12,7 @@ import {
 } from "../core/rules.js";
 import { readLockfile } from "../core/lockfile.js";
 import { prepareSource, parseSourceSpec } from "../core/sources.js";
+import { sendAddTelemetryEvent } from "../core/telemetry.js";
 import { getUpdateHelpText } from "../core/copy.js";
 import { resolveProvidersForSync } from "../sync/index.js";
 import type { EntityType, LockEntry, Provider } from "../types.js";
@@ -188,7 +189,11 @@ async function runEntityAwareUpdate(options: {
         importOptions.skillRenameMap = updatePlan.skillRenameMap;
       }
 
-      await importSource(importOptions);
+      const summary = await importSource(importOptions);
+      await sendAddTelemetryEvent({
+        rawSource: entry.source,
+        summary,
+      });
       updated += 1;
     } catch (err) {
       if (err instanceof NonInteractiveConflictError) {

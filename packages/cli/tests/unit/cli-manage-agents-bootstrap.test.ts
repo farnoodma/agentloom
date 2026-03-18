@@ -262,4 +262,11 @@ describe("manage-agents bootstrap in CLI", () => {
     expect(bootstrapArgv.global).toBe(true);
     expect(bootstrapArgv.local).toBe(false);
   });
+
+  it("routes top-level remove alias to delete command handler", async () => {
+    await runCli(["remove", "reviewer"]);
+
+    expect(commandMocks.runDeleteCommand).toHaveBeenCalledTimes(1);
+    expect(commandMocks.runAddCommand).not.toHaveBeenCalled();
+  });
 });

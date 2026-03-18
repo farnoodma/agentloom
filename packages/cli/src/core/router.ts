@@ -52,6 +52,10 @@ const ENTITY_NOUN_ALIASES: Readonly<Record<string, EntityType>> = {
   skills: "skill",
 };
 
+const VERB_ALIASES: Readonly<Record<string, "delete">> = {
+  remove: "delete",
+};
+
 const ENTITY_VERBS = new Set<EntityVerb>([
   "add",
   "list",
@@ -66,7 +70,7 @@ const MCP_SERVER_VERBS = new Set<McpServerVerb>(["add", "list", "delete"]);
 export function parseCommandRoute(argv: string[]): CommandRoute | null {
   const rawRoot = argv[0]?.trim().toLowerCase();
   if (!rawRoot) return null;
-  const root = ENTITY_NOUN_ALIASES[rawRoot] ?? rawRoot;
+  const root = ENTITY_NOUN_ALIASES[rawRoot] ?? VERB_ALIASES[rawRoot] ?? rawRoot;
 
   if (AGGREGATE_VERBS.has(root as AggregateVerb)) {
     return {
@@ -79,7 +83,8 @@ export function parseCommandRoute(argv: string[]): CommandRoute | null {
     return null;
   }
 
-  const action = argv[1]?.trim().toLowerCase();
+  const rawAction = argv[1]?.trim().toLowerCase();
+  const action = rawAction ? (VERB_ALIASES[rawAction] ?? rawAction) : rawAction;
   if (!action || action === "--help" || action === "-h" || action === "help") {
     return {
       mode: "entity",
@@ -89,7 +94,10 @@ export function parseCommandRoute(argv: string[]): CommandRoute | null {
   }
 
   if (root === "mcp" && action === "server") {
-    const serverVerb = argv[2]?.trim().toLowerCase();
+    const rawServerVerb = argv[2]?.trim().toLowerCase();
+    const serverVerb = rawServerVerb
+      ? (VERB_ALIASES[rawServerVerb] ?? rawServerVerb)
+      : rawServerVerb;
     if (
       !serverVerb ||
       serverVerb === "--help" ||

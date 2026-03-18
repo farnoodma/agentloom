@@ -22,7 +22,7 @@ Aggregate commands:
   update [source]            Refresh lockfile-managed imports
   upgrade                    Install the latest CLI release
   sync                       Migrate provider configs then generate provider outputs
-  delete <source|name>       Delete imported entities by source or name
+  delete <source|name...>    Delete imported entities by source or name(s)
 
 Entity commands:
   agent <add|list|delete|find|update|sync>
@@ -48,8 +48,8 @@ Common options:
   --rules <csv>              Rule selectors for add/delete
   --skills <csv>             Skill selectors for add/delete
   --selection-mode <mode>    Add mode: all (default) or custom
-  --source <value>           Explicit source filter for update/delete
-  --name <value>             Explicit name filter for delete
+  --source <csv>             Explicit source filter(s) for update/delete
+  --name <csv>               Explicit name filter(s) for delete
   --entity <type>            Delete disambiguation for aggregate delete
 
 Examples:
@@ -210,7 +210,7 @@ export function getCommandDeleteHelpText(): string {
   return `Delete command imports by source or name.
 
 Usage:
-  agentloom command delete <source|name> [options]
+  agentloom command delete <source|name...> [options]
 `;
 }
 
