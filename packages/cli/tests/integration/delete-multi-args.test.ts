@@ -160,7 +160,9 @@ describe("delete supports multiple positional names", () => {
       workspaceRoot,
     );
 
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const warnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
 
     await runCommandCommand(
       parseArgs([

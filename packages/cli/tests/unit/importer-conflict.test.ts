@@ -705,7 +705,9 @@ Run tests before merge.
       ),
     ).toBe(true);
     expect(
-      [...(lock?.entries.flatMap((entry) => entry.importedAgents) ?? [])].sort(),
+      [
+        ...(lock?.entries.flatMap((entry) => entry.importedAgents) ?? []),
+      ].sort(),
     ).toEqual(["agents/reviewer.md"]);
   });
 
