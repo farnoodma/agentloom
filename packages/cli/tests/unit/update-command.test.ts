@@ -171,8 +171,52 @@ describe("runUpdateCommand", () => {
     });
 
     const output = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(output).toContain("Checking 1 lock entry for updates...");
+    expect(output).toContain(
+      "[1/1] Checking farnoodma/agents@main (packages/agents)...",
+    );
+    expect(output).toContain(
+      "[1/1] Updating farnoodma/agents@main (packages/agents) (old-commit -> new-commit)...",
+    );
+    expect(output).toContain(
+      "[1/1] Updated farnoodma/agents@main (packages/agents) to new-commit.",
+    );
     expect(output).toContain("Updated entries: 1");
     expect(output).toContain("Unchanged entries: 0");
+  });
+
+  it("prints per-entry progress when a lock entry is already current", async () => {
+    const paths = createScopePaths();
+    const cleanup = vi.fn();
+
+    commandMocks.resolveScope.mockResolvedValue(paths);
+    commandMocks.readLockfile.mockReturnValue(createLockfile());
+    commandMocks.prepareSource.mockReturnValue({
+      spec: { source: "farnoodma/agents", type: "github" as const },
+      rootPath: "/tmp/source",
+      importRoot: "/tmp/source/packages/agents",
+      resolvedCommit: "old-commit",
+      cleanup,
+    });
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await runUpdateCommand(
+      { _: ["update"], "no-sync": true } as ParsedArgs,
+      "/workspace",
+    );
+
+    expect(commandMocks.importSource).not.toHaveBeenCalled();
+    expect(cleanup).toHaveBeenCalledTimes(1);
+
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(output).toContain("Checking 1 lock entry for updates...");
+    expect(output).toContain(
+      "[1/1] Checking farnoodma/agents@main (packages/agents)...",
+    );
+    expect(output).toContain("[1/1] Up to date at old-commit.");
+    expect(output).toContain("Updated entries: 0");
+    expect(output).toContain("Unchanged entries: 1");
   });
 
   it("skips mcp and skills updates when lock selectors are explicitly empty", async () => {
