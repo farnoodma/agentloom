@@ -102,4 +102,57 @@ describe("mcp sync", () => {
     ) as Record<string, unknown>;
     expect(settings.enabledMcpjsonServers).toEqual(["browser"]);
   });
+
+  it("preserves provider-local cursor mcp settings while updating managed fields", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-home-"));
+    tempDirs.push(workspaceRoot, homeDir);
+
+    const paths = buildScopePaths(workspaceRoot, "local", homeDir);
+    ensureDir(path.dirname(paths.mcpPath));
+    writeJsonAtomic(paths.mcpPath, {
+      version: 1,
+      mcpServers: {
+        browser: {
+          base: {
+            command: "npx",
+            args: ["browser-tools-mcp"],
+          },
+        },
+      },
+    });
+
+    const cursorMcpPath = path.join(workspaceRoot, ".cursor", "mcp.json");
+    writeJsonAtomic(cursorMcpPath, {
+      note: "keep me",
+      mcpServers: {
+        browser: {
+          command: "old-command",
+          args: ["old-arg"],
+          enabled: false,
+          startupTimeoutMs: 30_000,
+        },
+      },
+    });
+
+    await syncFromCanonical({
+      paths,
+      providers: ["cursor"],
+      yes: true,
+      nonInteractive: true,
+      target: "mcp",
+    });
+
+    const cursorMcp = JSON.parse(fs.readFileSync(cursorMcpPath, "utf8")) as {
+      note?: string;
+      mcpServers?: Record<string, Record<string, unknown>>;
+    };
+    expect(cursorMcp.note).toBe("keep me");
+    expect(cursorMcp.mcpServers?.browser?.command).toBe("npx");
+    expect(cursorMcp.mcpServers?.browser?.args).toEqual(["browser-tools-mcp"]);
+    expect(cursorMcp.mcpServers?.browser?.enabled).toBe(false);
+    expect(cursorMcp.mcpServers?.browser?.startupTimeoutMs).toBe(30_000);
+  });
 });

@@ -543,9 +543,16 @@ function syncProviderMcp(options: {
 
     if (provider === "cursor") {
       const outputPath = getCursorMcpPath(options.paths);
+      const existing =
+        readJsonIfExists<Record<string, unknown>>(outputPath) ?? {};
 
       const payload = {
-        mcpServers: mapMcpServers(resolved, ["url", "command", "args", "env"]),
+        ...existing,
+        mcpServers: mergeManagedMcpServerEntries(
+          existing.mcpServers,
+          mapMcpServers(resolved, ["url", "command", "args", "env"]),
+          ["url", "command", "args", "env"],
+        ),
       };
 
       maybeWriteJson(outputPath, payload, options.dryRun);
@@ -568,8 +575,10 @@ function syncProviderMcp(options: {
       }
 
       const mcpPath = getClaudeMcpPath(options.paths);
+      const existingMcp =
+        readJsonIfExists<Record<string, unknown>>(mcpPath) ?? {};
 
-      const claudeServers = mapMcpServers(resolved, [
+      const managedClaudeServers = mapMcpServers(resolved, [
         "type",
         "url",
         "command",
@@ -577,13 +586,25 @@ function syncProviderMcp(options: {
         "env",
       ]);
 
-      for (const [serverName, config] of Object.entries(claudeServers)) {
+      for (const [serverName, config] of Object.entries(managedClaudeServers)) {
         if (!("type" in config) && typeof config.url === "string") {
           config.type = "http";
         }
       }
 
-      maybeWriteJson(mcpPath, { mcpServers: claudeServers }, options.dryRun);
+      const claudeServers = mergeManagedMcpServerEntries(
+        existingMcp.mcpServers,
+        managedClaudeServers,
+        ["type", "url", "command", "args", "env"],
+      );
+      maybeWriteJson(
+        mcpPath,
+        {
+          ...existingMcp,
+          mcpServers: claudeServers,
+        },
+        options.dryRun,
+      );
       options.generated.add(mcpPath);
 
       settings.enabledMcpjsonServers = Object.keys(claudeServers).sort();
@@ -597,16 +618,16 @@ function syncProviderMcp(options: {
 
       const existing =
         readJsonIfExists<Record<string, unknown>>(outputPath) ?? {};
-      const mcp: Record<string, Record<string, unknown>> = {};
+      const managedMcp: Record<string, Record<string, unknown>> = {};
 
       for (const [serverName, config] of Object.entries(resolved)) {
         if (typeof config.url === "string") {
-          mcp[serverName] = {
+          managedMcp[serverName] = {
             type: "remote",
             url: config.url,
           };
         } else {
-          mcp[serverName] = {
+          managedMcp[serverName] = {
             type: "local",
             command: config.command,
             args: Array.isArray(config.args) ? config.args : undefined,
@@ -614,13 +635,19 @@ function syncProviderMcp(options: {
         }
 
         if (isObject(config.env)) {
-          mcp[serverName].environment = config.env;
+          managedMcp[serverName].environment = config.env;
         }
       }
 
       const payload = {
         ...existing,
-        mcp,
+        mcp: mergeManagedMcpServerEntries(existing.mcp, managedMcp, [
+          "type",
+          "url",
+          "command",
+          "args",
+          "environment",
+        ]),
       };
 
       maybeWriteJson(outputPath, payload, options.dryRun);
@@ -651,7 +678,11 @@ function syncProviderMcp(options: {
       const payload = {
         ...existing,
         experimental,
-        mcpServers,
+        mcpServers: mergeManagedMcpServerEntries(
+          existing.mcpServers,
+          mcpServers,
+          ["httpUrl", "command", "args", "env"],
+        ),
       };
 
       maybeWriteJson(outputPath, payload, options.dryRun);
@@ -661,6 +692,9 @@ function syncProviderMcp(options: {
 
     if (provider === "copilot") {
       const profileMcpPath = getCopilotMcpPath(options.paths);
+      const managedKeys = ["type", "url", "command", "args", "env", "tools"];
+      const existingProfileMcp =
+        readJsonIfExists<Record<string, unknown>>(profileMcpPath) ?? {};
 
       const copilotServers = mapMcpServers(resolved, [
         "type",
@@ -682,7 +716,14 @@ function syncProviderMcp(options: {
 
       maybeWriteJson(
         profileMcpPath,
-        { mcpServers: copilotServers },
+        {
+          ...existingProfileMcp,
+          mcpServers: mergeManagedMcpServerEntries(
+            existingProfileMcp.mcpServers,
+            copilotServers,
+            managedKeys,
+          ),
+        },
         options.dryRun,
       );
       options.generated.add(profileMcpPath);
@@ -691,7 +732,11 @@ function syncProviderMcp(options: {
         const settingsPath = getVsCodeSettingsPath(options.paths.homeDir);
         const settings =
           readJsonIfExists<Record<string, unknown>>(settingsPath) ?? {};
-        settings["mcp.servers"] = copilotServers;
+        settings["mcp.servers"] = mergeManagedMcpServerEntries(
+          settings["mcp.servers"],
+          copilotServers,
+          managedKeys,
+        );
         maybeWriteJson(settingsPath, settings, options.dryRun);
         options.generated.add(settingsPath);
       }
@@ -699,9 +744,16 @@ function syncProviderMcp(options: {
 
     if (provider === "pi") {
       const outputPath = getPiMcpPath(options.paths);
+      const existing =
+        readJsonIfExists<Record<string, unknown>>(outputPath) ?? {};
 
       const payload = {
-        mcpServers: mapMcpServers(resolved, ["url", "command", "args", "env"]),
+        ...existing,
+        mcpServers: mergeManagedMcpServerEntries(
+          existing.mcpServers,
+          mapMcpServers(resolved, ["url", "command", "args", "env"]),
+          ["url", "command", "args", "env"],
+        ),
       };
 
       maybeWriteJson(outputPath, payload, options.dryRun);
@@ -1168,6 +1220,12 @@ function syncCodex(options: {
   let nextServers = [...trackedServers];
   if (options.includeMcp) {
     const previousServers = new Set(trackedServers);
+    const managedCodexMcpServers = mapMcpServers(options.resolvedMcp, [
+      "url",
+      "command",
+      "args",
+      "env",
+    ]);
 
     for (const oldServer of previousServers) {
       if (
@@ -1177,13 +1235,12 @@ function syncCodex(options: {
       }
     }
 
-    for (const [serverName, config] of Object.entries(options.resolvedMcp)) {
-      const mapped: Record<string, unknown> = {};
-      if (typeof config.url === "string") mapped.url = config.url;
-      if (typeof config.command === "string") mapped.command = config.command;
-      if (Array.isArray(config.args)) mapped.args = config.args;
-      if (isObject(config.env)) mapped.env = config.env;
-      mcpServers[serverName] = mapped;
+    for (const [serverName, config] of Object.entries(managedCodexMcpServers)) {
+      mcpServers[serverName] = mergeManagedMcpServerEntry(
+        mcpServers[serverName],
+        config,
+        ["url", "command", "args", "env"],
+      );
     }
 
     parsed.mcp_servers = mcpServers;
@@ -1282,6 +1339,48 @@ function mapMcpServers(
   }
 
   return mapped;
+}
+
+function mergeManagedMcpServerEntries(
+  existingServers: unknown,
+  nextServers: Record<string, Record<string, unknown>>,
+  managedKeys: string[],
+): Record<string, Record<string, unknown>> {
+  const merged: Record<string, Record<string, unknown>> = {};
+
+  for (const [serverName, config] of Object.entries(nextServers)) {
+    merged[serverName] = mergeManagedMcpServerEntry(
+      isObject(existingServers) ? existingServers[serverName] : undefined,
+      config,
+      managedKeys,
+    );
+  }
+
+  return merged;
+}
+
+function mergeManagedMcpServerEntry(
+  existingConfig: unknown,
+  nextConfig: Record<string, unknown>,
+  managedKeys: string[],
+): Record<string, unknown> {
+  const merged = isObject(existingConfig) ? cloneSyncValue(existingConfig) : {};
+
+  for (const key of managedKeys) {
+    delete merged[key];
+  }
+
+  for (const [key, value] of Object.entries(nextConfig)) {
+    if (value !== undefined) {
+      merged[key] = cloneSyncValue(value);
+    }
+  }
+
+  return merged;
+}
+
+function cloneSyncValue<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
 }
 
 function maybeWriteJson(

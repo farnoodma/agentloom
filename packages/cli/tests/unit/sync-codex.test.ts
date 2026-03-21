@@ -320,4 +320,53 @@ describe("codex sync", () => {
 
     expect(codexConfig.mcp_servers?.browser).toBeUndefined();
   });
+
+  it("preserves provider-local codex mcp settings while updating managed fields", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-sync-"));
+    tempDirs.push(root);
+
+    writeJsonAtomic(path.join(root, ".agents", "mcp.json"), {
+      version: 1,
+      mcpServers: {
+        browser: {
+          base: {
+            command: "npx",
+            args: ["browser-tools"],
+          },
+        },
+      },
+    });
+
+    writeTextAtomic(
+      path.join(root, ".codex", "config.toml"),
+      `[mcp_servers.browser]
+command = "old-command"
+args = ["old-arg"]
+enabled = false
+startup_timeout_sec = 30
+`,
+    );
+
+    const paths = buildScopePaths(root, "local");
+
+    await syncFromCanonical({
+      paths,
+      providers: ["codex"],
+      yes: true,
+      nonInteractive: true,
+      target: "mcp",
+    });
+
+    const codexConfigPath = path.join(root, ".codex", "config.toml");
+    const codexConfig = TOML.parse(
+      fs.readFileSync(codexConfigPath, "utf8"),
+    ) as {
+      mcp_servers?: Record<string, Record<string, unknown>>;
+    };
+
+    expect(codexConfig.mcp_servers?.browser?.command).toBe("npx");
+    expect(codexConfig.mcp_servers?.browser?.args).toEqual(["browser-tools"]);
+    expect(codexConfig.mcp_servers?.browser?.enabled).toBe(false);
+    expect(codexConfig.mcp_servers?.browser?.startup_timeout_sec).toBe(30);
+  });
 });

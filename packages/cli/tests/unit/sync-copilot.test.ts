@@ -2,9 +2,16 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { ensureDir, writeTextAtomic } from "../../src/core/fs.js";
+import {
+  ensureDir,
+  writeJsonAtomic,
+  writeTextAtomic,
+} from "../../src/core/fs.js";
+import {
+  getCopilotMcpPath,
+  getVsCodeSettingsPath,
+} from "../../src/core/provider-paths.js";
 import { buildScopePaths } from "../../src/core/scope.js";
-import { getVsCodeSettingsPath } from "../../src/core/provider-paths.js";
 import { syncFromCanonical } from "../../src/sync/index.js";
 
 const tempDirs: string[] = [];
@@ -254,5 +261,79 @@ Review changed files and report issues.
     expect(settings["chat.agentFilesLocations"]).toEqual(
       expect.arrayContaining([path.join(homeDir, ".copilot", "agents")]),
     );
+  });
+
+  it("preserves provider-local MCP fields in both global copilot outputs", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-home-"));
+    tempDirs.push(workspaceRoot, homeDir);
+
+    const paths = buildScopePaths(workspaceRoot, "global", homeDir);
+    ensureDir(path.dirname(paths.mcpPath));
+    writeJsonAtomic(paths.mcpPath, {
+      version: 1,
+      mcpServers: {
+        browser: {
+          base: {
+            command: "npx",
+            args: ["browser-tools"],
+          },
+        },
+      },
+    });
+
+    const profileMcpPath = getCopilotMcpPath(paths);
+    writeJsonAtomic(profileMcpPath, {
+      mcpServers: {
+        browser: {
+          command: "old-command",
+          args: ["old-arg"],
+          enabled: false,
+          startupTimeoutMs: 30_000,
+        },
+      },
+    });
+
+    const settingsPath = getVsCodeSettingsPath(homeDir);
+    ensureDir(path.dirname(settingsPath));
+    writeJsonAtomic(settingsPath, {
+      "mcp.servers": {
+        browser: {
+          command: "old-command",
+          args: ["old-arg"],
+          enabled: false,
+          startupTimeoutMs: 30_000,
+        },
+      },
+    });
+
+    await syncFromCanonical({
+      paths,
+      providers: ["copilot"],
+      yes: true,
+      nonInteractive: true,
+      target: "mcp",
+    });
+
+    const profileMcp = JSON.parse(fs.readFileSync(profileMcpPath, "utf8")) as {
+      mcpServers?: Record<string, Record<string, unknown>>;
+    };
+    expect(profileMcp.mcpServers?.browser?.command).toBe("npx");
+    expect(profileMcp.mcpServers?.browser?.args).toEqual(["browser-tools"]);
+    expect(profileMcp.mcpServers?.browser?.enabled).toBe(false);
+    expect(profileMcp.mcpServers?.browser?.startupTimeoutMs).toBe(30_000);
+
+    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8")) as {
+      [key: string]: unknown;
+    };
+    const mcpServers = settings["mcp.servers"] as
+      | Record<string, Record<string, unknown>>
+      | undefined;
+    expect(mcpServers?.browser?.command).toBe("npx");
+    expect(mcpServers?.browser?.args).toEqual(["browser-tools"]);
+    expect(mcpServers?.browser?.enabled).toBe(false);
+    expect(mcpServers?.browser?.startupTimeoutMs).toBe(30_000);
   });
 });
