@@ -1283,6 +1283,19 @@ async function migrateMcp(
   }
 }
 
+const MANAGED_MCP_CANONICAL_KEYS_BY_PROVIDER: Record<
+  Provider,
+  readonly string[]
+> = {
+  cursor: ["url", "command", "args", "env"],
+  claude: ["type", "url", "command", "args", "env"],
+  codex: ["url", "command", "args", "env"],
+  opencode: ["url", "command", "args", "env"],
+  gemini: ["url", "command", "args", "env"],
+  copilot: ["type", "url", "command", "args", "env", "tools"],
+  pi: ["url", "command", "args", "env"],
+};
+
 function collectProviderMcpServers(
   paths: ScopePaths,
   providers: Provider[],
@@ -1314,13 +1327,13 @@ function readProviderMcp(
   provider: Provider,
 ): Record<string, Record<string, unknown>> {
   if (provider === "cursor") {
-    return readJsonMcpServers(getCursorMcpPath(paths));
+    return readJsonMcpServers(getCursorMcpPath(paths), provider);
   }
   if (provider === "claude") {
-    return readJsonMcpServers(getClaudeMcpPath(paths));
+    return readJsonMcpServers(getClaudeMcpPath(paths), provider);
   }
   if (provider === "copilot") {
-    return readJsonMcpServers(getCopilotMcpPath(paths));
+    return readJsonMcpServers(getCopilotMcpPath(paths), provider);
   }
   if (provider === "opencode") {
     return readOpenCodeMcp(getOpenCodeConfigPath(paths));
@@ -1332,19 +1345,23 @@ function readProviderMcp(
     return readCodexMcp(getCodexConfigPath(paths));
   }
   if (provider === "pi") {
-    return readJsonMcpServers(getPiMcpPath(paths));
+    return readJsonMcpServers(getPiMcpPath(paths), provider);
   }
   return {};
 }
 
 function readJsonMcpServers(
   filePath: string,
+  provider: Provider,
 ): Record<string, Record<string, unknown>> {
   const parsed = readJsonIfExists<Record<string, unknown>>(filePath);
   if (!parsed || !isObject(parsed.mcpServers)) {
     return {};
   }
-  return normalizeMcpServerRecord(parsed.mcpServers);
+  return normalizeManagedMcpServerRecord(
+    parsed.mcpServers,
+    MANAGED_MCP_CANONICAL_KEYS_BY_PROVIDER[provider],
+  );
 }
 
 function readOpenCodeMcp(
@@ -1398,18 +1415,42 @@ function readCodexMcp(
   const raw = fs.readFileSync(filePath, "utf8");
   const parsed = raw.trim() ? (TOML.parse(raw) as Record<string, unknown>) : {};
   if (!isObject(parsed.mcp_servers)) return {};
-  return normalizeMcpServerRecord(parsed.mcp_servers);
+  return normalizeManagedMcpServerRecord(
+    parsed.mcp_servers,
+    MANAGED_MCP_CANONICAL_KEYS_BY_PROVIDER.codex,
+  );
 }
 
-function normalizeMcpServerRecord(
+function normalizeManagedMcpServerRecord(
   raw: Record<string, unknown>,
+  allowedKeys: readonly string[],
 ): Record<string, Record<string, unknown>> {
   const servers: Record<string, Record<string, unknown>> = {};
   for (const [name, config] of Object.entries(raw)) {
-    if (!isObject(config)) continue;
-    servers[name] = cloneRecord(config);
+    const normalized = pickManagedMcpFields(config, allowedKeys);
+    if (!normalized) continue;
+    servers[name] = normalized;
   }
   return servers;
+}
+
+function pickManagedMcpFields(
+  config: unknown,
+  allowedKeys: readonly string[],
+): Record<string, unknown> | null {
+  if (!isObject(config)) {
+    return null;
+  }
+
+  const next: Record<string, unknown> = {};
+  for (const key of allowedKeys) {
+    const value = config[key];
+    if (value !== undefined) {
+      next[key] = cloneRecord(value);
+    }
+  }
+
+  return Object.keys(next).length > 0 ? next : null;
 }
 
 function normalizeCanonicalServer(server: CanonicalMcpServer | undefined): {

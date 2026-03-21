@@ -87,6 +87,8 @@ describe("provider migration", () => {
         browser: {
           command: "npx",
           args: ["browser-tools-mcp"],
+          enabled: false,
+          startupTimeoutMs: 30_000,
         },
       },
     });
@@ -131,6 +133,12 @@ describe("provider migration", () => {
       mcpServers?: Record<string, { base?: Record<string, unknown> }>;
     };
     expect(canonicalMcp.mcpServers?.browser?.base?.command).toBe("npx");
+    expect(canonicalMcp.mcpServers?.browser?.base).not.toHaveProperty(
+      "enabled",
+    );
+    expect(canonicalMcp.mcpServers?.browser?.base).not.toHaveProperty(
+      "startupTimeoutMs",
+    );
 
     expect(
       fs.existsSync(path.join(paths.skillsDir, "release-check", "SKILL.md")),
@@ -1471,5 +1479,45 @@ Review changed files and summarize findings.
     expect(canonical).toContain("sandboxMode: workspace-write");
     expect(canonical).toContain("webSearch: true");
     expect(canonical).toContain("\n\nUse concise bullets.\n");
+  });
+
+  it("ignores provider-local codex mcp settings when migrating into canonical mcp", async () => {
+    const paths = createPaths();
+    initializeCanonicalLayout(paths, ["codex"]);
+
+    ensureDir(path.join(paths.workspaceRoot, ".codex"));
+    writeTextAtomic(
+      path.join(paths.workspaceRoot, ".codex", "config.toml"),
+      `[mcp_servers.browser]
+command = "npx"
+args = ["browser-tools"]
+enabled = false
+startup_timeout_sec = 30
+`,
+    );
+
+    const summary = await migrateProviderStateToCanonical({
+      paths,
+      providers: ["codex"],
+      target: "mcp",
+      nonInteractive: true,
+    });
+
+    expect(summary.entities.mcp.detected).toBe(1);
+    expect(summary.entities.mcp.imported).toBe(1);
+
+    const canonicalMcp = JSON.parse(fs.readFileSync(paths.mcpPath, "utf8")) as {
+      mcpServers?: Record<string, { base?: Record<string, unknown> }>;
+    };
+    expect(canonicalMcp.mcpServers?.browser?.base?.command).toBe("npx");
+    expect(canonicalMcp.mcpServers?.browser?.base?.args).toEqual([
+      "browser-tools",
+    ]);
+    expect(canonicalMcp.mcpServers?.browser?.base).not.toHaveProperty(
+      "enabled",
+    );
+    expect(canonicalMcp.mcpServers?.browser?.base).not.toHaveProperty(
+      "startup_timeout_sec",
+    );
   });
 });
