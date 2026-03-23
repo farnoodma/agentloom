@@ -313,6 +313,10 @@ function discoverSourceSkillsDirsForRoot(importRoot: string): string[] {
     return [importRoot];
   }
 
+  if (hasImmediateRootSkillDirs(importRoot)) {
+    return [importRoot];
+  }
+
   return [];
 }
 
@@ -332,6 +336,21 @@ function discoverSourceRulesDirsForRoot(importRoot: string): string[] {
 
 function dedupePaths(paths: string[]): string[] {
   return [...new Set(paths)];
+}
+
+function hasImmediateRootSkillDirs(importRoot: string): boolean {
+  for (const entry of fs.readdirSync(importRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    const skillFile = path.join(importRoot, entry.name, "SKILL.md");
+    if (fs.existsSync(skillFile) && fs.statSync(skillFile).isFile()) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function isPathWithinRoot(rootPath: string, targetPath: string): boolean {

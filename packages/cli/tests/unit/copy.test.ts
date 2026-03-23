@@ -70,6 +70,9 @@ describe("copy helpers", () => {
 
   it("includes targeted add import help", () => {
     const help = getAddHelpText();
+    expect(help).toContain(
+      "skills: .agents/skills -> skills -> root SKILL.md -> root <name>/SKILL.md",
+    );
     expect(help).toContain("--agents <name>");
     expect(help).toContain("--rule <name>");
     expect(help).toContain("--rules <name>");

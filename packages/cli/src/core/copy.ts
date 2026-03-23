@@ -86,7 +86,7 @@ Source discovery:
   agents: .agents/agents -> agents
   commands: .agents/commands -> commands -> prompts -> (.github/prompts + .gemini/commands fallback)
   rules: .agents/rules -> rules
-  skills: .agents/skills -> skills -> root SKILL.md
+  skills: .agents/skills -> skills -> root SKILL.md -> root <name>/SKILL.md
 
 Usage:
   agentloom add <source> [options]
