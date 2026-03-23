@@ -293,7 +293,7 @@ export async function importSource(
       sourceSkillsDirs.length === 0
     ) {
       throw new Error(
-        `No source skills directory found under ${prepared.importRoot} (expected .agents/skills/, skills/, or root SKILL.md, including plugin sources declared in .claude-plugin/marketplace.json).`,
+        `No source skills directory found under ${prepared.importRoot} (expected .agents/skills/, skills/, root SKILL.md, or root <name>/SKILL.md directories, including plugin sources declared in .claude-plugin/marketplace.json).`,
       );
     }
     if (
@@ -313,7 +313,7 @@ export async function importSource(
       Object.keys(sourceMcp?.mcpServers ?? {}).length === 0
     ) {
       throw new Error(
-        `No importable entities found in source "${sourceLocation}".\nExpected agents/, .agents/agents/, .github/agents/, commands/, .agents/commands/, prompts/, .gemini/commands/, .github/prompts/, mcp.json/.agents/mcp.json, rules/.agents/rules/, skills/, .agents/skills/, root SKILL.md, or plugin sources from .claude-plugin/marketplace.json.`,
+        `No importable entities found in source "${sourceLocation}".\nExpected agents/, .agents/agents/, .github/agents/, commands/, .agents/commands/, prompts/, .gemini/commands/, .github/prompts/, mcp.json/.agents/mcp.json, rules/.agents/rules/, skills/, .agents/skills/, root SKILL.md, root <name>/SKILL.md directories, or plugin sources from .claude-plugin/marketplace.json.`,
       );
     }
 

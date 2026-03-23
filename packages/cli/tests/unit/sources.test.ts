@@ -148,6 +148,20 @@ describe("source parsing and revision", () => {
     expect(discoverSourceSkillsDir(root)).toBe(path.join(root, "skills"));
   });
 
+  it("falls back to root <name>/SKILL.md directories when canonical skill paths are absent", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-sources-"));
+    tempDirs.push(root);
+
+    ensureDir(path.join(root, "reviewer"));
+    writeTextAtomic(path.join(root, "reviewer", "SKILL.md"), "# reviewer\n");
+
+    expect(discoverSourceSkillsDirs(root)).toEqual([root]);
+    expect(discoverSourceSkillsDir(root)).toBe(root);
+
+    ensureDir(path.join(root, "skills"));
+    expect(discoverSourceSkillsDirs(root)).toEqual([path.join(root, "skills")]);
+  });
+
   it("discovers plugin roots from .claude-plugin marketplace metadata", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-sources-"));
     tempDirs.push(root);

@@ -232,7 +232,8 @@ export default function DocsPage() {
               <InlineCode>rules/</InlineCode>, for skills{" "}
               <InlineCode>.agents/skills</InlineCode> then{" "}
               <InlineCode>skills/</InlineCode> then a root{" "}
-              <InlineCode>SKILL.md</InlineCode> fallback.
+              <InlineCode>SKILL.md</InlineCode> fallback, then root{" "}
+              <InlineCode>&lt;name&gt;/SKILL.md</InlineCode> directories.
             </Prose>
           </section>
 

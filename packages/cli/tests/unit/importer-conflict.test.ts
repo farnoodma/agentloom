@@ -1177,6 +1177,47 @@ Skill body.
     ).toBe(true);
   });
 
+  it("recognizes root <name>/SKILL.md directories and imports selected skills natively", async () => {
+    const sourceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-source-"),
+    );
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    tempDirs.push(sourceRoot, workspaceRoot);
+
+    ensureDir(path.join(sourceRoot, "visual-explainer"));
+    writeTextAtomic(
+      path.join(sourceRoot, "visual-explainer", "SKILL.md"),
+      `---
+name: visual-explainer
+description: Explain visuals
+---
+
+Skill body.
+`,
+    );
+
+    const paths = buildScopePaths(workspaceRoot, "local");
+    const summary = await importSource({
+      source: sourceRoot,
+      paths,
+      yes: true,
+      nonInteractive: true,
+      importAgents: false,
+      importCommands: false,
+      importMcp: false,
+      importSkills: true,
+      requireSkills: true,
+      skillSelectors: ["visual-explainer"],
+    });
+
+    expect(summary.importedSkills).toEqual(["visual-explainer"]);
+    expect(
+      fs.existsSync(path.join(paths.skillsDir, "visual-explainer", "SKILL.md")),
+    ).toBe(true);
+  });
+
   it("imports skills from plugin marketplace sources without requiring --subdir", async () => {
     const sourceRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "agentloom-source-"),

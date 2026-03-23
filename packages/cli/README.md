@@ -72,7 +72,7 @@ Source path resolution is additive and priority-ordered:
 - Agents: `.agents/agents` -> `agents`
 - Commands: `.agents/commands` -> `commands` -> `prompts` -> provider fallbacks `.github/prompts` + `.gemini/commands`
 - Rules: `.agents/rules` -> `rules`
-- Skills: `.agents/skills` -> `skills` -> root `SKILL.md` fallback
+- Skills: `.agents/skills` -> `skills` -> root `SKILL.md` -> root `<name>/SKILL.md` fallback
 - MCP: `.agents/mcp.json` -> `mcp.json`
 
 Aggregate `agentloom add <source>` can import command/skill/MCP-only repositories even when no `agents/` directory exists.
