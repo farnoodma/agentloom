@@ -41,6 +41,7 @@ describe("runInitCommand", () => {
       cwd: "/workspace",
       target: "all",
       skipSync: true,
+      migrateProviderState: true,
     });
   });
 });

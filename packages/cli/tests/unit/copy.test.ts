@@ -6,9 +6,11 @@ import {
   formatUnknownCommandError,
   formatUsageError,
   getAddHelpText,
+  getInitHelpText,
   getMcpAddHelpText,
   getMcpHelpText,
   getRootHelpText,
+  getSyncHelpText,
 } from "../../src/core/copy.js";
 
 describe("copy helpers", () => {
@@ -18,7 +20,9 @@ describe("copy helpers", () => {
     expect(help).toContain("command <add|list|delete|find|update|sync>");
     expect(help).toContain("find <query>");
     expect(help).toContain("init");
+    expect(help).toContain("Bootstrap canonical files from provider configs");
     expect(help).toContain("upgrade");
+    expect(help).toContain("Generate provider outputs from canonical .agents");
     expect(help).toContain("delete <source|name...>");
     expect(help).toContain("mcp <add|list|delete|find|update|sync>");
     expect(help).toContain("rule <add|list|delete|find|update|sync>");
@@ -78,5 +82,15 @@ describe("copy helpers", () => {
     expect(help).toContain("--rules <name>");
     expect(help).toContain("--selection-mode <mode>");
     expect(help).toContain("agentloom add farnoodma/agents --providers");
+  });
+
+  it("separates init migration from sync generation help", () => {
+    expect(getSyncHelpText()).toContain(
+      "Generate provider-specific outputs from canonical .agents data.",
+    );
+    expect(getSyncHelpText()).toContain("Use `agentloom init`");
+    expect(getInitHelpText()).toContain(
+      "Bootstrap canonical .agents files from existing provider configs",
+    );
   });
 });
