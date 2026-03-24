@@ -10,6 +10,10 @@ import {
   migrateProviderStateToCanonical,
   MigrationConflictError,
 } from "../core/migration.js";
+import {
+  hasInitializedCanonicalLayout,
+  resolveScopeForSync,
+} from "../core/scope.js";
 import type { EntityType, ScopePaths } from "../types.js";
 import {
   getNonInteractiveMode,
@@ -42,18 +46,31 @@ export async function runScopedSyncCommand(options: {
   cwd: string;
   target: EntityType | "all";
   skipSync?: boolean;
+  migrateProviderState?: boolean;
 }): Promise<void> {
   const nonInteractive = getNonInteractiveMode(options.argv);
   let cleanupDryRunPaths: (() => void) | undefined;
 
   try {
-    const paths = await resolvePathsForCommand(options.argv, options.cwd);
+    const shouldMigrateProviderState = Boolean(options.migrateProviderState);
+    const paths = shouldMigrateProviderState
+      ? await resolvePathsForCommand(options.argv, options.cwd)
+      : await resolveScopeForSync({
+          cwd: options.cwd,
+          global: Boolean(options.argv.global),
+          local: Boolean(options.argv.local),
+          interactive: !nonInteractive,
+        });
     const explicitProviders = parseProvidersFlag(options.argv.providers);
     const providers = await resolveProvidersForSync({
       paths,
       explicitProviders,
       nonInteractive,
     });
+
+    if (!shouldMigrateProviderState) {
+      assertInitializedCanonicalStateExists(paths);
+    }
 
     const dryRun = Boolean(options.argv["dry-run"]);
     const effectivePaths = dryRun
@@ -63,17 +80,19 @@ export async function runScopedSyncCommand(options: {
 
     initializeCanonicalLayout(effectivePaths.paths, providers);
 
-    const migrationSummary = await migrateProviderStateToCanonical({
-      paths: effectivePaths.paths,
-      providers,
-      target: options.target,
-      yes: Boolean(options.argv.yes),
-      nonInteractive,
-      dryRun,
-      materializeCanonical: dryRun,
-    });
+    if (shouldMigrateProviderState) {
+      const migrationSummary = await migrateProviderStateToCanonical({
+        paths: effectivePaths.paths,
+        providers,
+        target: options.target,
+        yes: Boolean(options.argv.yes),
+        nonInteractive,
+        dryRun,
+        materializeCanonical: dryRun,
+      });
 
-    console.log(formatMigrationSummary(migrationSummary));
+      console.log(formatMigrationSummary(migrationSummary));
+    }
 
     if (options.skipSync) {
       return;
@@ -99,6 +118,21 @@ export async function runScopedSyncCommand(options: {
   } finally {
     cleanupDryRunPaths?.();
   }
+}
+
+function assertInitializedCanonicalStateExists(paths: ScopePaths): void {
+  if (hasInitializedCanonicalLayout(paths)) {
+    return;
+  }
+
+  const initCommand =
+    paths.scope === "global"
+      ? "agentloom init --global"
+      : "agentloom init --local";
+
+  throw new Error(
+    `No initialized canonical .agents state found at ${paths.agentsRoot}.\nRun \`${initCommand}\` to bootstrap from provider configs first, or use \`agentloom add\` to create canonical content before syncing.`,
+  );
 }
 
 function createDryRunCanonicalPaths(paths: ScopePaths): {

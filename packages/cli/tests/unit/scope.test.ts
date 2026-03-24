@@ -27,8 +27,30 @@ vi.mock("../../src/core/settings.js", () => ({
 }));
 
 import { resolveScope } from "../../src/core/scope.js";
+import { resolveScopeForSync } from "../../src/core/scope.js";
 
 const tempDirs: string[] = [];
+let homedirSpy: ReturnType<typeof vi.spyOn>;
+
+function writeInitializedCanonicalMarker(root: string): void {
+  const agentsRoot = path.join(root, ".agents");
+  fs.mkdirSync(agentsRoot, { recursive: true });
+  fs.writeFileSync(
+    path.join(agentsRoot, "mcp.json"),
+    JSON.stringify({ version: 1, mcpServers: {} }, null, 2),
+    "utf8",
+  );
+}
+
+function writeSettingsOnlyMarker(root: string): void {
+  const agentsRoot = path.join(root, ".agents");
+  fs.mkdirSync(agentsRoot, { recursive: true });
+  fs.writeFileSync(
+    path.join(agentsRoot, "settings.local.json"),
+    JSON.stringify({ version: 1, lastScope: "global" }, null, 2),
+    "utf8",
+  );
+}
 
 beforeEach(() => {
   promptMocks.cancel.mockReset();
@@ -54,12 +76,15 @@ beforeEach(() => {
     ],
     telemetry: { enabled: true },
   } satisfies AgentloomSettings);
+
+  homedirSpy = vi.spyOn(os, "homedir");
 });
 
 afterEach(() => {
   for (const dir of tempDirs.splice(0, tempDirs.length)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+  homedirSpy.mockRestore();
 });
 
 describe("resolveScope", () => {
@@ -150,5 +175,127 @@ describe("resolveScope", () => {
         initialValue: "local",
       }),
     );
+  });
+});
+
+describe("resolveScopeForSync", () => {
+  it("fails before prompting when no canonical scope exists", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    const homeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-home-"));
+    tempDirs.push(workspaceRoot, homeRoot);
+    homedirSpy.mockReturnValue(homeRoot);
+
+    await expect(
+      resolveScopeForSync({
+        cwd: workspaceRoot,
+        interactive: true,
+      }),
+    ).rejects.toThrow(
+      `No initialized canonical .agents state found at ${path.join(workspaceRoot, ".agents")} or ${path.join(homeRoot, ".agents")}.`,
+    );
+
+    expect(promptMocks.select).not.toHaveBeenCalled();
+  });
+
+  it("skips the scope prompt when only one canonical scope exists", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    const homeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-home-"));
+    tempDirs.push(workspaceRoot, homeRoot);
+    homedirSpy.mockReturnValue(homeRoot);
+
+    writeInitializedCanonicalMarker(homeRoot);
+
+    const paths = await resolveScopeForSync({
+      cwd: workspaceRoot,
+      interactive: true,
+    });
+
+    expect(paths.scope).toBe("global");
+    expect(promptMocks.select).not.toHaveBeenCalled();
+  });
+
+  it("ignores settings-only scope markers", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    const homeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-home-"));
+    tempDirs.push(workspaceRoot, homeRoot);
+    homedirSpy.mockReturnValue(homeRoot);
+
+    writeSettingsOnlyMarker(homeRoot);
+
+    await expect(
+      resolveScopeForSync({
+        cwd: workspaceRoot,
+        interactive: true,
+      }),
+    ).rejects.toThrow(
+      `No initialized canonical .agents state found at ${path.join(workspaceRoot, ".agents")} or ${path.join(homeRoot, ".agents")}.`,
+    );
+  });
+
+  it("keeps placeholder .agents directories on local scope in non-interactive mode", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    const homeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-home-"));
+    tempDirs.push(workspaceRoot, homeRoot);
+    homedirSpy.mockReturnValue(homeRoot);
+
+    fs.mkdirSync(path.join(workspaceRoot, ".agents"), { recursive: true });
+    writeInitializedCanonicalMarker(homeRoot);
+
+    const paths = await resolveScopeForSync({
+      cwd: workspaceRoot,
+      interactive: false,
+    });
+
+    expect(paths.scope).toBe("local");
+  });
+
+  it("prompts when a placeholder local .agents exists alongside global canonical state", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    const homeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-home-"));
+    tempDirs.push(workspaceRoot, homeRoot);
+    homedirSpy.mockReturnValue(homeRoot);
+
+    fs.mkdirSync(path.join(workspaceRoot, ".agents"), { recursive: true });
+    writeInitializedCanonicalMarker(homeRoot);
+    promptMocks.select.mockResolvedValueOnce("global");
+
+    const paths = await resolveScopeForSync({
+      cwd: workspaceRoot,
+      interactive: true,
+    });
+
+    expect(paths.scope).toBe("global");
+    expect(promptMocks.select).toHaveBeenCalledTimes(1);
+  });
+
+  it("prompts when both canonical scopes exist", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agentloom-workspace-"),
+    );
+    const homeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-home-"));
+    tempDirs.push(workspaceRoot, homeRoot);
+    homedirSpy.mockReturnValue(homeRoot);
+
+    writeInitializedCanonicalMarker(workspaceRoot);
+    writeInitializedCanonicalMarker(homeRoot);
+    promptMocks.select.mockResolvedValueOnce("local");
+
+    const paths = await resolveScopeForSync({
+      cwd: workspaceRoot,
+      interactive: true,
+    });
+
+    expect(paths.scope).toBe("local");
+    expect(promptMocks.select).toHaveBeenCalledTimes(1);
   });
 });

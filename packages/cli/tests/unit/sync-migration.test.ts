@@ -1,9 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ParsedArgs } from "minimist";
 import type { ScopePaths } from "../../src/types.js";
 
 const commandMocks = vi.hoisted(() => ({
   resolvePathsForCommand: vi.fn(),
+  resolveScopeForSync: vi.fn(),
+  hasInitializedCanonicalLayout: vi.fn(),
   resolveProvidersForSync: vi.fn(),
   initializeCanonicalLayout: vi.fn(),
   migrateProviderStateToCanonical: vi.fn(),
@@ -15,6 +20,11 @@ const commandMocks = vi.hoisted(() => ({
 vi.mock("../../src/commands/entity-utils.js", () => ({
   resolvePathsForCommand: commandMocks.resolvePathsForCommand,
   getNonInteractiveMode: vi.fn(() => true),
+}));
+
+vi.mock("../../src/core/scope.js", () => ({
+  resolveScopeForSync: commandMocks.resolveScopeForSync,
+  hasInitializedCanonicalLayout: commandMocks.hasInitializedCanonicalLayout,
 }));
 
 vi.mock("../../src/core/migration.js", () => ({
@@ -32,7 +42,7 @@ vi.mock("../../src/sync/index.js", () => ({
 
 const { runScopedSyncCommand } = await import("../../src/commands/sync.js");
 
-function createScopePaths(root = "/tmp/agentloom"): ScopePaths {
+function createScopePaths(root: string): ScopePaths {
   return {
     scope: "local",
     workspaceRoot: root,
@@ -49,10 +59,17 @@ function createScopePaths(root = "/tmp/agentloom"): ScopePaths {
   };
 }
 
-const paths = createScopePaths();
+let tempRoot = "";
+let paths: ScopePaths;
 
 beforeEach(() => {
+  tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agentloom-sync-test-"));
+  paths = createScopePaths(tempRoot);
+  fs.mkdirSync(paths.agentsRoot, { recursive: true });
+
   commandMocks.resolvePathsForCommand.mockReset();
+  commandMocks.resolveScopeForSync.mockReset();
+  commandMocks.hasInitializedCanonicalLayout.mockReset();
   commandMocks.resolveProvidersForSync.mockReset();
   commandMocks.initializeCanonicalLayout.mockReset();
   commandMocks.migrateProviderStateToCanonical.mockReset();
@@ -61,6 +78,8 @@ beforeEach(() => {
   commandMocks.formatSyncSummary.mockReset();
 
   commandMocks.resolvePathsForCommand.mockResolvedValue(paths);
+  commandMocks.resolveScopeForSync.mockResolvedValue(paths);
+  commandMocks.hasInitializedCanonicalLayout.mockReturnValue(true);
   commandMocks.resolveProvidersForSync.mockResolvedValue(["cursor"]);
   commandMocks.migrateProviderStateToCanonical.mockResolvedValue({
     providers: ["cursor"],
@@ -82,8 +101,13 @@ beforeEach(() => {
   commandMocks.formatSyncSummary.mockReturnValue("sync summary");
 });
 
-describe("sync migration pipeline", () => {
-  it("runs migration before sync", async () => {
+afterEach(() => {
+  fs.rmSync(tempRoot, { recursive: true, force: true });
+  vi.restoreAllMocks();
+});
+
+describe("sync command pipeline", () => {
+  it("runs provider sync without migration when canonical config exists", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
     await runScopedSyncCommand({
@@ -92,9 +116,39 @@ describe("sync migration pipeline", () => {
       target: "all",
     });
 
+    expect(commandMocks.resolveScopeForSync).toHaveBeenCalledWith({
+      cwd: "/workspace",
+      global: false,
+      local: false,
+      interactive: false,
+    });
     expect(commandMocks.initializeCanonicalLayout).toHaveBeenCalledWith(paths, [
       "cursor",
     ]);
+    expect(commandMocks.migrateProviderStateToCanonical).not.toHaveBeenCalled();
+    expect(commandMocks.syncFromCanonical).toHaveBeenCalledWith({
+      paths,
+      providers: ["cursor"],
+      yes: true,
+      nonInteractive: true,
+      dryRun: false,
+      target: "all",
+    });
+    expect(logSpy).toHaveBeenCalledWith("sync summary");
+    expect(logSpy).not.toHaveBeenCalledWith("migration summary");
+  });
+
+  it("supports migration for init --no-sync", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await runScopedSyncCommand({
+      argv: { _: ["init"], yes: true } as ParsedArgs,
+      cwd: "/workspace",
+      target: "all",
+      skipSync: true,
+      migrateProviderState: true,
+    });
+
     expect(commandMocks.migrateProviderStateToCanonical).toHaveBeenCalledWith({
       paths,
       providers: ["cursor"],
@@ -104,21 +158,8 @@ describe("sync migration pipeline", () => {
       dryRun: false,
       materializeCanonical: false,
     });
-    expect(commandMocks.syncFromCanonical).toHaveBeenCalled();
-    expect(logSpy).toHaveBeenCalledWith("migration summary");
-    expect(logSpy).toHaveBeenCalledWith("sync summary");
-  });
-
-  it("supports skipSync for init --no-sync", async () => {
-    await runScopedSyncCommand({
-      argv: { _: ["init"], yes: true } as ParsedArgs,
-      cwd: "/workspace",
-      target: "all",
-      skipSync: true,
-    });
-
-    expect(commandMocks.migrateProviderStateToCanonical).toHaveBeenCalled();
     expect(commandMocks.syncFromCanonical).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith("migration summary");
   });
 
   it("uses an ephemeral canonical path for dry-run previews", async () => {
@@ -128,20 +169,53 @@ describe("sync migration pipeline", () => {
       target: "all",
     });
 
-    expect(commandMocks.migrateProviderStateToCanonical).toHaveBeenCalledWith(
-      expect.objectContaining({
-        providers: ["cursor"],
-        dryRun: true,
-        materializeCanonical: true,
-      }),
-    );
-
-    const migrationCall =
-      commandMocks.migrateProviderStateToCanonical.mock.calls.at(-1)?.[0];
+    const initializeCall =
+      commandMocks.initializeCanonicalLayout.mock.calls.at(-1)?.[0];
     const syncCall = commandMocks.syncFromCanonical.mock.calls.at(-1)?.[0];
 
-    expect(migrationCall?.paths.agentsRoot).not.toBe(paths.agentsRoot);
-    expect(syncCall?.paths.agentsRoot).toBe(migrationCall?.paths.agentsRoot);
+    expect(commandMocks.migrateProviderStateToCanonical).not.toHaveBeenCalled();
+    expect(initializeCall?.agentsRoot).not.toBe(paths.agentsRoot);
+    expect(syncCall?.paths.agentsRoot).toBe(initializeCall?.agentsRoot);
     expect(syncCall?.dryRun).toBe(true);
+  });
+
+  it("fails before provider resolution when sync scope cannot be resolved", async () => {
+    commandMocks.resolveScopeForSync.mockRejectedValueOnce(
+      new Error("No initialized canonical .agents state found."),
+    );
+
+    await expect(
+      runScopedSyncCommand({
+        argv: { _: ["sync"] } as ParsedArgs,
+        cwd: "/workspace",
+        target: "all",
+      }),
+    ).rejects.toThrow("No initialized canonical .agents state found.");
+
+    expect(commandMocks.resolveProvidersForSync).not.toHaveBeenCalled();
+  });
+
+  it("fails sync when canonical .agents does not exist yet", async () => {
+    commandMocks.hasInitializedCanonicalLayout.mockReturnValue(false);
+
+    await expect(
+      runScopedSyncCommand({
+        argv: { _: ["sync"], yes: true } as ParsedArgs,
+        cwd: "/workspace",
+        target: "all",
+      }),
+    ).rejects.toThrow(
+      `No initialized canonical .agents state found at ${paths.agentsRoot}.`,
+    );
+    await expect(
+      runScopedSyncCommand({
+        argv: { _: ["sync"], yes: true } as ParsedArgs,
+        cwd: "/workspace",
+        target: "all",
+      }),
+    ).rejects.toThrow("agentloom init --local");
+
+    expect(commandMocks.initializeCanonicalLayout).not.toHaveBeenCalled();
+    expect(commandMocks.syncFromCanonical).not.toHaveBeenCalled();
   });
 });

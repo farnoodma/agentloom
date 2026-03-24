@@ -26,7 +26,19 @@ describe("cli help routing", () => {
 
     const output = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
     expect(output).toContain("agentloom init [options]");
+    expect(output).toContain("existing provider configs");
     expect(output).toContain("--no-sync");
+  });
+
+  it("prints sync help", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await runCli(["sync", "--help"]);
+
+    const output = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(output).toContain("agentloom sync [options]");
+    expect(output).toContain("canonical .agents data");
+    expect(output).toContain("Use `agentloom init`");
   });
 
   it("prints upgrade help", async () => {

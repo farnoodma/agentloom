@@ -16,5 +16,6 @@ export async function runInitCommand(
     cwd,
     target: "all",
     skipSync: Boolean(argv["no-sync"]),
+    migrateProviderState: true,
   });
 }

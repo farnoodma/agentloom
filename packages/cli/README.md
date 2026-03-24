@@ -12,6 +12,8 @@ npx agentloom init
 
 That's all you need. Agentloom picks up your existing provider configs, migrates them into a unified `.agents/` directory, and syncs everything back out to all your tools. From here on, manage your agents, commands, rules, skills, and MCP servers in one place and run `agentloom sync` whenever you make changes.
 
+`agentloom init` is the provider-to-canonical bootstrap step. After that, `agentloom sync` is one-way: it reads from `.agents/` and writes provider-native outputs. If you intentionally want to pull provider state back into canonical `.agents/`, rerun `agentloom init`.
+
 ## Install
 
 ```bash

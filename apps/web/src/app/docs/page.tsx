@@ -153,6 +153,13 @@ export default function DocsPage() {
               provider configs, migrates them into the canonical format, and
               syncs everything back out.
             </Prose>
+            <Prose>
+              After initialization, <InlineCode>agentloom sync</InlineCode> is
+              one-way: it reads from <InlineCode>.agents/</InlineCode> and
+              writes provider-native outputs. Rerun{" "}
+              <InlineCode>agentloom init</InlineCode> only when you want to
+              re-import provider state into canonical config.
+            </Prose>
 
             <div className="space-y-3">
               <p className="text-xs font-medium uppercase tracking-wide text-ink/60 dark:text-white/60">

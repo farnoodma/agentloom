@@ -17,11 +17,11 @@ Usage:
 
 Aggregate commands:
   add <source>               Import agents/commands/mcp/rules/skills from a source
-  init                       Bootstrap canonical files, migrate providers, then sync
+  init                       Bootstrap canonical files from provider configs, then sync
   find <query>               Search remote + local entities
   update [source]            Refresh lockfile-managed imports
   upgrade                    Install the latest CLI release
-  sync                       Migrate provider configs then generate provider outputs
+  sync                       Generate provider outputs from canonical .agents
   delete <source|name...>    Delete imported entities by source or name(s)
 
 Entity commands:
@@ -147,7 +147,9 @@ Behavior:
 }
 
 export function getSyncHelpText(): string {
-  return `Migrate provider configs into canonical .agents data, then generate provider-specific outputs.
+  return `Generate provider-specific outputs from canonical .agents data.
+
+Use \`agentloom init\` when you want to bootstrap or re-import provider configs into canonical state.
 
 Usage:
   agentloom sync [options]
@@ -162,7 +164,7 @@ Options:
 }
 
 export function getInitHelpText(): string {
-  return `Bootstrap canonical .agents files, migrate provider configs into canonical state, and sync providers.
+  return `Bootstrap canonical .agents files from existing provider configs, then sync providers.
 
 Usage:
   agentloom init [options]
